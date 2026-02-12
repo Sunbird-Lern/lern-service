@@ -109,6 +109,7 @@
         <module>sunbird-actor-utils</module>
         <module>sunbird-notification-utils</module>
         <module>sunbird-redis-utils</module>
+        <module>sunbird-core-report</module>
     </modules>
 
     <build>
@@ -143,8 +144,8 @@
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <version>${jacoco-maven-plugin.version}</version>
                 <configuration>
-                    <destFile>${basedir}/target/coverage-reports/jacoco-unit.exec</destFile>
-                    <dataFile>${basedir}/target/coverage-reports/jacoco-unit.exec</dataFile>
+                    <destFile>${project.build.directory}/jacoco.exec</destFile>
+                    <dataFile>${project.build.directory}/jacoco.exec</dataFile>
                 </configuration>
                 <executions>
                     <execution>
