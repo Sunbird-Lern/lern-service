@@ -118,8 +118,8 @@
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <version>0.8.8</version>
                 <configuration>
-                    <destFile>${basedir}/target/jacoco-unit.exec</destFile>
-                    <dataFile>${basedir}/target/jacoco-unit.exec</dataFile>
+                    <destFile>${project.build.directory}/jacoco.exec</destFile>
+                    <dataFile>${project.build.directory}/jacoco.exec</dataFile>
                     <excludes>
                         <exclude>**/Reverse*/**</exclude>
                         <exclude>**/routes.*</exclude>
