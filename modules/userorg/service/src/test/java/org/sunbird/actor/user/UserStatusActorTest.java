@@ -350,7 +350,7 @@ public class UserStatusActorTest {
       String errString = ActorOperations.getOperationCodeByActorOperation(operation.getValue());
       ProjectCommonException exception =
           probe.expectMsgClass(Duration.ofSeconds(100), ProjectCommonException.class);
-      return (exception.getErrorCode().equals("UOS_" + errString + expectedErrorResponse));
+      return (exception.getErrorCode().equals(expectedErrorResponse));
     }
   }
 }

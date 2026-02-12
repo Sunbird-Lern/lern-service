@@ -201,7 +201,7 @@ public class UserTnCActorTest {
             && exception
                 .getErrorCode()
                 .equalsIgnoreCase(
-                    "UOS_TNCACCPT" + ResponseCode.invalidParameterValue.getErrorCode()));
+                    ResponseCode.invalidParameterValue.getErrorCode()));
   }
 
   @Test

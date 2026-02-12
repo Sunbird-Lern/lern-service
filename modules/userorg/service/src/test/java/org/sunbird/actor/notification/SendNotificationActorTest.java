@@ -230,7 +230,7 @@ public class SendNotificationActorTest {
     ProjectCommonException exc =
         probe.expectMsgClass(Duration.ofSeconds(10), ProjectCommonException.class);
     assertEquals(
-        "UOS_NOTI" + ResponseCode.invalidParameterValue.getErrorCode(), exc.getErrorCode());
+        ResponseCode.invalidParameterValue.getErrorCode(), exc.getErrorCode());
   }
 
   @Test

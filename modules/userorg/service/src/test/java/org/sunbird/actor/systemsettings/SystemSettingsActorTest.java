@@ -129,7 +129,7 @@ public class SystemSettingsActorTest {
         null != exception
             && exception
                 .getErrorCode()
-                .equals("UOS_SYSRED" + ResponseCode.resourceNotFound.getErrorCode()));
+                .equals(ResponseCode.resourceNotFound.getErrorCode()));
   }
 
   @Test

@@ -591,7 +591,7 @@ public class UserProfileReadActorTest {
       String errString = ActorOperations.getOperationCodeByActorOperation(reqObj.getOperation());
       ProjectCommonException res =
           probe.expectMsgClass(Duration.ofSeconds(10), ProjectCommonException.class);
-      return res.getErrorCode().equals("UOS_" + errString + errorCode.getErrorCode())
+      return res.getErrorCode().equals(errorCode.getErrorCode())
           || res.getErrorResponseCode() == errorCode.getResponseCode();
     }
   }

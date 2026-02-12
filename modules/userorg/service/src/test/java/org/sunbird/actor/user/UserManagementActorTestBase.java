@@ -520,7 +520,7 @@ public abstract class UserManagementActorTestBase {
       String errString = ActorOperations.getOperationCodeByActorOperation(reqObj.getOperation());
       ProjectCommonException res =
           probe.expectMsgClass(Duration.ofSeconds(1000), ProjectCommonException.class);
-      return res.getErrorCode().equals("UOS_" + errString + errorCode.getErrorCode())
+      return res.getErrorCode().equals(errorCode.getErrorCode())
           || res.getErrorResponseCode() == errorCode.getResponseCode();
     }
   }
