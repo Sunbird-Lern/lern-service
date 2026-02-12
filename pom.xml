@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.sunbird</groupId>
+    <artifactId>lern-service</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <name>Lern Service</name>
+    <description>Unified learning service supporting userorg, lms, and notification modules</description>
+
+    <properties>
+        <!-- Compiler Settings -->
+        <maven.compiler.release>11</maven.compiler.release>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+
+        <!-- Project Encoding -->
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+        <!-- Dependency Versions -->
+        <guava.version>32.1.2-jre</guava.version>
+    </properties>
+
+    <!-- 
+        Core module is the foundation for all other modules.
+        It contains shared utilities, base classes which are required by all modules.
+    -->
+    <modules>
+        <module>core</module>
+    </modules>
+
+    <profiles>
+        <!-- Build userorg service only -->
+        <profile>
+            <id>userorg</id>
+            <modules>
+                <module>modules/userorg</module>
+            </modules>
+        </profile>
+
+        <!-- Build lms service only (future) -->
+        <profile>
+            <id>lms</id>
+            <modules>
+                <module>modules/lms</module>
+            </modules>
+        </profile>
+
+        <!-- Build notification service only (future) -->
+        <profile>
+            <id>notification</id>
+            <modules>
+                <module>modules/notification</module>
+            </modules>
+        </profile>
+
+        <!-- Build all services together (Lern Service mode) -->
+        <profile>
+            <id>lern</id>
+            <modules>
+                <module>modules/userorg</module>
+                <module>modules/lms</module>
+                <module>modules/notification</module>
+                <module>modules/lern/service</module>
+            </modules>
+        </profile>
+    </profiles>
+
+    <dependencies>
+        <!-- Test Dependencies -->
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.1</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- 
+                Surefire Plugin for running unit tests.
+                Configured to support Java 11 modules and parallel execution.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.0.0</version>
+                <configuration>
+                    <useSystemClassLoader>false</useSystemClassLoader>
+                    <argLine>
+                        @{argLine} --illegal-access=permit
+                    </argLine>
+                    <properties>
+                        <property>
+                            <name>parallel</name>
+                            <value>methods</value>
+                        </property>
+                        <property>
+                            <name>dataproviderthreadcount</name>
+                            <value>30</value>
+                        </property>
+                    </properties>
+                </configuration>
+            </plugin>
+
+            <!-- 
+                JaCoCo Plugin for Code Coverage reporting.
+                Excludes generated routes and model classes from coverage metrics.
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.8</version>
+                <configuration>
+                    <destFile>${basedir}/target/jacoco-unit.exec</destFile>
+                    <dataFile>${basedir}/target/jacoco-unit.exec</dataFile>
+                    <excludes>
+                        <exclude>**/Reverse*/**</exclude>
+                        <exclude>**/routes.*</exclude>
+                        <exclude>**/routes$javascript.**</exclude>
+                        <exclude>org/sunbird/models/**/*</exclude>
+                    </excludes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
