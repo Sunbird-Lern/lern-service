@@ -90,7 +90,7 @@ public class TemplateServiceImpl implements TemplateService{
                 if (null != templateDetailResponseObj && MapUtils.isNotEmpty(templateDetailResponseObj.getResult())) {
                     List<Map<String, Object>> templateDetails =
                             (List<Map<String, Object>>) templateDetailResponseObj.getResult().get(JsonKey.RESPONSE);
-                    if (CollectionUtils.isNotEmpty(templateIdDetails)) {
+                    if (CollectionUtils.isNotEmpty(templateDetails)) {
                         templateDetailMap = templateDetails.get(0);
                     }
                 }

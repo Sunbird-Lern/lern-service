@@ -55,10 +55,10 @@ public class NotificationTemplateActorTest extends BaseActorTest{
         CassandraOperation cassandraOperation ;
         cassandraOperation = mock(CassandraOperationImpl.class);
         when(ServiceFactory.getInstance()).thenReturn(cassandraOperation);
-        when(cassandraOperation.getRecordsByProperty(Mockito.anyString(),Mockito.eq("action_template"),Mockito.anyString(),Mockito.anyString(),
+        when(cassandraOperation.getRecordsByProperty(Mockito.anyString(),Mockito.eq("action_template"),Mockito.anyString(),Mockito.anyList(),
                 Mockito.any())).thenReturn(getActionTemplateSuccess());
 
-        when(cassandraOperation.getRecordsByProperty(Mockito.anyString(),Mockito.eq("notification_template"),Mockito.anyString(),Mockito.anyString(),
+        when(cassandraOperation.getRecordsByProperty(Mockito.anyString(),Mockito.eq("notification_template"),Mockito.anyString(),Mockito.anyList(),
                 Mockito.any())).thenReturn(getTemplateSuccess());
         when(cassandraOperation.upsertRecord(Mockito.anyString(),Mockito.anyString(),Mockito.anyMap(),Mockito.any())).thenReturn(getCassandraResponse());
         Mockito.doNothing().when(cassandraOperation).deleteRecord(Mockito.anyString(),Mockito.anyString(),Mockito.anyMap(),Mockito.any());
