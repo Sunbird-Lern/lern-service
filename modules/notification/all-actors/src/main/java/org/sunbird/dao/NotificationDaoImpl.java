@@ -1,0 +1,127 @@
+package org.sunbird.dao;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.sunbird.keys.JsonKey;
+import org.sunbird.cassandra.CassandraOperation;
+import org.sunbird.common.Constants;
+import org.sunbird.exception.BaseException;
+import org.sunbird.request.RequestContext;
+import org.sunbird.response.Response;
+import org.sunbird.notification.utils.Util;
+import org.sunbird.pojo.NotificationFeed;
+import org.sunbird.helper.ServiceFactory;
+
+import java.util.*;
+
+public class NotificationDaoImpl implements NotificationDao{
+    private static final String NOTIFICATION_FEED = "notification_feed";
+    private static final String NOTIFICATION_ACTION_TEMPLATE = "action_template";
+    private static final String NOTIFICATION_TEMPLATE = "notification_template";
+    private static final String KEY_SPACE_NAME = Util.readValue(JsonKey.SUNBIRD_NOTIFICATION_KEYSPACE);
+    private static final String FEED_VERSION_MAP = "feed_version_map";
+
+    private CassandraOperation cassandraOperation = ServiceFactory.getInstance();
+    private ObjectMapper mapper = new ObjectMapper();
+
+    private static NotificationDao notificationDao = null;
+
+    public static NotificationDao getInstance() {
+        if (notificationDao == null) {
+            notificationDao = new NotificationDaoImpl();
+        }
+        return notificationDao;
+    }
+
+
+    @Override
+    public Response createNotificationFeed(List<NotificationFeed> feeds, Map<String,Object> reqContext) throws BaseException {
+        List<Map<String, Object>> feedList =
+                mapper.convertValue(feeds, new TypeReference<List<Map<String, Object>>>() {});
+        return cassandraOperation.batchInsert(KEY_SPACE_NAME, NOTIFICATION_FEED, feedList, getRequestContext(reqContext));
+
+    }
+
+    @Override
+    public Response readNotificationFeed(String userId, Map<String,Object> reqContext) throws BaseException {
+        Map<String, Object> reqMap = new WeakHashMap<>(2);
+        reqMap.put(JsonKey.USER_ID, userId);
+        return cassandraOperation.getRecordById(KEY_SPACE_NAME,NOTIFICATION_FEED,reqMap,getRequestContext(reqContext));
+    }
+
+
+    @Override
+    public Response updateNotificationFeed( List<Map<String,Object>> feeds, Map<String,Object> reqContext) throws BaseException {
+        List<Map<String, Map<String, Object>>> properties = new ArrayList<>();
+        for(Map<String,Object> feedMap : feeds){
+            Map<String,Map<String,Object>> keysMap = new HashMap<>();
+            Map<String, Object> primaryKeyMap = new HashMap<>();
+            Map<String, Object> nonPrimaryKeyMap = new HashMap<>();
+
+            for(Map.Entry<String,Object> feedEntry: feedMap.entrySet()){
+                if(JsonKey.ID.equals(feedEntry.getKey()) || JsonKey.USER_ID.equals(feedEntry.getKey())){
+                    primaryKeyMap.put(feedEntry.getKey(),feedEntry.getValue());
+                }else{
+                    nonPrimaryKeyMap.put(feedEntry.getKey(),feedEntry.getValue());
+                }
+            }
+            keysMap.put(Constants.PRIMARY_KEY,primaryKeyMap);
+            keysMap.put(Constants.NON_PRIMARY_KEY,nonPrimaryKeyMap);
+            properties.add(keysMap);
+        }
+        return  cassandraOperation.batchUpdate(KEY_SPACE_NAME, NOTIFICATION_FEED, properties,getRequestContext(reqContext));
+
+    }
+
+    @Override
+    public Response deleteUserFeed(List<NotificationFeed> feeds, Map<String,Object> context) throws BaseException {
+        List<Map<String, Map<String, Object>>> properties = new ArrayList<>();
+        for (NotificationFeed feed : feeds) {
+            Map<String,Map<String,Object>> keysMap = new HashMap<>();
+            Map<String, Object> primaryKeyMap = new HashMap<>();
+            Map<String, Object> nonPrimaryKeyMap = new HashMap<>();
+            primaryKeyMap.put(JsonKey.ID,feed.getId());
+            primaryKeyMap.put(JsonKey.USER_ID,feed.getUserId());
+            nonPrimaryKeyMap.put(JsonKey.STATUS,"deleted");
+            keysMap.put(Constants.PRIMARY_KEY,primaryKeyMap);
+            keysMap.put(Constants.NON_PRIMARY_KEY,nonPrimaryKeyMap);
+            properties.add(keysMap);
+        }
+       return cassandraOperation.batchUpdate(KEY_SPACE_NAME,NOTIFICATION_FEED, properties, getRequestContext(context));
+    }
+
+    @Override
+    public Response mapV1V2Feed(List<Map<String, Object>> mappedList, Map<String, Object> reqContext) {
+        return cassandraOperation.batchInsert(KEY_SPACE_NAME, FEED_VERSION_MAP, mappedList, getRequestContext(reqContext));
+
+    }
+
+    @Override
+    public Response getFeedMap(List<String> feedIds, Map<String, Object> reqContext) {
+        return cassandraOperation.getRecordsByPrimaryKeys(KEY_SPACE_NAME,FEED_VERSION_MAP,feedIds,JsonKey.ID,getRequestContext(reqContext));
+    }
+
+    @Override
+    public Response deleteUserFeedMap(List<String> feedIds, Map<String, Object> context) {
+        List<Map<String,Object>> properties = new ArrayList<>();
+        for (String feedId : feedIds) {
+            Map<String,Object> map = new HashMap<>();
+            map.put(JsonKey.ID,feedId);
+            map.put(JsonKey.STATUS,"deleted");
+            properties.add(map);
+        }
+        return cassandraOperation.batchUpdateById(KEY_SPACE_NAME,FEED_VERSION_MAP,properties,getRequestContext(context));
+    }
+
+    private RequestContext getRequestContext(Map<String, Object> reqContext) {
+        RequestContext requestContext = new RequestContext();
+        if (reqContext != null) {
+            requestContext.setReqId((String) reqContext.get(JsonKey.REQUEST_ID));
+            requestContext.setActorId((String) reqContext.get(JsonKey.ACTOR_ID));
+            requestContext.setDid((String) reqContext.get(JsonKey.DEVICE_ID));
+            requestContext.setAppId((String) reqContext.get(JsonKey.APP_ID));
+            requestContext.getContextMap().putAll(reqContext);
+        }
+        return requestContext;
+    }
+}
