@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <parent>
+        <groupId>org.sunbird</groupId>
+        <artifactId>lern-service</artifactId>
+        <version>1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>notification-service</artifactId>
+    <packaging>pom</packaging>
+    <name>Notification Service</name>
+    <description>Notification service for Sunbird</description>
+
+    <properties>
+        <project.version>1.0.0</project.version>   
+        <httpclient.version>4.5.14</httpclient.version>
+        <jboss-logging>3.3.1.Final</jboss-logging>
+    </properties>
+
+    <!-- Modules -->
+    <modules>
+        <module>notification-sdk</module>
+        <module>all-actors</module>
+        <module>service</module>
+        <module>notification-report</module>
+    </modules>
+
+    <!-- Dependencies -->
+    <dependencies>
+        <!-- Logging (SLF4J + Logback) -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>${logback.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback.contrib</groupId>
+            <artifactId>logback-json-classic</artifactId>
+            <version>0.1.5</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.danielwegener</groupId>
+            <artifactId>logback-kafka-appender</artifactId>
+            <version>0.2.0-RC2</version>
+        </dependency>
+    </dependencies>
+
+    <!-- Build Configuration -->
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>com.google.code.play2-maven-plugin</groupId>
+                    <artifactId>play2-maven-plugin</artifactId>
+                    <version>${play2.plugin.version}</version>
+                    <extensions>true</extensions>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+</project>
