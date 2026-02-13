@@ -22,8 +22,24 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
+        <!-- Common Versions -->
+        <play2.plugin.version>1.0.0-rc5</play2.plugin.version>
+        <play2.version>3.0.5</play2.version>
+        <scala.major.version>2.13</scala.major.version>
+        <scala.version>2.13.12</scala.version>
+        <pekko.version>1.0.3</pekko.version>
+        <jackson.version>2.14.3</jackson.version>
+        <netty.version>4.1.112.Final</netty.version>
+        <junit.version>4.13.1</junit.version>
+        <powermock.version>2.0.9</powermock.version>
+        <slf4j.version>2.0.13</slf4j.version>
+        <logback.version>1.4.14</logback.version>
+        <kafka.version>3.7.1</kafka.version>
+
         <!-- Dependency Versions -->
+        <surefire.plugin.version>3.0.0</surefire.plugin.version>
         <guava.version>32.1.2-jre</guava.version>
+        <jacoco-maven-plugin.version>0.8.8</jacoco-maven-plugin.version>
     </properties>
 
     <!-- 
