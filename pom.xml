@@ -40,6 +40,11 @@
         <surefire.plugin.version>3.0.0</surefire.plugin.version>
         <guava.version>32.1.2-jre</guava.version>
         <jacoco-maven-plugin.version>0.8.8</jacoco-maven-plugin.version>
+        <asm.version>9.2</asm.version>
+        <guice.version>6.0.0</guice.version>
+        <apache.httpcomponents.version>4.5.14</apache.httpcomponents.version>
+        <apache.httpcore.version>4.4.16</apache.httpcore.version>
+        <logstash-logback-encoder.version>7.3</logstash-logback-encoder.version>
     </properties>
 
     <!-- 
