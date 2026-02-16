@@ -1,0 +1,23 @@
+package util;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.sunbird.logging.ProjectLogger;
+
+import java.io.IOException;
+import java.util.Map;
+
+/** Created by arvind on 19/4/18. */
+public class TestUtil {
+
+  public static String mapToJson(Map map) {
+
+    ObjectMapper mapperObj = new ObjectMapper();
+    String jsonResp = "";
+    try {
+      jsonResp = mapperObj.writeValueAsString(map);
+    } catch (IOException e) {
+      ProjectLogger.log(e.getMessage(), e);
+    }
+    return jsonResp;
+  }
+}

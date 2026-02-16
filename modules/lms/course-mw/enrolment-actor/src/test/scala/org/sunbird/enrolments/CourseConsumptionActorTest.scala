@@ -1,0 +1,381 @@
+package org.sunbird.enrolments
+
+import java.util.concurrent.TimeUnit
+
+import org.apache.pekko.actor.{ActorSystem, Props}
+import org.apache.pekko.testkit.{TestKit, TestProbe}
+import org.scalamock.scalatest.MockFactory
+import org.scalatest.{FlatSpec, Matchers}
+import org.sunbird.cassandra.CassandraOperation
+import org.sunbird.common.Constants
+import org.sunbird.exception.ProjectCommonException
+import org.sunbird.common.inf.ElasticSearchService
+import org.sunbird.response.Response
+import org.sunbird.keys.JsonKey
+import org.sunbird.common.ProjectUtil
+import org.sunbird.request.{Request, RequestContext}
+import org.sunbird.response.ResponseCode
+import org.sunbird.dto.SearchDTO
+
+import scala.concurrent.ExecutionContext
+import scala.concurrent.duration.FiniteDuration
+
+class CourseConsumptionActorTest extends FlatSpec with Matchers with MockFactory {
+    implicit val ec: ExecutionContext = ExecutionContext.global
+    val system = ActorSystem.create("system")
+    val mockActivityAggregatorActor = system.actorOf(Props(new org.apache.pekko.actor.Actor {
+        def receive = { case _ => }
+    }))
+    val mockAssessmentAggregatorActor = system.actorOf(Props(new org.apache.pekko.actor.Actor {
+        def receive = { case _ => }
+    }))
+    
+    "get Consumption" should "return success on not giving contentIds" in {
+        val cassandraOperation = mock[CassandraOperation]
+        val response = new Response()
+        response.put("response", new java.util.ArrayList[java.util.Map[String, AnyRef]] {{
+            add(new java.util.HashMap[String, AnyRef] {{
+                put("userId", "user1")
+                put("courseId", "do_123")
+                put("batchId", "0123")
+                put("contentId", "do_456")
+            }})
+            add(new java.util.HashMap[String, AnyRef] {{
+                put("userId", "user1")
+                put("courseId", "do_123")
+                put("batchId", "0123")
+                put("contentId", "do_789")
+            }})
+        }})
+        ((keyspace: _root_.scala.Predef.String, table: _root_.scala.Predef.String, filters: _root_.java.util.Map[_root_.scala.Predef.String, AnyRef], fields: _root_.java.util.List[_root_.scala.Predef.String], requestContext: RequestContext) => cassandraOperation.getRecords(keyspace, table, filters, fields, requestContext)).expects(*,*,*,*,*).returns(response)
+        val result = callActor(getStateReadRequest(), Props(new ContentConsumptionActor(mockActivityAggregatorActor, mockAssessmentAggregatorActor).setCassandraOperation(cassandraOperation, false)))
+        assert(null!= result)
+    }
+
+    "get Consumption" should "return empty response" in {
+        val cassandraOperation = mock[CassandraOperation]
+        val response = new Response()
+        response.put("response", new java.util.ArrayList[java.util.Map[String, AnyRef]])
+        ((keyspace: _root_.scala.Predef.String, table: _root_.scala.Predef.String, filters: _root_.java.util.Map[_root_.scala.Predef.String, AnyRef], fields: _root_.java.util.List[_root_.scala.Predef.String], requestContext: RequestContext) => cassandraOperation.getRecords(keyspace, table, filters, fields, requestContext)).expects(*,*,*,*,*).returns(response)
+        val result = callActor(getStateReadRequest(), Props(new ContentConsumptionActor(mockActivityAggregatorActor, mockAssessmentAggregatorActor).setCassandraOperation(cassandraOperation, false)))
+        println("RRRR ="+result.getResult)
+        assert(null!= result)
+    }
+    
+    
+    "update Consumption" should "return success on updating the progress" in {
+        val cassandraOperation = mock[CassandraOperation]
+        val esService = mock[ElasticSearchService]
+        val response = new Response()
+        response.put("response", new java.util.ArrayList[java.util.Map[String, AnyRef]] {{
+            add(new java.util.HashMap[String, AnyRef] {{
+                put("userId", "user1")
+                put("courseId", "do_123")
+                put("batchId", "0123")
+                put("contentId", "do_456")
+            }})
+            add(new java.util.HashMap[String, AnyRef] {{
+                put("userId", "user1")
+                put("courseId", "do_123")
+                put("batchId", "0123")
+                put("contentId", "do_789")
+            }})
+        }})
+        (esService.search(_: SearchDTO, _: String, _: RequestContext)).expects(*,*,*).returns(concurrent.Future{validBatchData()})
+        (cassandraOperation.getRecords(_: String, _: String, _: java.util.Map[String, AnyRef], _: java.util.List[String], _:RequestContext)).expects(*,*,*,*,*).returns(response)
+        (cassandraOperation.batchInsertLogged(_: String, _: String, _: java.util.List[java.util.Map[String, AnyRef]], _:RequestContext)).expects(*,*,*,*)
+        (cassandraOperation.updateRecordV2(_: String, _: String, _: java.util.Map[String, AnyRef], _: java.util.Map[String, AnyRef], _: Boolean, _:RequestContext)).expects("sunbird_courses", "user_enrolments",*,*,true,*)
+        val result = callActor(getStateUpdateRequest(), Props(new ContentConsumptionActor(mockActivityAggregatorActor, mockAssessmentAggregatorActor).setCassandraOperation(cassandraOperation, false).setEsService(esService)))
+        assert(null!= result)
+    }
+
+    "sync enrolment" should "return success on updating the progress" in {
+        val cassandraOperation = mock[CassandraOperation]
+        val esService = mock[ElasticSearchService]
+        val response = new Response()
+        response.put("response", new java.util.ArrayList[java.util.Map[String, AnyRef]] {{
+            add(new java.util.HashMap[String, AnyRef] {{
+                put("userId", "user1")
+                put("courseId", "do_123")
+                put("batchId", "0123")
+                put("contentId", "do_456")
+            }})
+            add(new java.util.HashMap[String, AnyRef] {{
+                put("userId", "user1")
+                put("courseId", "do_123")
+                put("batchId", "0123")
+                put("contentId", "do_789")
+            }})
+        }})
+        (cassandraOperation.getRecords(_: String, _: String, _: java.util.Map[String, AnyRef], _: java.util.List[String], _:RequestContext)).expects(*,*,*,*,*).returns(response)
+        val result = callActor(getEnrolmentSyncRequest(), Props(new ContentConsumptionActor(mockActivityAggregatorActor, mockAssessmentAggregatorActor).setCassandraOperation(cassandraOperation, false).setEsService(esService)))
+        
+    }
+
+    "sync enrolment" should "return client for no enrolments" in {
+        val cassandraOperation = mock[CassandraOperation]
+        val esService = mock[ElasticSearchService]
+        val response = new Response()
+        response.put("response", new java.util.ArrayList[java.util.Map[String, AnyRef]]())
+        (cassandraOperation.getRecords(_: String, _: String, _: java.util.Map[String, AnyRef], _: java.util.List[String], _:RequestContext)).expects(*,*,*,*,*).returns(response)
+        val result = callActorForFailure(getEnrolmentSyncRequest(), Props(new ContentConsumptionActor(mockActivityAggregatorActor, mockAssessmentAggregatorActor).setCassandraOperation(cassandraOperation, false).setEsService(esService)))
+        assert(null!= result)
+        assert(ResponseCode.CLIENT_ERROR.getResponseCode == result.getErrorResponseCode)
+    }
+
+    "update AssessmentScore" should "return success on updating the progress" in {
+        val cassandraOperation = mock[CassandraOperation]
+        val esService = mock[ElasticSearchService]
+        ((searchDTO: _root_.org.sunbird.dto.SearchDTO, index: _root_.scala.Predef.String, requestContext: RequestContext) => esService.search(searchDTO, index, requestContext)).expects(*,*,*).returns(concurrent.Future{validBatchData()}).anyNumberOfTimes()
+        val response = new Response()
+        response.put("response", new java.util.ArrayList[java.util.Map[String, AnyRef]]())
+        (cassandraOperation.getRecords(_: String, _: String, _: java.util.Map[String, AnyRef], _: java.util.List[String], _:RequestContext)).expects(*,*,*,*,*).returns(response)
+        (cassandraOperation.batchInsertLogged(_: String, _: String, _: java.util.List[java.util.Map[String, AnyRef]], _:RequestContext)).expects(*,*,*,*)
+        (cassandraOperation.updateRecordV2(_: String, _: String, _: java.util.Map[String, AnyRef], _: java.util.Map[String, AnyRef], _: Boolean, _:RequestContext)).expects("sunbird_courses", "user_enrolments",*,*,true,*)
+        val result = callActorForFailure(getAssementUpdateRequest(), Props(new ContentConsumptionActor(mockActivityAggregatorActor, mockAssessmentAggregatorActor).setCassandraOperation(cassandraOperation, false).setEsService(esService)))
+        assert(result.getErrorResponseCode == ResponseCode.CLIENT_ERROR.getResponseCode)
+    }
+
+    def callActor(request: Request, props: Props): Response = {
+        val probe = new TestKit(system)
+        val actorRef = system.actorOf(props)
+        actorRef.tell(request, probe.testActor)
+        probe.expectMsgType[Response](FiniteDuration.apply(10, TimeUnit.SECONDS))
+    }
+
+    def callActorForFailure(request: Request, props: Props): ProjectCommonException = {
+        val probe = new TestKit(system)
+        val actorRef = system.actorOf(props)
+        actorRef.tell(request, probe.testActor)
+        probe.expectMsgType[ProjectCommonException](FiniteDuration.apply(60, TimeUnit.SECONDS))
+    }
+
+
+    def getStateReadRequest(): Request = {
+        val request = new Request
+        request.setOperation("getConsumption")
+        request.put("userId", "user1")
+        request.put("courseId", "do_123")
+        request.put("batchId", "0123")
+        request
+    }
+
+    def getStateUpdateRequest(): Request = {
+        val request = new Request
+        request.setOperation("updateConsumption")
+        request.put("userId", "user1")
+        request.put("requestedBy", "user1")
+        request.put("contents", new java.util.ArrayList[java.util.Map[String, AnyRef]] {{
+            add(new java.util.HashMap[String, AnyRef] {{
+                put("courseId", "do_123")
+                put("batchId", "0123")
+                put("contentId", "do_456")
+                put("status", 2.asInstanceOf[AnyRef])
+            }})
+            add(new java.util.HashMap[String, AnyRef] {{
+                put("courseId", "do_123")
+                put("batchId", "0123")
+                put("contentId", "do_789")
+                put("status", 2.asInstanceOf[AnyRef])
+            }})
+        }})
+        request
+    }
+
+    def getEnrolmentSyncRequest(): Request = {
+        val request = new Request
+        request.setOperation("updateConsumption")
+        request.put("userId", "user1")
+        request.put("courseId", "do_123")
+        request.put("batchId", "0123")
+        request.put("requestedBy", "user1")
+        request
+    }
+
+    def validBatchData(): java.util.Map[String, AnyRef] = {
+        new java.util.HashMap[String, AnyRef] {{
+            put("content", new java.util.ArrayList[java.util.Map[String, AnyRef]]{{
+                add(new java.util.HashMap[String, AnyRef] {{
+                    put("batchId", "0123")
+                    put("courseId", "do_123")
+                    put("status", 1.asInstanceOf[AnyRef])
+                }})
+            }})
+        }}
+    }
+
+    def getAssementUpdateRequest(): Request = {
+        val request = new Request
+        request.setOperation("updateConsumption")
+        request.put("userId", "user1")
+        request.put("requestedBy", "user1")
+        request.put("assessments", new java.util.ArrayList[java.util.Map[String, AnyRef]]{{
+            add(new java.util.HashMap[String, AnyRef] {{
+                put("userId", "user1")
+                put("batchId", "0123")
+                put("courseId", "do_123")
+                put("attemptId", "abcd")
+                put("contentId", "do_789")
+                put("events", new java.util.ArrayList[java.util.Map[String, AnyRef]] {{
+                    add(new java.util.HashMap[String, AnyRef] {{
+                        put("eid", "ASSESS")
+                        put("ets", 123241.asInstanceOf[AnyRef])
+                    }})
+                }})
+            }})
+        }})
+        request
+    }
+
+    "get Consumption with fields" should "return success" in {
+        val cassandraOperation = mock[CassandraOperation]
+        val response = new Response()
+        response.put("response", new java.util.ArrayList[java.util.Map[String, AnyRef]] {{
+            add(new java.util.HashMap[String, AnyRef] {{
+                put("userId", "user1")
+                put("courseId", "do_123")
+                put("batchId", "0123")
+                put("contentId", "do_456")
+                put("score", new java.util.ArrayList[java.util.Map[String, Object]](){{
+                    add(new java.util.HashMap[String, AnyRef](){{
+                        put("totalMaxScore", 1.asInstanceOf[AnyRef])
+                        put("lastAttemptedOn", "2019-05-13 16:08:45:125+0530")
+                        put("totalScore", 1.asInstanceOf[AnyRef])
+                        put("attemptId", "do_123")
+                    }})
+                }})
+            }})
+            add(new java.util.HashMap[String, AnyRef] {{
+                put("userId", "user1")
+                put("courseId", "do_123")
+                put("batchId", "0123")
+                put("contentId", "do_789")
+            }})
+        }})
+        ((keyspace: _root_.scala.Predef.String, table: _root_.scala.Predef.String, filters: _root_.java.util.Map[_root_.scala.Predef.String, AnyRef], fields: _root_.java.util.List[_root_.scala.Predef.String], requestContext: RequestContext) => cassandraOperation.getRecords(keyspace, table, filters, fields, requestContext)).expects(*, *, *, *, *).returns(response)
+        (cassandraOperation.getRecordsWithLimit(_: String, _: String, _: java.util.Map[String, AnyRef], _: java.util.List[String], _: Integer, _: RequestContext)).expects(*, *, *, *, *, *).returns(response).anyNumberOfTimes()
+        val result = callActor(getStateReadRequestWithFields(), Props(new ContentConsumptionActor(mockActivityAggregatorActor, mockAssessmentAggregatorActor).setCassandraOperation(cassandraOperation, false)))
+        println("result : " + result)
+        assert(null!= result)
+    }
+
+    def getStateReadRequestWithFields(): Request = {
+        val request = new Request
+        request.setOperation("getConsumption")
+        request.put("userId", "user1")
+        request.put("courseId", "do_123")
+        request.put("batchId", "0123")
+        request.put("fields", new java.util.ArrayList[String](){{ add("score")}})
+        request
+    }
+
+    "get Consumption with progressDetails" should "return response" in {
+        val cassandraOperation = mock[CassandraOperation]
+
+        val progressResponse = new java.util.HashMap[String, AnyRef]()
+        progressResponse.put("key1", "val1")
+        progressResponse.put("key2", "val2")
+
+        val response = new Response()
+        response.put("response", new java.util.ArrayList[java.util.Map[String, AnyRef]] {
+            {
+                add(new java.util.HashMap[String, AnyRef] {
+                    {
+                        put("userId", "user1")
+                        put("courseId", "do_123")
+                        put("batchId", "0123")
+                        put("contentId", "do_456")
+                        put("progressdetails", "{}")
+                        put("progressDetails", progressResponse)
+                    }
+                })
+            }
+        })
+
+        ((keyspace: _root_.scala.Predef.String, table: _root_.scala.Predef.String, filters: _root_.java.util.Map[_root_.scala.Predef.String, AnyRef], fields: _root_.java.util.List[_root_.scala.Predef.String], requestContext: RequestContext) => cassandraOperation.getRecords(keyspace, table, filters, fields, requestContext)).expects(*, *, *, *, *).returns(response)
+        val result = callActor(getStateReadRequestWithProgressField(), Props(new ContentConsumptionActor(mockActivityAggregatorActor, mockAssessmentAggregatorActor).setCassandraOperation(cassandraOperation, false)))
+
+        result.getResult().get("response").toString.shouldEqual("[{progressDetails={key1=val1, key2=val2}, contentId=do_456, batchId=0123, courseId=do_123, collectionId=do_123, progressdetails={}}]")
+        assert(null != result)
+    }
+
+    def getStateReadRequestWithProgressField(): Request = {
+        val request = new Request
+        request.setOperation("getConsumption")
+        request.put("userId", "user1")
+        request.put("courseId", "do_123")
+        request.put("batchId", "0123")
+        request.put("contentId", "do_456")
+        request.put("fields", new java.util.ArrayList[String]() {
+            {
+                add("progressDetails")
+            }
+        })
+
+        request
+    }
+
+    "update Consumption with progressDetails" should "return success on updating the progress" in {
+        val cassandraOperation = mock[CassandraOperation]
+        val esService = mock[ElasticSearchService]
+        val progressResponse = new java.util.HashMap[String, AnyRef]()
+        progressResponse.put("key1", "val1")
+        progressResponse.put("key2", "val2")
+        val response = new Response()
+        response.put("response", new java.util.ArrayList[java.util.Map[String, AnyRef]] {
+            {
+                add(new java.util.HashMap[String, AnyRef] {
+                    {
+                        put("userId", "user1")
+                        put("courseId", "do_123")
+                        put("batchId", "0123")
+                        put("contentId", "do_456")
+                        put("progressDetails", progressResponse)
+
+                    }
+                })
+
+            }
+        })
+        (esService.search(_: SearchDTO, _: String, _: RequestContext)).expects(*, *, *).returns(concurrent.Future {
+            validBatchData()
+        })
+        (cassandraOperation.getRecords(_: String, _: String, _: java.util.Map[String, AnyRef], _: java.util.List[String], _:RequestContext)).expects(*, *, *, *, *).returns(response)
+        (cassandraOperation.batchInsertLogged(_: String, _: String, _: java.util.List[java.util.Map[String, AnyRef]], _:RequestContext)).expects(*, *, *, *)
+        (cassandraOperation.updateRecordV2(_: String, _: String, _: java.util.Map[String, AnyRef], _: java.util.Map[String, AnyRef], _: Boolean, _:RequestContext)).expects("sunbird_courses", "user_enrolments", *, *, true, *)
+        val result = callActor(getStateUpdateRequestWithProgress(), Props(new ContentConsumptionActor(mockActivityAggregatorActor, mockAssessmentAggregatorActor).setCassandraOperation(cassandraOperation, false).setEsService(esService)))
+        assert(null != result)
+    }
+
+    def getStateUpdateRequestWithProgress(): Request = {
+        val request = new Request
+        request.setOperation("updateConsumption")
+        request.put("userId", "user1")
+        request.put("requestedBy", "user1")
+        request.put("contents", new java.util.ArrayList[java.util.Map[String, AnyRef]] {
+            {
+                add(new java.util.HashMap[String, AnyRef] {
+                    {
+                        put("courseId", "do_123")
+                        put("batchId", "0123")
+                        put("contentId", "do_456")
+                        put("status", 2.asInstanceOf[AnyRef])
+                        put("progressDetails", new java.util.HashMap())
+
+                    }
+                })
+                add(new java.util.HashMap[String, AnyRef] {
+                    {
+                        put("courseId", "do_123")
+                        put("batchId", "0123")
+                        put("contentId", "do_789")
+                        put("status", 2.asInstanceOf[AnyRef])
+                        put("progressDetails", new java.util.HashMap())
+
+                    }
+                })
+            }
+        })
+        request
+    }
+}
