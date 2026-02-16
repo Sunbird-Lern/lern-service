@@ -11,10 +11,12 @@
     <modelVersion>4.0.0</modelVersion>
 
     <artifactId>userorg-report</artifactId>
+    <packaging>pom</packaging>
     <name>UserOrg Service Coverage Report</name>
     <description>Aggregated JaCoCo coverage report for UserOrg service and controller.</description>
 
     <dependencies>
+        <!-- Sunbird Modules for Reporting -->
         <dependency>
             <groupId>org.sunbird</groupId>
             <artifactId>service</artifactId>
@@ -29,10 +31,11 @@
 
     <build>
         <plugins>
+            <!-- JaCoCo Plugin for Aggregated Reports -->
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.8</version>
+                <version>${jacoco-maven-plugin.version}</version>
                 <executions>
                     <execution>
                         <id>report-aggregate</id>

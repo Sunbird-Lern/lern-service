@@ -1,0 +1,45 @@
+package validators;
+
+import com.google.common.collect.Lists;
+import org.junit.Assert;
+import org.junit.Test;
+import org.sunbird.exception.BaseException;
+import org.sunbird.request.Request;
+import org.sunbird.keys.JsonKey;
+import validators.TemplateActionUpdateRequestValidator;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+
+import org.sunbird.message.IResponseMessage;
+import org.sunbird.message.ResponseCode;
+import org.sunbird.response.Response;
+import org.sunbird.logging.LoggerUtil;
+import utils.ValidationUtil;
+
+public class TemplateActionUpdateRequestValidatorTest {
+
+    @Test
+    public void applySuccess() {
+        Request request = createRequestObject();
+        try {
+            TemplateActionUpdateRequestValidator TemplateActionUpdateRequestValidator = new TemplateActionUpdateRequestValidator();
+            TemplateActionUpdateRequestValidator.apply(request);
+        } catch (BaseException ex) {
+            Assert.assertTrue(true);
+            Assert.assertEquals("INVALID_REQUESTED_DATA", ex.getCode());
+        }
+    }
+
+
+    private Request createRequestObject() {
+        Request request = new Request();
+        Map<String, Object> map = new HashMap<>();
+        request.setRequest(map);
+        return request;
+    }
+
+
+}

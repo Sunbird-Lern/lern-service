@@ -38,7 +38,7 @@
         <httpcomponents.httpmime.version>4.5.14</httpcomponents.httpmime.version>
         
         <!-- Jackson -->
-        <jackson.version>2.13.5</jackson.version>
+        <jackson.version>2.14.3</jackson.version>
         
         <!--  Apache Pekko -->
         <pekko.version>1.0.3</pekko.version>
@@ -47,7 +47,7 @@
         <kafka.version>3.7.1</kafka.version>
         
         <!-- Logging -->
-        <logback.version>1.2.3</logback.version>
+        <logback.version>1.4.14</logback.version>
         <logstash-logback-encoder.version>7.3</logstash-logback-encoder.version>
         
         <!-- Apache Commons -->

@@ -1,0 +1,166 @@
+package org.sunbird.notification.actor;
+
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections.MapUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.sunbird.BaseActor;
+import org.sunbird.keys.JsonKey;
+import org.sunbird.actor.core.ActorConfig;
+import org.sunbird.exception.AuthorizationException;
+import org.sunbird.exception.BaseException;
+import org.sunbird.message.IResponseMessage;
+import org.sunbird.message.ResponseCode;
+import org.sunbird.request.Request;
+import org.sunbird.response.Response;
+import org.sunbird.logging.LoggerUtil;
+import org.sunbird.service.NotificationService;
+import org.sunbird.service.NotificationServiceImpl;
+import org.sunbird.util.RequestHandler;
+import org.sunbird.common.PropertiesCache;
+import scala.collection.JavaConverters;
+
+import java.sql.Timestamp;
+import java.text.MessageFormat;
+import java.util.*;
+
+@ActorConfig(
+        tasks = {JsonKey.UPDATE_FEED, JsonKey.UPDATE_V1_FEED},
+        asyncTasks = {},
+        dispatcher= "notification-dispatcher"
+)
+public class UpdateNotificationActor extends BaseActor {
+
+    private static LoggerUtil logger = new LoggerUtil(UpdateNotificationActor.class);
+
+    @Override
+        public void onReceive(Request request) throws Throwable {
+        String operation = request.getOperation();
+        switch (operation) {
+            case "updateFeed":
+                updateV2Feed(request);
+                break;
+            case "updateV1Feed":
+                updateV1Feed(request);
+            default:
+                onReceiveUnsupportedMessage("UpdateNotificationActor");
+        }
+    }
+    private void updateV1Feed(Request request){
+        logger.info(request.getRequestContext(),"UpdateNotificationActor: updateV1Feed Started");
+
+        String requestedBy = (String) request.getRequest().get(JsonKey.USER_ID);
+        updateFeed(request,requestedBy);
+        logger.info(request.getRequestContext(),"UpdateNotificationActor: updateV1Feed Ended");
+
+    }
+
+    private void updateV2Feed(Request request){
+        logger.info(request.getRequestContext(),"UpdateNotificationActor: updateV2Feed Started");
+        RequestHandler requestHandler = new RequestHandler();
+        String requestedBy = requestHandler.getRequestedBy(request);
+        updateFeed(request,requestedBy);
+        logger.info(request.getRequestContext(),"UpdateNotificationActor: updateV2Feed Ended");
+
+    }
+
+    private void updateFeed(Request request, String requestedBy){
+        String userId = (String) request.getRequest().get(JsonKey.USER_ID);
+        try {
+            if (StringUtils.isEmpty(userId)) {
+                throw new BaseException(IResponseMessage.Key.MANDATORY_PARAMETER_MISSING,
+                        MessageFormat.format(IResponseMessage.Message.MANDATORY_PARAMETER_MISSING, JsonKey.USER_ID), ResponseCode.CLIENT_ERROR.getCode());
+            }
+            if (!userId.equals(requestedBy)) {
+                //throw Authorization Exception
+                throw new AuthorizationException.NotAuthorized(ResponseCode.unAuthorized);
+            }
+
+            List<Map<String, Object>> feedsUpdateList = createUpdateStatusReq(request.getRequest(), requestedBy);
+            if (!CollectionUtils.isNotEmpty(feedsUpdateList)) {
+                throw new BaseException(IResponseMessage.Key.MANDATORY_PARAMETER_MISSING,
+                        MessageFormat.format(IResponseMessage.Message.MANDATORY_PARAMETER_MISSING, JsonKey.IDS), ResponseCode.CLIENT_ERROR.getCode());
+            }
+            NotificationService notificationService = NotificationServiceImpl.getInstance();
+            boolean isSupportEnabled = Boolean.parseBoolean(PropertiesCache.getInstance().getProperty(JsonKey.VERSION_SUPPORT_CONFIG_ENABLE));
+            if(isSupportEnabled) {
+                // Convert Scala collection to Java List to avoid ClassCastException
+                Object idsObject = request.getRequest().get(JsonKey.IDS);
+                List<String> feedIdsList;
+                if (idsObject instanceof scala.collection.Seq) {
+                    feedIdsList = new ArrayList<>(JavaConverters.asJavaCollectionConverter((scala.collection.Seq<String>) idsObject).asJavaCollection());
+                } else {
+                    feedIdsList = (List<String>) idsObject;
+                }
+                List<Map<String, Object>> mappedFeedIdLists = notificationService.getFeedMap(feedIdsList, request.getContext());
+                getOtherVersionUpdatedFeedList(mappedFeedIdLists, feedsUpdateList, requestedBy);
+            }
+            List<Map<String, Object>> feedList = notificationService.readNotificationFeed(userId, request.getContext());
+            boolean hasMatchingFeeds = feedsUpdateList.stream()
+                    .anyMatch(itr -> feedList.stream()
+                            .anyMatch(x -> x.get(JsonKey.ID).equals(itr.get(JsonKey.ID))));
+            if (!hasMatchingFeeds) {
+                throw new BaseException(IResponseMessage.Key.INVALID_REQUESTED_DATA, IResponseMessage.Message.INVALID_REQUESTED_DATA, ResponseCode.RESOURCE_NOT_FOUND.getResponseCode());
+            }
+            Response response = notificationService.updateNotificationFeed(feedsUpdateList, request.getContext());
+            sender().tell(response, getSelf());
+
+        }   catch (BaseException ex){
+            logger.error(request.getRequestContext(),MessageFormat.format(":Error Msg: {0} ",ex.getMessage()),
+                    ex);
+            throw ex;
+        }
+            catch (Exception ex){
+            logger.error(request.getRequestContext(),MessageFormat.format("UpdateNotificationActor:Error Msg: {0} ",ex.getMessage()),
+                    ex);
+            throw new BaseException(IResponseMessage.Key.SERVER_ERROR,IResponseMessage.Message.INTERNAL_ERROR, ResponseCode.serverError.getResponseCode());
+        }
+
+    }
+
+    /**
+     * Update the other version feed to support backward compatibility
+     * @param mappedFeedIdLists
+     * @param feedsUpdateList
+     */
+    public static void getOtherVersionUpdatedFeedList(List<Map<String, Object>> mappedFeedIdLists, List<Map<String, Object>> feedsUpdateList, String requestedBy) {
+        for (Map<String, Object> itr: mappedFeedIdLists){
+            Map<String,Object> notificationFeed = feedsUpdateList.stream().filter(x->x.get(JsonKey.ID).equals(itr.get(JsonKey.ID))).findAny().orElse(null);
+            if(MapUtils.isNotEmpty(notificationFeed)){
+                Map<String,Object> feedTobeUpdated = new HashMap<>();
+                feedTobeUpdated.put(JsonKey.ID,itr.get(JsonKey.FEED_ID));
+                feedTobeUpdated.put(JsonKey.USER_ID,notificationFeed.get(JsonKey.USER_ID));
+                feedTobeUpdated.put(JsonKey.STATUS,notificationFeed.get(JsonKey.STATUS));
+                feedTobeUpdated.put(JsonKey.UPDATED_BY,requestedBy);
+                feedTobeUpdated.put(JsonKey.UPDATED_ON,new Timestamp(Calendar.getInstance().getTime().getTime()));
+                feedsUpdateList.add(feedTobeUpdated);
+            }
+        }
+
+    }
+
+    private  List<Map<String,Object>>  createUpdateStatusReq(Map<String, Object> request, String requestedBy) {
+
+        List<Map<String,Object>> updateReqList = new ArrayList<>();
+        // Convert Scala collection to Java List to avoid ClassCastException
+        Object idsObject = request.get(JsonKey.IDS);
+        List<String> feedIds;
+        if (idsObject instanceof scala.collection.Seq) {
+            feedIds = new ArrayList<>(JavaConverters.asJavaCollectionConverter((scala.collection.Seq<String>) idsObject).asJavaCollection());
+        } else {
+            feedIds = (List<String>) idsObject;
+        }
+        for (String feedId: feedIds) {
+            Map<String,Object> notificationFeed= new HashMap<>();
+            notificationFeed.put(JsonKey.ID,feedId);
+            notificationFeed.put(JsonKey.USER_ID,(String) request.get(JsonKey.USER_ID));
+            notificationFeed.put(JsonKey.UPDATED_BY,requestedBy);
+            notificationFeed.put(JsonKey.UPDATED_ON,new Timestamp(Calendar.getInstance().getTime().getTime()));
+            notificationFeed.put(JsonKey.STATUS,"read");
+            updateReqList.add(notificationFeed);
+        }
+        return updateReqList;
+    }
+
+
+}
+
