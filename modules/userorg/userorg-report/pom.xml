@@ -19,12 +19,12 @@
         <!-- Sunbird Modules for Reporting -->
         <dependency>
             <groupId>org.sunbird</groupId>
-            <artifactId>service</artifactId>
+            <artifactId>userorg-service-impl</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>org.sunbird</groupId>
-            <artifactId>controller</artifactId>
+            <artifactId>userorg-controller</artifactId>
             <version>${project.version}</version>
         </dependency>
     </dependencies>

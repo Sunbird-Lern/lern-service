@@ -9,7 +9,7 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>controller</artifactId>
+    <artifactId>userorg-controller</artifactId>
     <packaging>play2</packaging>
     <name>UserOrg Controller</name>
     <description>Web controller module for User and Organization service, built with Play Framework.</description>
@@ -145,7 +145,7 @@
         <!-- Sunbird Service Dependencies -->
         <dependency>
             <groupId>org.sunbird</groupId>
-            <artifactId>service</artifactId>
+            <artifactId>userorg-service-impl</artifactId>
             <version>1.0-SNAPSHOT</version>
             <exclusions>
                 <exclusion>

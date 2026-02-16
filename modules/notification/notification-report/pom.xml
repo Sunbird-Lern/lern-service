@@ -24,7 +24,7 @@
         </dependency>
         <dependency>
             <groupId>org.sunbird</groupId>
-            <artifactId>service</artifactId>
+            <artifactId>notification-service-impl</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>

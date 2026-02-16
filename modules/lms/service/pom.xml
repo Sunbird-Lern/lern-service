@@ -11,7 +11,7 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>service</artifactId>
+    <artifactId>lms-service-impl</artifactId>
     <packaging>play2</packaging>
     <name>LMS Service Module</name>
     <description>LMS Service - Play Framework Application</description>
@@ -442,7 +442,6 @@
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
-            <version>1.7.25</version>
         </dependency>
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
