@@ -64,7 +64,11 @@ jobs:
           SHORT_SHA=$(git rev-parse HEAD | cut -c1-7)
           TAG_LOWER=$(echo "${GITHUB_REF_NAME}" | tr '[:upper:]' '[:lower:]' | tr '/' '-')
           
-          echo "REPO_BASE=${{ env.REGISTRY }}/${REPO_LOWER}" >> $GITHUB_ENV
+          REPO_FULL=${{ env.REGISTRY }}/${REPO_LOWER}
+          ORG_BASE=$(dirname ${REPO_FULL})
+          
+          echo "REPO_BASE=${REPO_FULL}" >> $GITHUB_ENV
+          echo "ORG_BASE=${ORG_BASE}" >> $GITHUB_ENV
           echo "IMAGE_TAG=${TAG_LOWER}_${SHORT_SHA}_${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
 
       # ----------------------------------------------------------------
@@ -81,7 +85,7 @@ jobs:
           context: .
           file: build/lern/Dockerfile
           push: true
-          tags: ${{ env.REPO_BASE }}/lern-service:${{ env.IMAGE_TAG }}
+          tags: ${{ env.ORG_BASE }}/lern-service:${{ env.IMAGE_TAG }}
 
       # ----------------------------------------------------------------
       # USERORG SERVICE
@@ -97,7 +101,7 @@ jobs:
           context: .
           file: build/userorg/Dockerfile
           push: true
-          tags: ${{ env.REPO_BASE }}/userorg-service:${{ env.IMAGE_TAG }}
+          tags: ${{ env.ORG_BASE }}/userorg-service:${{ env.IMAGE_TAG }}
 
       # ----------------------------------------------------------------
       # LMS SERVICE
@@ -113,7 +117,7 @@ jobs:
           context: .
           file: build/lms/Dockerfile
           push: true
-          tags: ${{ env.REPO_BASE }}/lms-service:${{ env.IMAGE_TAG }}
+          tags: ${{ env.ORG_BASE }}/lms-service:${{ env.IMAGE_TAG }}
 
       # ----------------------------------------------------------------
       # NOTIFICATION SERVICE
@@ -129,4 +133,4 @@ jobs:
           context: .
           file: build/notification/Dockerfile
           push: true
-          tags: ${{ env.REPO_BASE }}/notification-service:${{ env.IMAGE_TAG }}
+          tags: ${{ env.ORG_BASE }}/notification-service:${{ env.IMAGE_TAG }}
