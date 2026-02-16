@@ -3,7 +3,7 @@ name: Build and Deploy
 # Trigger this workflow whenever there is a new tag push
 on:
   push:
-    branches:
+    tags:
       - '*'
 
 jobs:
