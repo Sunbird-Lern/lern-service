@@ -11,7 +11,7 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>service</artifactId>
+    <artifactId>userorg-service-impl</artifactId>
     <name>UserOrg Service</name>
     <description>Core business logic and service layer for User and Organization management.</description>
 

@@ -10,7 +10,7 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>service</artifactId>
+    <artifactId>notification-service-impl</artifactId>
     <packaging>play2</packaging>
     <name>Notification Service</name>
     <description>Notification Service - Play Framework Application</description>
@@ -129,14 +129,8 @@
             </exclusions>
         </dependency>
         <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-all</artifactId>
-            <version>${netty.version}</version>
-        </dependency>
-        <dependency>
             <artifactId>netty-common</artifactId>
             <groupId>io.netty</groupId>
-            <version>${netty.version}</version>
         </dependency>
         <dependency>
             <groupId>io.netty</groupId>
