@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <groupId>org.sunbird</groupId>
+        <artifactId>lern-service</artifactId>
+        <version>1.0-SNAPSHOT</version>
+        <relativePath>../../../pom.xml</relativePath>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>lern-service-impl</artifactId>
+    <name>Lern Service Impl</name>
+    <packaging>play2</packaging>
+
+    <properties>
+        <play2.version>3.0.5</play2.version>
+        <play2.plugin.version>1.0.0-rc5</play2.plugin.version>
+        <scala.major.version>2.13</scala.major.version>
+        <scala.version>2.13.12</scala.version>
+        <pekko.version>1.0.3</pekko.version>
+        <jackson.version>2.14.3</jackson.version>
+    </properties>
+
+    <repositories>
+        <repository>
+            <id>maven-central</id>
+            <name>Maven Central</name>
+            <url>https://repo.maven.apache.org/maven2/</url>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
+        <repository>
+            <id>typesafe</id>
+            <name>Typesafe Repository</name>
+            <url>https://repo.typesafe.com/typesafe/releases/</url>
+        </repository>
+    </repositories>
+    <pluginRepositories>
+        <pluginRepository>
+            <id>maven-central-plugins</id>
+            <url>https://repo.maven.apache.org/maven2/</url>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </pluginRepository>
+        <pluginRepository>
+            <id>typesafe-releases</id>
+            <url>https://repo.typesafe.com/typesafe/releases/</url>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </pluginRepository>
+    </pluginRepositories>
+
+    <dependencies>
+        <!-- Scala and Play Dependencies -->
+        <dependency>
+            <groupId>org.scala-lang</groupId>
+            <artifactId>scala-library</artifactId>
+            <version>${scala.version}</version>
+        </dependency>
+        <!-- Play Framework Dependencies - Using org.playframework for Play 3.x -->
+        <dependency>
+            <groupId>org.sunbird</groupId>
+            <artifactId>lms-service-impl</artifactId>
+            <version>1.0-SNAPSHOT</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.typesafe.play</groupId>
+                    <artifactId>play-guice_2.12</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.typesafe.play</groupId>
+                    <artifactId>play_2.12</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.sabot</groupId>
+                    <artifactId>play_2.12</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.playframework</groupId>
+            <artifactId>play_${scala.major.version}</artifactId>
+            <version>${play2.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.playframework</groupId>
+            <artifactId>play-guice_${scala.major.version}</artifactId>
+            <version>${play2.version}</version>
+             <exclusions>
+                <exclusion>
+                    <groupId>com.google.inject</groupId>
+                    <artifactId>guice</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.playframework</groupId>
+            <artifactId>play-logback_${scala.major.version}</artifactId>
+            <version>${play2.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.playframework</groupId>
+            <artifactId>play-netty-server_${scala.major.version}</artifactId>
+            <version>${play2.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.playframework</groupId>
+            <artifactId>play-filters-helpers_${scala.major.version}</artifactId>
+            <version>${play2.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.playframework</groupId>
+            <artifactId>play-ahc-ws_${scala.major.version}</artifactId>
+            <version>${play2.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.playframework</groupId>
+            <artifactId>play-specs2_${scala.major.version}</artifactId>
+            <version>${play2.version}</version>
+            <scope>test</scope>
+        </dependency>
+        
+        <!-- Service Dependencies -->
+        <!-- UserOrg Service (artifactId: service) -->
+        <dependency>
+            <groupId>org.sunbird</groupId>
+            <artifactId>userorg-service-impl</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+        <!-- UserOrg Controller (artifactId: controller) -->
+        <dependency>
+            <groupId>org.sunbird</groupId>
+            <artifactId>userorg-controller</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+
+        <!-- LMS Service Modules -->
+        <dependency>
+            <groupId>org.sunbird</groupId>
+            <artifactId>course-actors</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>org.sunbird</groupId>
+            <artifactId>enrolment-actor</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>org.sunbird</groupId>
+            <artifactId>course-actors-common</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>org.sunbird</groupId>
+            <artifactId>actor-util</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>org.sunbird</groupId>
+            <artifactId>assessment-aggregator</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>org.sunbird</groupId>
+            <artifactId>activity-aggregator</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+
+        <!-- Notification Service (artifactId: notification-service-impl, version: 1.0-SNAPSHOT) -->
+        <dependency>
+            <groupId>org.sunbird</groupId>
+            <artifactId>notification-service-impl</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>org.sunbird</groupId>
+            <artifactId>all-actors</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+
+        <!-- Logging -->
+         <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+        </dependency>
+        
+        <!-- Guice -->
+         <dependency>
+          <groupId>com.google.inject</groupId>
+          <artifactId>guice</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <sourceDirectory>${basedir}/app</sourceDirectory>
+        <testSourceDirectory>${basedir}/test</testSourceDirectory>
+        <resources>
+            <resource>
+                <directory>${basedir}/conf</directory>
+            </resource>
+        </resources>
+        <plugins>
+            <plugin>
+                <groupId>com.google.code.play2-maven-plugin</groupId>
+                <artifactId>play2-maven-plugin</artifactId>
+                <version>${play2.plugin.version}</version>
+                <extensions>true</extensions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

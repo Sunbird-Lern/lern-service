@@ -1,0 +1,281 @@
+# Routes
+# This file defines all application routes (Higher priority routes first)
+# ~~~~
+
+# Health Check (Consolidated)
+GET     /health                                 @controllers.HealthController.health(request: play.mvc.Http.Request)
+GET     /:service/health                        @controllers.HealthController.serviceHealth(service:String, request: play.mvc.Http.Request)
+
+# ==========================================
+# UserOrg Routes
+# ==========================================
+
+# User management APIs
+# SSO user creation
+POST    /v1/user/create                         @controllers.usermanagement.UserController.createUser(request: play.mvc.Http.Request)
+POST	/v2/user/create				            @controllers.usermanagement.UserController.createUser(request: play.mvc.Http.Request)
+POST	/v3/user/create				            @controllers.usermanagement.UserController.createUser(request: play.mvc.Http.Request)
+POST	/v1/ssouser/create                      @controllers.usermanagement.UserController.createSSOUser(request: play.mvc.Http.Request)
+
+# Managed-User creation, this is not for regular user creation.
+POST    /v4/user/create                         @controllers.usermanagement.UserController.createUserV4(request: play.mvc.Http.Request)
+POST    /v1/manageduser/create		            @controllers.usermanagement.UserController.createManagedUser(request: play.mvc.Http.Request)
+POST    /v2/manageduser/create		            @controllers.usermanagement.UserController.createManagedUser(request: play.mvc.Http.Request)
+
+# SSU user creation
+POST    /v1/user/signup                         @controllers.usermanagement.UserController.createUserV3(request: play.mvc.Http.Request)
+POST    /v2/user/signup                         @controllers.usermanagement.UserController.createSSUUser(request: play.mvc.Http.Request)
+
+PATCH   /v1/user/update					        @controllers.usermanagement.UserController.updateUser(request: play.mvc.Http.Request)
+PATCH   /v2/user/update                         @controllers.usermanagement.UserController.updateUserV2(request: play.mvc.Http.Request)
+PATCH   /v3/user/update                         @controllers.usermanagement.UserController.updateUserV3(request: play.mvc.Http.Request)
+PATCH   /private/user/v1/update                 @controllers.usermanagement.UserController.updateUserV3(request: play.mvc.Http.Request)
+
+GET     /v1/user/read/:uid				        @controllers.usermanagement.UserController.getUserByIdV3(uid:String, request: play.mvc.Http.Request)
+GET  	/v2/user/read/:uid				        @controllers.usermanagement.UserController.getUserByIdV3(uid:String, request: play.mvc.Http.Request)
+GET  	/v3/user/read/:uid				        @controllers.usermanagement.UserController.getUserByIdV3(uid:String, request: play.mvc.Http.Request)
+GET  	/v4/user/read/:uid				        @controllers.usermanagement.UserController.getUserByIdV4(uid:String, request: play.mvc.Http.Request)
+GET  	/v5/user/read/:uid				        @controllers.usermanagement.UserController.getUserByIdV5(uid:String, request: play.mvc.Http.Request)
+GET     /private/user/v1/read/:externalId       @controllers.usermanagement.UserController.getUserByIdV3(externalId:String, request: play.mvc.Http.Request)
+
+GET     /v1/user/managed/:lua_uuid              @controllers.usermanagement.UserController.getManagedUsers(lua_uuid:String, request: play.mvc.Http.Request)
+POST    /v1/user/getuser                        @controllers.usermanagement.UserController.getUserByLoginId(request: play.mvc.Http.Request)
+GET     /v1/user/get/:idType/:id                @controllers.usermanagement.UserController.getUserByKey(idType:String, id:String, request: play.mvc.Http.Request)
+GET     /v2/user/get/:idType/:id                @controllers.usermanagement.UserController.getUserByKey(idType:String, id:String, request: play.mvc.Http.Request)
+POST    /private/user/v1/lookup                 @controllers.usermanagement.UserController.userLookup(request: play.mvc.Http.Request)
+GET     /v1/user/exists/:key/:value             @controllers.usermanagement.UserController.isUserValid(key:String, value:String, request: play.mvc.Http.Request)
+GET     /v2/user/exists/:key/:value             @controllers.usermanagement.UserController.userExists(key:String, value:String, request: play.mvc.Http.Request)
+
+POST    /v1/user/search					        @controllers.usermanagement.UserController.searchUser(request: play.mvc.Http.Request)
+POST    /v2/user/search					        @controllers.usermanagement.UserController.searchUserV2(request: play.mvc.Http.Request)
+POST    /v3/user/search					        @controllers.usermanagement.UserController.searchUserV3(request: play.mvc.Http.Request)
+POST    /private/user/v1/search                 @controllers.usermanagement.UserController.searchUser(request: play.mvc.Http.Request)
+
+POST    /v1/user/block                          @controllers.usermanagement.UserStatusController.blockUser(request: play.mvc.Http.Request)
+POST    /v1/user/unblock			            @controllers.usermanagement.UserStatusController.unblockUser(request: play.mvc.Http.Request)
+
+GET     /v1/role/read						    @controllers.usermanagement.UserRoleController.getRoles(request: play.mvc.Http.Request)
+GET     /v1/user/role/read/:uid                 @controllers.usermanagement.UserRoleController.getUserRolesById(uid:String, request: play.mvc.Http.Request)
+POST    /v1/user/assign/role			        @controllers.usermanagement.UserRoleController.assignRoles(request: play.mvc.Http.Request)
+POST    /private/user/v1/assign/role	        @controllers.usermanagement.UserRoleController.assignRoles(request: play.mvc.Http.Request)
+POST    /v2/user/assign/role			        @controllers.usermanagement.UserRoleController.assignRolesV2(request: play.mvc.Http.Request)
+POST    /private/user/v2/assign/role			@controllers.usermanagement.UserRoleController.assignRolesV2(request: play.mvc.Http.Request)
+
+POST    /v1/user/tnc/accept                     @controllers.tac.UserTnCController.acceptTnC(request: play.mvc.Http.Request)
+PATCH   /private/user/v1/account/merge          @controllers.usermanagement.UserMergeController.mergeUser(request: play.mvc.Http.Request)
+PATCH   /v1/user/declarations                   @controllers.usermanagement.UserController.updateUserDeclarations(request: play.mvc.Http.Request)
+
+#Freeup API
+POST    /private/user/v1/identifier/freeup      @controllers.usermanagement.IdentifierFreeUpController.freeUpIdentifier(request: play.mvc.Http.Request)
+
+#reset password API
+POST    /private/user/v1/password/reset         @controllers.usermanagement.ResetPasswordController.resetPassword(request: play.mvc.Http.Request)
+
+# User Consent APIs
+POST    /v1/user/consent/update                 @controllers.usermanagement.UserConsentController.updateUserConsent(request: play.mvc.Http.Request)
+POST    /v1/user/consent/read                   @controllers.usermanagement.UserConsentController.getUserConsent(request: play.mvc.Http.Request)
+POST    /v2/user/consent/read                   @controllers.usermanagement.UserConsentController.getUserConsent(request: play.mvc.Http.Request)
+
+# OTP APIs
+POST    /v1/otp/generate                        @controllers.otp.OtpController.generateOTP(request: play.mvc.Http.Request)
+POST    /v1/otp/verify                          @controllers.otp.OtpController.verifyOTP(request: play.mvc.Http.Request)
+POST    /v2/otp/generate                        @controllers.otp.OtpController.generateOTP(request: play.mvc.Http.Request)
+POST    /v2/otp/verify                          @controllers.otp.OtpController.verifyOTP(request: play.mvc.Http.Request)
+
+#Tenant Migration
+PATCH   /private/user/v1/migrate  	            @controllers.tenantmigration.TenantMigrationController.userTenantMigrate(request: play.mvc.Http.Request)
+
+#User Feed API
+GET     /v1/user/feed/:userId                   @controllers.feed.FeedController.getUserFeed(userId:String,request: play.mvc.Http.Request)
+POST    /v1/user/feed/create                    @controllers.feed.FeedController.createUserFeed(request: play.mvc.Http.Request)
+POST    /private/user/feed/v1/create            @controllers.feed.FeedController.createUserFeed(request: play.mvc.Http.Request)
+POST    /v1/user/feed/delete                    @controllers.feed.FeedController.deleteUserFeed(request: play.mvc.Http.Request)
+PATCH   /v1/user/feed/update                    @controllers.feed.FeedController.updateUserFeed(request: play.mvc.Http.Request)
+
+#Sync
+POST    /v1/data/sync                           @controllers.sync.SyncController.sync(request: play.mvc.Http.Request)
+
+# Bulk upload APIs
+POST    /v1/user/upload                         @controllers.bulkapimanagement.BulkUploadController.userBulkUpload(request: play.mvc.Http.Request)
+POST    /v1/org/upload                          @controllers.bulkapimanagement.BulkUploadController.orgBulkUpload(request: play.mvc.Http.Request)
+POST    /v1/bulk/location/upload                @controllers.bulkapimanagement.BulkUploadController.locationBulkUpload(request: play.mvc.Http.Request)
+GET     /v1/upload/status/:pid                  @controllers.bulkapimanagement.BulkUploadController.getUploadStatus(pid:String, request: play.mvc.Http.Request)
+POST    /v1/file/upload 				        @controllers.storage.FileStorageController.uploadFileService(request: play.mvc.Http.Request)
+
+#Email
+POST    /v1/notification/email					@controllers.notificationservice.EmailServiceController.sendMail(request: play.mvc.Http.Request)
+POST    /private/user/v1/notification/email	    @controllers.notificationservice.EmailServiceController.sendMail(request: play.mvc.Http.Request)
+POST    /v2/notification					    @controllers.notificationservice.EmailServiceController.sendNotification(request: play.mvc.Http.Request)
+
+# Organisation management APIs
+POST    /v1/org/create		                    @controllers.organisationmanagement.OrgController.createOrg(request: play.mvc.Http.Request)
+PATCH   /v1/org/update		                    @controllers.organisationmanagement.OrgController.updateOrg(request: play.mvc.Http.Request)
+PATCH   /v1/org/status/update                   @controllers.organisationmanagement.OrgController.updateOrgStatus(request: play.mvc.Http.Request)
+POST    /v1/org/read                            @controllers.organisationmanagement.OrgController.getOrgDetails(request: play.mvc.Http.Request)
+POST    /v1/org/search		                    @controllers.organisationmanagement.OrgController.search(request: play.mvc.Http.Request)
+POST    /v2/org/search		                    @controllers.organisationmanagement.OrgController.searchV2(request: play.mvc.Http.Request)
+POST    /private/v2/org/search		            @controllers.organisationmanagement.OrgController.searchV2(request: play.mvc.Http.Request)
+PATCH   /v1/org/assign/key                      @controllers.organisationmanagement.KeyManagementController.assignKeys(request: play.mvc.Http.Request)
+PATCH   /v1/org/update/encryptionkey            @controllers.organisationmanagement.OrgController.addKey(request: play.mvc.Http.Request)
+
+#Health check (Commented out as handled in Monolith section)
+#GET     /health                                 @controllers.healthmanager.HealthController.health(request: play.mvc.Http.Request)
+#GET     /:service/health                        @controllers.healthmanager.HealthController.serviceHealth(service:String, request: play.mvc.Http.Request)
+
+#Notes API
+POST    /v1/note/create                         @controllers.notesmanagement.NotesController.createNote(request: play.mvc.Http.Request)
+GET     /v1/note/read/:noteId                   @controllers.notesmanagement.NotesController.getNote(noteId:String, request: play.mvc.Http.Request)
+PATCH   /v1/note/update/:noteId                 @controllers.notesmanagement.NotesController.updateNote(noteId:String, request: play.mvc.Http.Request)
+POST    /v1/note/search                         @controllers.notesmanagement.NotesController.searchNote(request: play.mvc.Http.Request)
+DELETE  /v1/note/delete/:noteId                 @controllers.notesmanagement.NotesController.deleteNote(noteId:String, request: play.mvc.Http.Request)
+
+#Tenantpreference API
+POST    /v2/org/preferences/create 				@controllers.tenantpreference.TenantPreferenceController.createTenantPreference(request: play.mvc.Http.Request)
+PATCH   /v2/org/preferences/update 				@controllers.tenantpreference.TenantPreferenceController.updateTenantPreference(request: play.mvc.Http.Request)
+POST    /v2/org/preferences/read				@controllers.tenantpreference.TenantPreferenceController.getTenantPreference(request: play.mvc.Http.Request)
+POST    /private/v2/org/preferences/read		@controllers.tenantpreference.TenantPreferenceController.getTenantPreference(request: play.mvc.Http.Request)
+
+#Location API
+POST    /v1/location/create                     @controllers.location.LocationController.createLocation(request: play.mvc.Http.Request)
+PATCH   /v1/location/update                     @controllers.location.LocationController.updateLocation(request: play.mvc.Http.Request)
+POST    /v1/location/search                     @controllers.location.LocationController.searchLocation(request: play.mvc.Http.Request)
+DELETE  /v1/location/delete/:locationId         @controllers.location.LocationController.deleteLocation(locationId:String, request: play.mvc.Http.Request)
+
+# System Settings APIs
+GET     /v1/system/settings/get/:field          @controllers.systemsettings.SystemSettingsController.getSystemSetting(field:String, request: play.mvc.Http.Request)
+GET     /v1/system/settings/list                @controllers.systemsettings.SystemSettingsController.getAllSystemSettings(request: play.mvc.Http.Request)
+POST    /v1/system/settings/set                 @controllers.systemsettings.SystemSettingsController.setSystemSetting(request: play.mvc.Http.Request)
+
+
+POST	/v1/user/delete                         @controllers.usermanagement.UserStatusController.deleteUser(request: play.mvc.Http.Request)
+POST    /v1/user/ownership/transfer             @controllers.usermanagement.UserController.ownershipTransferUser(request: play.mvc.Http.Request)
+
+# ==========================================
+# LMS Routes
+# ==========================================
+
+# OPTIONS    /*all                        @controllers.LearnerController.preflight(all)
+
+# Health Check APIs (Commented out)
+# GET  /health                                  @controllers.healthmanager.HealthController.getHealth(request: play.mvc.Http.Request)
+# GET  /service/health                      @controllers.healthmanager.HealthController.getServiceHealth(request: play.mvc.Http.Request)
+
+# Sync API (Note: UserOrg also has /v1/data/sync. Duplicate route handling?)
+# POST /v1/data/sync                          @controllers.search.SearchController.sync(request: play.mvc.Http.Request)
+
+# Cache APIs
+DELETE /v1/cache/clear/:mapName @controllers.cache.CacheController.clearCache(mapName:String, request: play.mvc.Http.Request)
+
+# Course Management APIs
+GET      /v1/user/courses/list/:uid	    @controllers.courseenrollment.CourseEnrollmentController.getEnrolledCourses(uid:String, request: play.mvc.Http.Request)
+GET      /private/v1/user/courses/list/:uid	    @controllers.courseenrollment.CourseEnrollmentController.privateGetEnrolledCourses(uid:String, request: play.mvc.Http.Request)
+POST     /v2/user/courses/list	    @controllers.courseenrollment.CourseEnrollmentController.getUserEnrolledCourses(request: play.mvc.Http.Request)
+POST     /v2/user/courses/admin/list	    @controllers.courseenrollment.CourseEnrollmentController.adminGetUserEnrolledCourses(request: play.mvc.Http.Request)
+POST     /private/v2/user/courses/list	    @controllers.courseenrollment.CourseEnrollmentController.privateGetUserEnrolledCourses(request: play.mvc.Http.Request)
+POST     /v1/course/enroll	    		@controllers.courseenrollment.CourseEnrollmentController.enrollCourse(request: play.mvc.Http.Request)
+POST     /v1/course/unenroll             @controllers.courseenrollment.CourseEnrollmentController.unenrollCourse(request: play.mvc.Http.Request)
+POST     /v1/course/admin/enroll	    		@controllers.courseenrollment.CourseEnrollmentController.adminEnrollCourse(request: play.mvc.Http.Request)
+POST     /v1/course/admin/unenroll             @controllers.courseenrollment.CourseEnrollmentController.adminUnenrollCourse(request: play.mvc.Http.Request)
+POST /v1/batch/bulk/enrollment          @controllers.bulkapimanagement.LmsBulkUploadController.batchEnrollmentBulkUpload(request: play.mvc.Http.Request)
+POST /v1/batch/bulk/unenrollment          @controllers.bulkapimanagement.LmsBulkUploadController.batchUnEnrollmentBulkUpload(request: play.mvc.Http.Request)
+POST     /v1/content/state/read	        @controllers.LearnerController.getContentState(request: play.mvc.Http.Request)
+POST     /private/v1/content/state/read	        @controllers.LearnerController.privateGetContentState(request: play.mvc.Http.Request)
+PATCH    /v1/user/content/state     	@controllers.LearnerController.updateContentState(request: play.mvc.Http.Request)
+PATCH    /v1/content/state/update     	@controllers.LearnerController.updateContentState(request: play.mvc.Http.Request)
+
+# Assessment APIs
+POST     /v1/assessment/agg             @controllers.LearnerController.aggregateAssessment(request: play.mvc.Http.Request)
+
+# Upload Job Management APIs
+GET  /v1/upload/status/:pid             @controllers.bulkapimanagement.LmsBulkUploadController.getUploadStatus(pid:String, request: play.mvc.Http.Request)
+GET  /v1/upload/statusDownloadLink/:pid @controllers.bulkapimanagement.LmsBulkUploadController.getStatusDownloadLink(pid:String, request: play.mvc.Http.Request)
+
+# Page Management APIs
+POST	/v1/page/create				  @controllers.pagemanagement.PageController.createPage(request: play.mvc.Http.Request)
+PATCH	/v1/page/update				  @controllers.pagemanagement.PageController.updatePage(request: play.mvc.Http.Request)
+GET	    /v1/page/read/:pageId    		  @controllers.pagemanagement.PageController.getPageSetting(pageId:String, organisationId:String ?= null, request: play.mvc.Http.Request)
+GET	    /v1/page/all/settings			  @controllers.pagemanagement.PageController.getPageSettings(request: play.mvc.Http.Request)
+POST     /v1/page/assemble		  @controllers.pagemanagement.PageController.getPageData(request: play.mvc.Http.Request)
+POST     /v1/dial/assemble		  @controllers.pagemanagement.PageController.getDIALPageData(request: play.mvc.Http.Request)
+
+# Page Section Management APIs
+POST	/v1/page/section/create				  @controllers.pagemanagement.PageController.createPageSection(request: play.mvc.Http.Request)
+PATCH	/v1/page/section/update				  @controllers.pagemanagement.PageController.updatePageSection(request: play.mvc.Http.Request)
+GET	    /v1/page/section/list			@controllers.pagemanagement.PageController.getSections(request: play.mvc.Http.Request)
+GET     /v1/page/section/read/:sectionId		      @controllers.pagemanagement.PageController.getSection(sectionId:String, request: play.mvc.Http.Request)
+
+# Course Batch APIs
+POST     /v1/course/batch/create				@controllers.coursemanagement.CourseBatchController.createBatch(request: play.mvc.Http.Request)
+POST     /private/v1/course/batch/create		@controllers.coursemanagement.CourseBatchController.privateCreateBatch(request: play.mvc.Http.Request)
+PATCH 	 /v1/course/batch/update				@controllers.coursemanagement.CourseBatchController.updateBatch(request: play.mvc.Http.Request)
+GET		 /v1/course/batch/read/:batchId			@controllers.coursemanagement.CourseBatchController.getBatch(batchId:String, request: play.mvc.Http.Request)
+POST     /v1/course/batch/search                @controllers.coursemanagement.CourseBatchController.search(request: play.mvc.Http.Request)
+POST		 /v1/batch/participants/list			@controllers.coursemanagement.CourseBatchController.getParticipants(request: play.mvc.Http.Request)
+
+# Certificate APIs
+POST /v1/course/batch/cert/issue           @controllers.certificate.CertificateController.issueCertificate(request: play.mvc.Http.Request)
+PATCH /v1/course/batch/cert/template/add           @controllers.certificate.CertificateController.addCertificate(request: play.mvc.Http.Request)
+PATCH /v1/course/batch/cert/template/remove           @controllers.certificate.CertificateController.deleteCertificate(request: play.mvc.Http.Request)
+
+#QR Code Download APIs
+POST  /v1/course/qrcode/download                @controllers.qrcodedownload.QRCodeDownloadController.downloadQRCodes(request: play.mvc.Http.Request)
+
+#Course create APIs
+POST /v1/course/create              @controllers.coursemanagement.CourseController.createCourse(request: play.mvc.Http.Request)
+
+#Group APIs
+POST /v1/group/activity/agg                     @controllers.group.GroupAggController.getGroupActivityAggregates(request: play.mvc.Http.Request)
+
+#Summary Aggregate
+POST /v1/collection/summary                     @controllers.collectionsummaryaggregate.CollectionSummaryAggregateController.getCollectionSummaryAggregate(request: play.mvc.Http.Request)
+
+#Activity Aggregate
+POST /v1/activity/agg                           @controllers.activityaggregate.ActivityAggregateController.updateActivityAggregates(request: play.mvc.Http.Request)
+
+#Exhaust Proxy APIs
+POST /v1/jobrequest/submit                      @controllers.exhaustjob.ExhaustJobController.submitJobRequest(request: play.mvc.Http.Request)
+GET /v1/jobrequest/list/:tag                    @controllers.exhaustjob.ExhaustJobController.listJobRequest(tag:String, request: play.mvc.Http.Request)
+
+
+# ==========================================
+# Notification Routes
+# ==========================================
+
+# Health Check APIs (Commented out)
+# GET  /health                               @controllers.health.HealthController.getHealth(request: play.mvc.Http.Request)
+# GET  /:service/health                      @controllers.health.HealthController.getServiceHealth(request: play.mvc.Http.Request)
+
+POST /v1/notification/send				   @controllers.notification.NotificationController.sendNotification(request: play.mvc.Http.Request)
+POST /v1/notification/send/sync			   @controllers.notification.NotificationController.sendSyncNotification(request: play.mvc.Http.Request)
+POST /v1/notification/otp/verify           @controllers.notification.NotificationController.verifyOTP(request: play.mvc.Http.Request)
+
+# Logs Management APIs
+# POST    /v1.3/system/log/update           @controllers.logsmanager.LogController.setLogLevel()
+
+POST /v2/notification/send                 @controllers.notification.NotificationController.sendV2Notification(request: play.mvc.Http.Request)
+
+GET  /v1/notification/feed/read/:userId    @controllers.notification.NotificationController.readFeedNotification(userId: String, request: play.mvc.Http.Request)
+
+PATCH /v1/notification/feed/update         @controllers.notification.NotificationController.updateNotificationFeed(request: play.mvc.Http.Request)
+
+GET  /private/v1/notification/feed/read/:userId   @controllers.notification.NotificationController.readV1FeedNotification(userId: String, request: play.mvc.Http.Request)
+
+POST /private/v2/notification/send                @controllers.notification.NotificationController.sendV1Notification(request: play.mvc.Http.Request)
+
+POST /v1/notification/feed/delete                     @controllers.notification.NotificationController.deleteNotification(request: play.mvc.Http.Request)
+
+POST /private/v1/notification/feed/delete             @controllers.notification.NotificationController.deleteV1Notification(request: play.mvc.Http.Request)
+
+PATCH /private/v1/notification/feed/update         @controllers.notification.NotificationController.updateV1NotificationFeed(request: play.mvc.Http.Request)
+
+GET  /v1/notification/template/list                @controllers.notification.NotificationTemplateController.listTemplate(request: play.mvc.Http.Request)
+
+POST  /v1/notification/template/create             @controllers.notification.NotificationTemplateController.createTemplate(request: play.mvc.Http.Request)
+
+POST  /v1/notification/template/delete             @controllers.notification.NotificationTemplateController.deleteTemplate(request: play.mvc.Http.Request)
+
+PATCH /v1/notification/template/update             @controllers.notification.NotificationTemplateController.updateTemplate(request: play.mvc.Http.Request)
+
+PATCH /v1/notification/template/action/update       @controllers.notification.NotificationTemplateController.upsertActionTemplate(request: play.mvc.Http.Request)
+
+GET /v1/notification/template/:action            @controllers.notification.NotificationTemplateController.getAction(action: String, request: play.mvc.Http.Request)
