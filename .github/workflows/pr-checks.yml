@@ -155,13 +155,16 @@ jobs:
           path: modules/notification
 
       - name: Run Aggregated SonarQube Analysis
-        if: ${{ secrets.SONAR_TOKEN != '' }}
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mvn -pl lern-report verify sonar:sonar \
-            -Dsonar.projectKey=sunbird-lern_lern-service \
-            -Dsonar.organization=sunbird-lern \
-            -Dsonar.host.url=https://sonarcloud.io \
-            -Dmaven.test.skip=true
+          if [ -n "$SONAR_TOKEN" ]; then
+            mvn -pl lern-report verify sonar:sonar \
+              -Dsonar.projectKey=sunbird-lern_lern-service \
+              -Dsonar.organization=sunbird-lern \
+              -Dsonar.host.url=https://sonarcloud.io \
+              -Dmaven.test.skip=true
+          else
+            echo "Skipping SonarQube analysis: SONAR_TOKEN is missing"
+          fi
