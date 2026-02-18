@@ -38,8 +38,8 @@ jobs:
             
       - name: Build Core
         run: |
-          mvn clean verify
-          
+          mvn clean install
+
       - name: Upload Core Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -66,7 +66,7 @@ jobs:
           
       - name: Build and Generate Coverage Report (UserOrg)
         run: |
-          mvn clean verify -P userorg
+          mvn verify -P userorg -rf :userorg-service
           
       - name: Upload UserOrg Artifacts
         uses: actions/upload-artifact@v4
@@ -106,7 +106,7 @@ jobs:
           
       - name: Build and Generate Coverage Report (LMS)
         run: |
-          mvn clean verify -P lms
+          mvn verify -P lms -rf :lms-service
           
       - name: Upload LMS Artifacts
         uses: actions/upload-artifact@v4
@@ -134,7 +134,7 @@ jobs:
           
       - name: Build and Generate Coverage Report (Notification)
         run: |
-          mvn clean verify -P notification
+          mvn verify -P notification -rf :notification-service
 
       - name: Upload Notification Artifacts
         uses: actions/upload-artifact@v4
