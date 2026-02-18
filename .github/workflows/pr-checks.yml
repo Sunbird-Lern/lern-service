@@ -26,7 +26,7 @@ jobs:
             
       - name: Build Core
         run: |
-          mvn clean install -pl core -am -DskipTests
+          mvn clean verify
           
       - name: Upload Core Artifacts
         uses: actions/upload-artifact@v4
@@ -54,7 +54,7 @@ jobs:
           
       - name: Build and Generate Coverage Report (UserOrg)
         run: |
-          mvn clean verify -P userorg -pl modules/userorg jacoco:report
+          mvn clean verify -P userorg
           
       - name: Upload UserOrg Artifacts
         uses: actions/upload-artifact@v4
@@ -82,7 +82,7 @@ jobs:
           
       - name: Build and Generate Coverage Report (LMS)
         run: |
-          mvn clean verify -P lms -pl modules/lms jacoco:report
+          mvn clean verify -P lms
           
       - name: Upload LMS Artifacts
         uses: actions/upload-artifact@v4
@@ -110,7 +110,7 @@ jobs:
           
       - name: Build and Generate Coverage Report (Notification)
         run: |
-          mvn clean verify -P notification -pl modules/notification jacoco:report
+          mvn clean verify -P notification
 
       - name: Upload Notification Artifacts
         uses: actions/upload-artifact@v4
