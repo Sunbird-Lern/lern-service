@@ -184,11 +184,18 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -n "$SONAR_TOKEN" ]; then
-            mvn -P lern -pl lern-report -am verify sonar:sonar \
+            # 1. Aggregate coverage reports using strictly pre-built target folders
+            # We skip compilation entirely to prevent Maven from rebuilding due to GHA timestamp changes.
+            mvn -P lern -pl lern-report -am jacoco:report-aggregate \
+              -DskipTests -Dmaven.main.compile.skip=true -Dmaven.test.compile.skip=true -Dcheckstyle.skip
+
+            # 2. Run Sonar analysis on the entire project
+            mvn -P lern sonar:sonar \
               -Dsonar.projectKey=lern-service \
               -Dsonar.organization=sunbird-lern \
               -Dsonar.host.url=https://sonarcloud.io \
-              -Dmaven.test.skip=true
+              -Dsonar.coverage.jacoco.xmlReportPaths=lern-report/target/site/jacoco-aggregate/jacoco.xml \
+              -DskipTests -Dmaven.main.compile.skip=true -Dmaven.test.compile.skip=true -Dcheckstyle.skip
           else
             echo "Skipping SonarQube analysis: SONAR_TOKEN is missing"
           fi
