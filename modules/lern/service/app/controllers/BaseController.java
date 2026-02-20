@@ -128,6 +128,8 @@ public class BaseController extends Controller {
                 (String) context.get(JsonKey.X_Source),
                 (String) ((context.get(JsonKey.X_TRACE_ENABLED) != null) ? context.get(JsonKey.X_TRACE_ENABLED) : debugEnabled),
                 request.getOperation());
+            requestContext.setActorId((String) context.get(JsonKey.ACTOR_ID));
+            requestContext.setActorType((String) context.get(JsonKey.ACTOR_TYPE));
             requestContext.setTelemetryContext(requestInfo);
             return requestContext;
         }

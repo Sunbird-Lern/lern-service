@@ -1,26 +1,44 @@
 package modules;
 
-import java.util.concurrent.CompletableFuture;
+import org.apache.pekko.actor.ActorSystem;
+import java.util.concurrent.TimeUnit;
 import javax.inject.Inject;
+import javax.inject.Provider;
 import javax.inject.Singleton;
 import org.sunbird.logging.LoggerUtil;
-import play.api.inject.ApplicationLifecycle;
+import org.sunbird.common.ProjectUtil;
+import play.api.Application;
+import play.api.Play;
+import scala.concurrent.duration.Duration;
+import scala.concurrent.duration.FiniteDuration;
+import sun.misc.Signal;
 
 @Singleton
 public class SignalHandler {
     private static LoggerUtil logger = new LoggerUtil(SignalHandler.class);
 
+    private static long stopDelay = Long.parseLong(ProjectUtil.getConfigValue("sigterm_stop_delay"));
+    private static final FiniteDuration STOP_DELAY = Duration.create(stopDelay, TimeUnit.SECONDS);
+
     private volatile boolean isShuttingDown = false;
 
     @Inject
-    public SignalHandler(ApplicationLifecycle applicationLifecycle) {
-        logger.info("SignalHandler: Initializing");
-        applicationLifecycle.addStopHook(
-            () -> {
+    public SignalHandler(ActorSystem actorSystem, Provider<Application> applicationProvider) {
+        logger.info("SignalHandler: Initializing with SIGTERM handler");
+        Signal.handle(
+            new Signal("TERM"),
+            signal -> {
                 isShuttingDown = true;
-                logger.info("SignalHandler: Clean shutdown init");
-                // Add any cleanup logic here
-                return CompletableFuture.completedFuture(null);
+                logger.info("Termination required, swallowing SIGTERM to allow current requests to finish");
+                actorSystem
+                    .scheduler()
+                    .scheduleOnce(
+                        STOP_DELAY,
+                        () -> {
+                            logger.info("SignalHandler: Stopping application after delay");
+                            Play.stop(applicationProvider.get());
+                        },
+                        actorSystem.dispatcher());
             });
     }
 

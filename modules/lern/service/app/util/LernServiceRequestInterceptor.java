@@ -191,7 +191,12 @@ public class LernServiceRequestInterceptor {
     if (!isRequestInExcludeList(request.path()) && !isRequestPrivate(request.path())) {
       // The API must be invoked with either access token or client token.
       if (accessToken.isPresent()) {
-        clientId = AccessTokenValidator.verifyUserToken(accessToken.get(), requestContext);
+        // This is to handle Mobile App expired token for content state update API.
+        if (StringUtils.contains(request.path(), "v1/content/state/update")) {
+          clientId = AccessTokenValidator.verifyUserToken(accessToken.get(), false);
+        } else {
+          clientId = AccessTokenValidator.verifyUserToken(accessToken.get(), requestContext);
+        }
 
         if (!JsonKey.USER_UNAUTH_STATES.contains(clientId)) {
           String requestedForUserID = getUserRequestedFor(request);
@@ -225,7 +230,12 @@ public class LernServiceRequestInterceptor {
       if (accessToken.isPresent()) {
         String clientAccessTokenId = null;
         try {
-          clientAccessTokenId = AccessTokenValidator.verifyUserToken(accessToken.get(), requestContext);
+          // This is to handle Mobile App expired token for content state update API.
+          if (StringUtils.contains(request.path(), "v1/content/state/update")) {
+            clientAccessTokenId = AccessTokenValidator.verifyUserToken(accessToken.get(), false);
+          } else {
+            clientAccessTokenId = AccessTokenValidator.verifyUserToken(accessToken.get(), requestContext);
+          }
           if (JsonKey.UNAUTHORIZED.equalsIgnoreCase(clientAccessTokenId)) {
             clientAccessTokenId = null;
           }

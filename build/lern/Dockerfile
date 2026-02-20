@@ -25,5 +25,5 @@ CMD java -XX:+PrintFlagsFinal $JAVA_OPTIONS \
   -Dlog4j2.formatMsgNoLookups=true \
   -Dplay.server.http.idleTimeout=180s \
   -Dlogback.configurationFile=/home/sunbird/lern-service-impl-1.0-SNAPSHOT/conf/logback.xml \
-  -cp '/home/sunbird/lern-service-impl-1.0-SNAPSHOT/lib/*' \
+  -cp '/home/sunbird/lern-service-impl-1.0-SNAPSHOT/lib/lern-service-impl-1.0-SNAPSHOT.jar:/home/sunbird/lern-service-impl-1.0-SNAPSHOT/lib/*' \
   play.core.server.ProdServerStart /home/sunbird/lern-service-impl-1.0-SNAPSHOT
