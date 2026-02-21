@@ -8,6 +8,8 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -78,10 +80,24 @@ public class ElasticSearchHelper {
   public static final String RAW_APPEND = ".raw";
   
   /** Cache for verifying index existence. */
-  protected static Map<String, Boolean> indexMap = new HashMap<>();
+  // ML-01: Using bounded LRU cache (max 500 entries) for memory efficiency
+  protected static final Map<String, Boolean> indexMap = Collections.synchronizedMap(
+      new LinkedHashMap<String, Boolean>(500, 0.75f, true) {
+          @Override
+          protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
+              return size() > 500;
+          }
+      });
   
   /** Cache for verifying type existence. */
-  protected static Map<String, Boolean> typeMap = new HashMap<>();
+  // ML-01: Using bounded LRU cache (max 500 entries) for memory efficiency
+  protected static final Map<String, Boolean> typeMap = Collections.synchronizedMap(
+      new LinkedHashMap<String, Boolean>(500, 0.75f, true) {
+          @Override
+          protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
+              return size() > 500;
+          }
+      });
   
   /** Default wait time in seconds for async operations. */
   public static final int WAIT_TIME = 5;
@@ -129,7 +145,7 @@ public class ElasticSearchHelper {
   public static SearchRequestBuilder addAggregations(
       SearchRequestBuilder searchRequestBuilder, List<Map<String, String>> facets) {
     long startTime = System.currentTimeMillis();
-    logger.debug("ElasticSearchHelper:addAggregations: method started at " + startTime);
+    logger.debug("ElasticSearchHelper:addAggregations: method started at {}", startTime);
 
     if (searchRequestBuilder != null && CollectionUtils.isNotEmpty(facets)) {
       Map<String, String> map = facets.get(0);
@@ -152,7 +168,7 @@ public class ElasticSearchHelper {
     }
 
     long elapsedTime = calculateEndTime(startTime);
-    logger.debug("ElasticSearchHelper:addAggregations: method ended. Total time elapsed = " + elapsedTime);
+    logger.debug("ElasticSearchHelper:addAggregations: method ended. Total time elapsed = {}", elapsedTime);
     return searchRequestBuilder;
   }
 
@@ -193,7 +209,7 @@ public class ElasticSearchHelper {
   public static void addAdditionalProperties(
       BoolQueryBuilder query, Entry<String, Object> entry, Map<String, Float> constraintsMap) {
     long startTime = System.currentTimeMillis();
-    logger.debug("ElasticSearchHelper:addAdditionalProperties: method started at " + startTime);
+    logger.debug("ElasticSearchHelper:addAdditionalProperties: method started at {}", startTime);
 
     String key = entry.getKey();
     Object value = entry.getValue();
@@ -220,7 +236,7 @@ public class ElasticSearchHelper {
     }
 
     long elapsedTime = calculateEndTime(startTime);
-    logger.debug("ElasticSearchHelper:addAdditionalProperties: method ended. Total time elapsed = " + elapsedTime);
+    logger.debug("ElasticSearchHelper:addAdditionalProperties: method ended. Total time elapsed = {}", elapsedTime);
   }
 
   /**

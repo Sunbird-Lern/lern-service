@@ -1,0 +1,17 @@
+--- modules/userorg/controller/app/util/Attrs.java
++++ modules/userorg/controller/app/util/Attrs.java
+@@ -3,6 +3,14 @@ package util;
+ import org.sunbird.keys.JsonKey;
+ import play.libs.typedmap.TypedKey;
+ 
++/**
++ * @deprecated Use {@link org.sunbird.request.Attrs} from sunbird-platform-common instead.
++ * DC-02: This class will be removed after all services migrate to the shared version.
++ * Migration tracker: All constants consolidated in core/sunbird-platform-common
++ * 
++ * This local copy is retained only for backward compatibility during migration.
++ */
++@Deprecated
+ public class Attrs {
+   public static final TypedKey<String> USER_ID = TypedKey.<String>create(JsonKey.USER_ID);
+   public static final TypedKey<String> CONTEXT = TypedKey.<String>create(JsonKey.CONTEXT);

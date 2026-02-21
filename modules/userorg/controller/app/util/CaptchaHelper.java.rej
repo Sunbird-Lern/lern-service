@@ -1,0 +1,50 @@
+--- modules/userorg/controller/app/util/CaptchaHelper.java
++++ modules/userorg/controller/app/util/CaptchaHelper.java
+@@ -1,6 +1,5 @@
+ package util;
+ 
+-import com.fasterxml.jackson.databind.ObjectMapper;
+ import org.apache.commons.lang3.StringUtils;
+ import org.apache.http.HttpHeaders;
+ import org.apache.http.client.utils.URIBuilder;
+@@ -8,6 +7,7 @@ import org.sunbird.http.HttpClientUtil;
+ import org.sunbird.keys.JsonKey;
+ import org.sunbird.logging.LoggerUtil;
+ import org.sunbird.common.ProjectUtil;
++import org.sunbird.utils.JsonUtil;
+ 
+ import javax.ws.rs.core.MediaType;
+ import java.util.Arrays;
+@@ -21,7 +21,6 @@ public class CaptchaHelper {
+   String captchaUrl = null;
+   String mobilePrivateKey = null;
+   String portalPrivateKey = null;
+-  ObjectMapper mapper = new ObjectMapper();
+ 
+   public CaptchaHelper() {
+     captchaUrl = "https://www.google.com/recaptcha/api/siteverify";
+@@ -47,18 +46,18 @@ public class CaptchaHelper {
+               .addParameter("secret", secret)
+               .build()
+               .toString();
+-      logger.info("Calling Api: " + url);
+-      logger.info("Captcha: " + captcha);
++      logger.info("Calling Api: {}", url);
++      logger.info("Captcha: {}", captcha);
+       String response = HttpClientUtil.postFormData(url, requestMap, headers, null);
+-      Map<String, Object> responseMap = mapper.readValue(response, Map.class);
++      // ML-06: Use shared ObjectMapper singleton instead of creating new instance
++      Map<String, Object> responseMap = JsonUtil.MAPPER.readValue(response, Map.class);
+       isCaptchaValid = (boolean) responseMap.get("success");
+       if (!isCaptchaValid) {
+         List<String> errorLst = (List<String>) responseMap.get("error-codes");
+-        logger.info(
+-            "exception in validating the google captcha: " + Arrays.toString(errorLst.toArray()));
++        logger.info("exception in validating the google captcha: {}", Arrays.toString(errorLst.toArray()));
+       }
+     } catch (Exception e) {
+-      logger.error("exception in processing the captcha: " + captcha, e);
++      logger.error("exception in processing the captcha: {}", captcha, e);
+     }
+     return isCaptchaValid;
+   }

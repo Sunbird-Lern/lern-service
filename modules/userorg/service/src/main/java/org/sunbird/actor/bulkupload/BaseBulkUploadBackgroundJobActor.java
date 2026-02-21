@@ -109,8 +109,8 @@ public abstract class BaseBulkUploadBackgroundJobActor extends BaseBulkUploadAct
             "BaseBulkUploadBackGroundJobActor:processBulkUpload:{0}: ", bulkUploadProcess.getId());
     Integer sequence = 0;
     Integer taskCount = bulkUploadProcess.getTaskCount();
-    List<Map<String, Object>> successList = new LinkedList<>();
-    List<Map<String, Object>> failureList = new LinkedList<>();
+    List<Map<String, Object>> successList = new ArrayList<>();
+    List<Map<String, Object>> failureList = new ArrayList<>();
     while (sequence < taskCount) {
       Integer nextSequence = sequence + getBatchSize(JsonKey.CASSANDRA_WRITE_BATCH_SIZE);
       Map<String, Object> queryMap = new HashMap<>();

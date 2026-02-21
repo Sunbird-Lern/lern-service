@@ -1,0 +1,17 @@
+--- modules/userorg/service/src/main/java/org/sunbird/util/FormApiUtilHandler.java
++++ modules/userorg/service/src/main/java/org/sunbird/util/FormApiUtilHandler.java
+@@ -1,4 +1,5 @@
+ package org.sunbird.util;
++import org.sunbird.utils.JsonUtil;
+ 
+ import com.fasterxml.jackson.databind.ObjectMapper;
+ import java.io.IOException;
+@@ -59,7 +60,7 @@ public class FormApiUtilHandler {
+       FormApiUtilRequestPayload reqObject, RequestContext context) {
+ 
+     Map<String, Object> data = new HashMap<>();
+-    ObjectMapper mapper = new ObjectMapper();
++    ObjectMapper mapper = JsonUtil.MAPPER;
+     try {
+       String body = mapper.writeValueAsString(reqObject);
+       logger.info(

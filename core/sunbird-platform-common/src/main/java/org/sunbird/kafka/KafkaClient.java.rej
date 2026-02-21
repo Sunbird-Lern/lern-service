@@ -1,0 +1,37 @@
+--- core/sunbird-platform-common/src/main/java/org/sunbird/kafka/KafkaClient.java
++++ core/sunbird-platform-common/src/main/java/org/sunbird/kafka/KafkaClient.java
+@@ -44,6 +44,7 @@ public class KafkaClient {
+     loadProducerProperties();
+     loadConsumerProperties();
+     loadTopics();
++    registerShutDownHook();
+   }
+ 
+   public static void init() {
+@@ -201,4 +202,26 @@ public class KafkaClient {
+     props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+     return props;
+   }
++  /**
++   * ML-02: Registers a JVM shutdown hook to gracefully close Kafka producer and consumer.
++   * This ensures proper cleanup of resources when the application terminates.
++   */
++  public static void registerShutDownHook() {
++    Runtime.getRuntime().addShutdownHook(new Thread(() -> {
++      try {
++        if (producer != null) {
++          producer.flush();
++          producer.close();
++          logger.info("Kafka producer closed on shutdown");
++        }
++        if (consumer != null) {
++          consumer.close();
++          logger.info("Kafka consumer closed on shutdown");
++        }
++      } catch (Exception e) {
++        logger.error("Error during Kafka shutdown: {}", e.getMessage(), e);
++      }
++    }));
++  }
++
+ }

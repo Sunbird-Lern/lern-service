@@ -1,0 +1,33 @@
+--- modules/lms/service/app/modules/StartModule.java
++++ modules/lms/service/app/modules/StartModule.java
+@@ -1,6 +1,8 @@
+ package modules;
+ 
+ import com.google.inject.AbstractModule;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
+ import org.sunbird.cache.util.RedisCacheUtil;
+ 
+ /**
+@@ -10,9 +12,11 @@ import org.sunbird.cache.util.RedisCacheUtil;
+  * @author Jaikumar Soundara Rajan
+  */
+ public class StartModule extends AbstractModule {
++    private static final Logger logger = LoggerFactory.getLogger(StartModule.class);
++
+     @Override
+     protected void configure() {
+-        System.out.println("StartModule:configure: Start");
++        logger.info("StartModule:configure: Start");
+         try {
+             bind(ApplicationStart.class).asEagerSingleton();
+             bind(RedisCacheUtil.class).asEagerSingleton();
+@@ -20,7 +24,7 @@ public class StartModule extends AbstractModule {
+             e.printStackTrace();
+             throw e;
+         }
+-        System.out.println("StartModule:configure: End");
++        logger.info("StartModule:configure: End");
+ 
+     }
+ }

@@ -1,0 +1,45 @@
+--- core/sunbird-redis-utils/src/main/java/org/sunbird/redis/RedisConnectionManager.java
++++ core/sunbird-redis-utils/src/main/java/org/sunbird/redis/RedisConnectionManager.java
+@@ -25,6 +25,11 @@ public class RedisConnectionManager {
+   private static RedissonClient client = null;
+   private static final LoggerUtil logger = new LoggerUtil(RedisConnectionManager.class);
+ 
++
++  static {
++    registerShutDownHook();
++  }
++
+   /**
+    * Returns the singleton RedissonClient instance, initializing it if necessary.
+    *
+@@ -34,7 +39,7 @@ public class RedisConnectionManager {
+     if (client == null) {
+       logger.info( "RedisConnectionManager:getClient: Redis client is null, initializing...");
+       boolean start = initialiseConnection();
+-      logger.info( "RedisConnectionManager:getClient: Connection status = " + start);
++      logger.info("RedisConnectionManager:getClient: Connection status = {}", start);
+     }
+     return client;
+   }
+@@ -114,4 +119,21 @@ public class RedisConnectionManager {
+           e);
+     }
+   }
++  /**
++   * ML-03: Registers a JVM shutdown hook to gracefully close the Redis client.
++   * This ensures proper cleanup of Redis connections when the application terminates.
++   */
++  private static void registerShutDownHook() {
++    Runtime.getRuntime().addShutdownHook(new Thread(() -> {
++      try {
++        if (client != null && !client.isShutdown()) {
++          client.shutdown();
++          logger.info("Redis client shut down gracefully");
++        }
++      } catch (Exception e) {
++        logger.error("Error during Redis shutdown: {}", e.getMessage(), e);
++      }
++    }));
++  }
++
+ }

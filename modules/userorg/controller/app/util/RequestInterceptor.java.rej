@@ -1,0 +1,20 @@
+--- modules/userorg/controller/app/util/RequestInterceptor.java
++++ modules/userorg/controller/app/util/RequestInterceptor.java
+@@ -121,7 +121,7 @@ public class RequestInterceptor {
+         }
+       }
+     } catch (Exception e) {
+-      logger.error("Likely a possibility? " + request.uri(), e);
++      logger.error("Likely a possibility? {}", request.uri(), e);
+     }
+     return requestedForUserID;
+   }
+@@ -170,7 +170,7 @@ public class RequestInterceptor {
+         userAuthentication.put(JsonKey.USER_ID, clientId);
+         userAuthentication.put(JsonKey.MANAGED_FOR, managedForId);
+       } else {
+-        logger.info("Token not present in request: " + request.getHeaders().toMap());
++        logger.info("Token not present in request: {}", request.getHeaders().toMap());
+       }
+     } else {
+       if (accessToken.isPresent()) {

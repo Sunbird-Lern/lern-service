@@ -1,0 +1,10 @@
+--- core/pom.xml
++++ core/pom.xml
+@@ -51,6 +51,7 @@
+         <logstash-logback-encoder.version>7.3</logstash-logback-encoder.version>
+         
+         <!-- Apache Commons -->
++        <!-- SECURITY: CVE-2015-4852 - migrate to commons-collections4 4.4 (Task DV-07) -->
+         <commons-collections.version>3.2.2</commons-collections.version>
+         <commons-collections4.version>4.4</commons-collections4.version>
+         <commons-lang3.version>3.12.0</commons-lang3.version>

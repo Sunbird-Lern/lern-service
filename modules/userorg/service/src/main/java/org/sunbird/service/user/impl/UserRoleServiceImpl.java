@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -38,7 +37,7 @@ public class UserRoleServiceImpl implements UserRoleService {
   public List<Map<String, Object>> updateUserRole(Map userRequest, RequestContext context) {
     List<Map<String, Object>> userRoleListResponse = new ArrayList<>();
     List<String> userRolesToInsert;
-    List<Map> scopeList = new LinkedList();
+    List<Map> scopeList = new ArrayList();
     String scopeListString = createRoleScope(scopeList, userRequest);
     userRequest.put(JsonKey.SCOPE_STR, scopeListString);
     String roleOperation = (String) userRequest.get(JsonKey.ROLE_OPERATION);

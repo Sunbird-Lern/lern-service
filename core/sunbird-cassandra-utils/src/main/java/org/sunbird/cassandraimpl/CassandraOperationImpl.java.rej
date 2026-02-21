@@ -1,0 +1,21 @@
+--- core/sunbird-cassandra-utils/src/main/java/org/sunbird/cassandraimpl/CassandraOperationImpl.java
++++ core/sunbird-cassandra-utils/src/main/java/org/sunbird/cassandraimpl/CassandraOperationImpl.java
+@@ -3302,10 +3460,14 @@ public abstract class CassandraOperationImpl implements CassandraOperation {
+           e.getWriteType().name(),
+           e));
+ 
+-      // TODO: Fix undefined 'writeType' variable reference
+-      // Original code checked: if (writeType.contains(e.getWriteType().name()))
+-      // For now, we'll treat WriteTimeoutException as potential success
+-      response.put(Constants.RESPONSE, Constants.SUCCESS);
++      // Check if this is a known write type that was attempted
++      if (writeType.contains(e.getWriteType().name())) {
++        // Write may have succeeded despite timeout, treat as success
++        response.put(Constants.RESPONSE, Constants.SUCCESS);
++      } else {
++        // Unknown write type, throw the exception
++        throw e;
++      }
+ 
+     } catch (QueryExecutionException e) {
+       // Handle query execution errors
