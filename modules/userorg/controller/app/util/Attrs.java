@@ -1,23 +1,27 @@
 package util;
 
-import org.sunbird.keys.JsonKey;
-import play.libs.typedmap.TypedKey;
-
 /**
- * @deprecated Use {@link org.sunbird.request.Attrs} from sunbird-platform-common instead.
- * DC-02: This class will be removed after all services migrate to the shared version.
- * Migration tracker: All constants consolidated in core/sunbird-platform-common
+ * DC-02: DEPRECATED - Use org.sunbird.request.Attrs instead
  * 
- * This local copy is retained only for backward compatibility during migration.
+ * This class is kept for backward compatibility during migration.
+ * All new code should import from: org.sunbird.request.Attrs
+ * 
+ * The unified request attribute constants are now maintained in the core module
+ * at core/sunbird-platform-common/src/main/java/org/sunbird/request/Attrs.java
+ * 
+ * Migration instructions:
+ * 1. Replace: import util.Attrs;
+ *    With: import org.sunbird.request.Attrs;
+ * 2. All constant names are the same (standardized to underscore convention)
+ * 3. No logic changes needed, just update imports
+ * 
+ * Note on naming: This module previously used REQUEST_ID; core uses X_REQUEST_ID
+ * for HTTP header consistency. Both are deprecated aliases for the same header.
  */
-@Deprecated
+@Deprecated(since = "1.0", forRemoval = true)
 public class Attrs {
-  public static final TypedKey<String> USER_ID = TypedKey.<String>create(JsonKey.USER_ID);
-  public static final TypedKey<String> CONTEXT = TypedKey.<String>create(JsonKey.CONTEXT);
-  public static final TypedKey<String> MANAGED_FOR = TypedKey.<String>create(JsonKey.MANAGED_FOR);
-  public static final TypedKey<String> START_TIME = TypedKey.<String>create(JsonKey.START_TIME);
-  public static final TypedKey<String> AUTH_WITH_MASTER_KEY =
-      TypedKey.<String>create(JsonKey.AUTH_WITH_MASTER_KEY);
-  public static final TypedKey<String> IS_AUTH_REQ = TypedKey.<String>create(JsonKey.IS_AUTH_REQ);
-  public static final TypedKey<String> X_REQUEST_ID = TypedKey.<String>create(JsonKey.X_REQUEST_ID);
+  // This class is deprecated. Import from org.sunbird.request.Attrs instead.
+  private Attrs() {
+    throw new AssertionError("Use org.sunbird.request.Attrs instead");
+  }
 }
