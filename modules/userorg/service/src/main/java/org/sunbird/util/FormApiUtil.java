@@ -1,4 +1,5 @@
 package org.sunbird.util;
+import org.sunbird.utils.JsonUtil;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -46,7 +47,7 @@ public class FormApiUtil {
     public static Map<String, Object> getFormConfigFromFile() {
         Map<String, Object> formData = new HashMap<>();
         try {
-            formData = new ObjectMapper()
+            formData = JsonUtil.MAPPER
                     .readValue(ProjectUtil.getConfigValue(JsonKey.USER_PROFILE_CONFIG_MAP), Map.class);
         } catch (JsonProcessingException e) {
             logger.error("Exception occurred while getting form-config from properties:"
