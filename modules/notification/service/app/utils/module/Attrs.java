@@ -1,12 +1,25 @@
 package utils.module;
 
-import play.libs.typedmap.TypedKey;
-import controllers.JsonKey;
-
+/**
+ * DC-02: DEPRECATED - Use org.sunbird.request.Attrs instead
+ * 
+ * This class is kept for backward compatibility during migration.
+ * All new code should import from: org.sunbird.request.Attrs
+ * 
+ * The unified request attribute constants are now maintained in the core module
+ * at core/sunbird-platform-common/src/main/java/org/sunbird/request/Attrs.java
+ * 
+ * Migration instructions:
+ * 1. Replace: import utils.module.Attrs;
+ *    With: import org.sunbird.request.Attrs;
+ * 2. Note: This module used USERID constant; core standardizes to USER_ID
+ *    Update all occurrences: Attrs.USERID -> Attrs.USER_ID
+ * 3. All other constant names are identical
+ */
+@Deprecated(since = "1.0", forRemoval = true)
 public class Attrs {
-    public static final TypedKey<String> USERID = TypedKey.<String>create(JsonKey.USER_ID);
-    public static final TypedKey<String> CONTEXT = TypedKey.<String>create(JsonKey.CONTEXT);
-    public static final TypedKey<String> MANAGED_FOR = TypedKey.<String>create(JsonKey.MANAGED_FOR);
-    public static final TypedKey<String> X_REQUEST_ID = TypedKey.<String>create(JsonKey.X_REQUEST_ID);
-    public static final TypedKey<String> START_TIME = TypedKey.<String>create(JsonKey.START_TIME);
+  // This class is deprecated. Import from org.sunbird.request.Attrs instead.
+  private Attrs() {
+    throw new AssertionError("Use org.sunbird.request.Attrs instead");
+  }
 }
