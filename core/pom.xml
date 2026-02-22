@@ -129,7 +129,7 @@
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>${maven-surefire-plugin.version}</version>
                     <configuration>
-                        <argLine>--illegal-access=warn</argLine>
+                        <argLine>@{argLine} --illegal-access=warn</argLine>
                     </configuration>
                 </plugin>
             </plugins>

@@ -182,7 +182,41 @@
             <version>${play2.version}</version>
             <scope>test</scope>
         </dependency>
-        
+
+        <!-- Pekko TestKit Dependencies for testing actors -->
+        <dependency>
+            <groupId>org.apache.pekko</groupId>
+            <artifactId>pekko-actor-testkit-typed_${scala.major.version}</artifactId>
+            <version>${pekko.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.pekko</groupId>
+            <artifactId>pekko-testkit_${scala.major.version}</artifactId>
+            <version>${pekko.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- JUnit and Mockito for unit testing -->
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>3.12.4</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-inline</artifactId>
+            <version>3.12.4</version>
+            <scope>test</scope>
+        </dependency>
+
         <!-- Service Dependencies -->
         <!-- UserOrg Service (artifactId: service) -->
         <dependency>

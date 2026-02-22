@@ -21,6 +21,7 @@ import org.sunbird.helper.ServiceFactory;
 import org.sunbird.http.HttpUtil;
 import org.sunbird.keys.JsonKey;
 import org.sunbird.logging.LoggerUtil;
+import org.sunbird.operations.userorg.ActorOperations;
 import org.sunbird.request.Request;
 import org.sunbird.response.Response;
 import org.sunbird.util.Util;
@@ -32,7 +33,7 @@ import scala.concurrent.Future;
  * It consolidates health check logic from LMS, UserOrg, and Notification services.
  */
 @ActorConfig(
-    tasks = {"health", "healthCheck", "checkHealth"},
+    tasks = {"health", "healthCheck", "checkHealth", "actor", "cassandra", "es", "ekstep"},
     asyncTasks = {}
 )
 public class HealthActor extends BaseActor {
@@ -51,7 +52,8 @@ public class HealthActor extends BaseActor {
     }
 
     /**
-     * Entry point for message processing. Routes the health check request to the handler.
+     * Entry point for message processing. Routes the health check request to the appropriate handler.
+     * Supports component-specific health checks (cassandra, es, actor, ekstep) as well as full checks.
      *
      * @param request The incoming Request object.
      * @throws Throwable If any error occurs during message routing or processing.
@@ -59,7 +61,19 @@ public class HealthActor extends BaseActor {
     @Override
     public void onReceive(Request request) throws Throwable {
         if (request instanceof Request) {
-            checkAllComponentHealth(request);
+            String operation = request.getOperation();
+            if (ActorOperations.CASSANDRA.getValue().equalsIgnoreCase(operation)) {
+                checkCassandraHealth();
+            } else if (ActorOperations.ES.getValue().equalsIgnoreCase(operation)) {
+                checkEsHealth();
+            } else if (ActorOperations.ACTOR.getValue().equalsIgnoreCase(operation)) {
+                checkActorHealth();
+            } else if (ActorOperations.EKSTEP.getValue().equalsIgnoreCase(operation)) {
+                checkEkStepHealth();
+            } else {
+                // Default: full health check for "healthCheck", "health", "checkHealth"
+                checkAllComponentHealth(request);
+            }
         } else {
             onReceiveUnsupportedOperation();
         }
@@ -139,7 +153,7 @@ public class HealthActor extends BaseActor {
 
         // Construct Final Response
         finalResponseMap.put(JsonKey.CHECKS, responseList);
-        finalResponseMap.put(JsonKey.NAME, "Lern Service Health Check");
+        finalResponseMap.put(JsonKey.NAME, "Unified Lern Service Health Check");
         finalResponseMap.put(JsonKey.Healthy, isAllHealthy);
 
         Response response = new Response();
@@ -157,7 +171,7 @@ public class HealthActor extends BaseActor {
         try {
             String searchBaseUrl = ProjectUtil.getConfigValue(JsonKey.SEARCH_SERVICE_API_BASE_URL);
             String contentSearchUrl = PropertiesCache.getInstance().getProperty(JsonKey.EKSTEP_CONTENT_SEARCH_URL);
-            
+
             if (StringUtils.isBlank(searchBaseUrl) || StringUtils.isBlank(contentSearchUrl)) {
                  logger.info("HealthActor: Content service URLs not configured, skipping check.");
                  return true; // Treat as healthy if not configured to avoid false alarms
@@ -165,13 +179,13 @@ public class HealthActor extends BaseActor {
 
             String body = "{\"request\":{\"filters\":{\"identifier\":\"test\"}}}";
             Map<String, String> headers = new HashMap<>();
-            
+
             // Set Authorization Header
             String authKey = System.getenv(JsonKey.EKSTEP_AUTHORIZATION);
             if (StringUtils.isBlank(authKey)) {
                 authKey = PropertiesCache.getInstance().getProperty(JsonKey.EKSTEP_AUTHORIZATION);
             }
-            
+
             headers.put(JsonKey.AUTHORIZATION, JsonKey.BEARER + authKey);
             headers.put(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON);
             headers.put(HttpHeaders.ACCEPT_ENCODING, "UTF-8");
@@ -182,5 +196,118 @@ public class HealthActor extends BaseActor {
             logger.error("HealthActor: Error checking Content Service health", e);
             return false;
         }
+    }
+
+    /**
+     * Performs a Cassandra-only health check.
+     * Returns the result for Cassandra connectivity.
+     */
+    private void checkCassandraHealth() {
+        Map<String, Object> finalResponseMap = new HashMap<>();
+        List<Map<String, Object>> responseList = new ArrayList<>();
+        boolean isHealthy = true;
+
+        try {
+            Util.DbInfo orgTypeDbInfo = Util.dbInfoMap.get(JsonKey.ROLE);
+            String keyspace = (orgTypeDbInfo != null) ? orgTypeDbInfo.getKeySpace() :
+                               ProjectUtil.getConfigValue(JsonKey.SUNBIRD_KEYSPACE);
+            String table = (orgTypeDbInfo != null) ? orgTypeDbInfo.getTableName() : "user_org";
+
+            cassandraOperation.getRecordsWithLimit(keyspace, table, null, null, 1, null);
+            responseList.add(ProjectUtil.createCheckResponse(JsonKey.CASSANDRA_SERVICE, false, null));
+        } catch (Exception e) {
+            responseList.add(ProjectUtil.createCheckResponse(JsonKey.CASSANDRA_SERVICE, true, e));
+            isHealthy = false;
+            logger.error("HealthActor:checkCassandraHealth: Cassandra health check failed", e);
+        }
+
+        finalResponseMap.put(JsonKey.CHECKS, responseList);
+        finalResponseMap.put(JsonKey.NAME, "Cassandra Health Check");
+        finalResponseMap.put(JsonKey.Healthy, isHealthy);
+
+        Response response = new Response();
+        response.getResult().put(JsonKey.RESPONSE, finalResponseMap);
+        sender().tell(response, self());
+    }
+
+    /**
+     * Performs an Elasticsearch-only health check.
+     * Returns the result for Elasticsearch connectivity.
+     */
+    private void checkEsHealth() {
+        Map<String, Object> finalResponseMap = new HashMap<>();
+        List<Map<String, Object>> responseList = new ArrayList<>();
+        boolean isHealthy = true;
+
+        try {
+            Future<Boolean> responseF = esUtil.healthCheck();
+            boolean response = (boolean) ElasticSearchHelper.getResponseFromFuture(responseF);
+            responseList.add(ProjectUtil.createCheckResponse(JsonKey.ES_SERVICE, !response, null));
+            if (!response) {
+                isHealthy = false;
+            }
+        } catch (Exception e) {
+            responseList.add(ProjectUtil.createCheckResponse(JsonKey.ES_SERVICE, true, e));
+            isHealthy = false;
+            logger.error("HealthActor:checkEsHealth: Elasticsearch health check failed", e);
+        }
+
+        finalResponseMap.put(JsonKey.CHECKS, responseList);
+        finalResponseMap.put(JsonKey.NAME, "Elasticsearch Health Check");
+        finalResponseMap.put(JsonKey.Healthy, isHealthy);
+
+        Response response = new Response();
+        response.getResult().put(JsonKey.RESPONSE, finalResponseMap);
+        sender().tell(response, self());
+    }
+
+    /**
+     * Performs an actor-only health check.
+     * Simply confirms that the actor is responsive (by virtue of handling this request).
+     */
+    private void checkActorHealth() {
+        Map<String, Object> finalResponseMap = new HashMap<>();
+        List<Map<String, Object>> responseList = new ArrayList<>();
+
+        responseList.add(ProjectUtil.createCheckResponse(JsonKey.ACTOR_SERVICE, false, null));
+
+        finalResponseMap.put(JsonKey.CHECKS, responseList);
+        finalResponseMap.put(JsonKey.NAME, "Actor Health Check");
+        finalResponseMap.put(JsonKey.Healthy, true);
+
+        Response response = new Response();
+        response.getResult().put(JsonKey.RESPONSE, finalResponseMap);
+        sender().tell(response, self());
+    }
+
+    /**
+     * Performs a Content Service (EKStep)-only health check.
+     * Returns the result for Content Service connectivity.
+     */
+    private void checkEkStepHealth() {
+        Map<String, Object> finalResponseMap = new HashMap<>();
+        List<Map<String, Object>> responseList = new ArrayList<>();
+        boolean isHealthy = true;
+
+        try {
+            if (checkContentServiceHealth()) {
+                responseList.add(ProjectUtil.createCheckResponse(JsonKey.EKSTEP_SERVICE, false, null));
+            } else {
+                responseList.add(ProjectUtil.createCheckResponse(JsonKey.EKSTEP_SERVICE, true, null));
+                isHealthy = false;
+            }
+        } catch (Exception e) {
+            responseList.add(ProjectUtil.createCheckResponse(JsonKey.EKSTEP_SERVICE, true, e));
+            isHealthy = false;
+            logger.error("HealthActor:checkEkStepHealth: Content Service health check failed", e);
+        }
+
+        finalResponseMap.put(JsonKey.CHECKS, responseList);
+        finalResponseMap.put(JsonKey.NAME, "Content Service (EKStep) Health Check");
+        finalResponseMap.put(JsonKey.Healthy, isHealthy);
+
+        Response response = new Response();
+        response.getResult().put(JsonKey.RESPONSE, finalResponseMap);
+        sender().tell(response, self());
     }
 }

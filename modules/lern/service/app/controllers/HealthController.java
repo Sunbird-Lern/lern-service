@@ -59,6 +59,7 @@ public class HealthController extends Controller {
         list.add("actor");
         list.add("cassandra");
         list.add("es");
+        list.add("ekstep");
     }
 
     /**
@@ -86,34 +87,100 @@ public class HealthController extends Controller {
 
     /**
      * Provides category-specific health information or a basic service heartbeat.
+     * Routes component-specific checks (cassandra, es, actor) to the HealthActor with the appropriate operation.
+     * For "service", returns a lightweight heartbeat without component checks.
      *
-     * @param val         The health category (e.g., "service", "cassandra", "es").
+     * @param val         The health category (e.g., "service", "cassandra", "es", "actor").
      * @param httpRequest The incoming HTTP request.
      * @return A CompletionStage containing the specific health result.
      */
     public CompletionStage<Result> serviceHealth(String val, Http.Request httpRequest) {
-        if (list.contains(val) && !JsonKey.SERVICE.equalsIgnoreCase(val)) {
-            return health(httpRequest);
+        if (JsonKey.SERVICE.equalsIgnoreCase(val)) {
+            // Return lightweight heartbeat response
+            return sendHeartbeat(httpRequest);
+        } else if (list.contains(val)) {
+            // Route to specific health check based on the parameter
+            return sendCheckedHealth(val, httpRequest);
         } else {
-            try {
-                handleSigTerm();
-                Map<String, Object> finalResponseMap = new HashMap<>();
-                List<Map<String, Object>> responseList = new ArrayList<>();
-                responseList.add(ProjectUtil.createCheckResponse(JsonKey.LEARNER_SERVICE, false, null));
-                finalResponseMap.put(JsonKey.CHECKS, responseList);
-                finalResponseMap.put(JsonKey.NAME, "Lern Service health");
-                finalResponseMap.put(JsonKey.Healthy, true);
-                
-                Response response = new Response();
-                response.getResult().put(JsonKey.RESPONSE, finalResponseMap);
-                response.setId("api.lern.service.health");
-                response.setVer("1.0");
-                response.setTs(Common.getFromRequest(httpRequest, Attrs.REQUEST_ID));
-                return CompletableFuture.completedFuture(ok(play.libs.Json.toJson(response)));
-            } catch (Exception e) {
-                logger.error("HealthController:serviceHealth: Exception occurred", e);
-                return CompletableFuture.completedFuture(createErrorResponse(e, httpRequest));
+            // Unknown parameter - return heartbeat as fallback
+            return sendHeartbeat(httpRequest);
+        }
+    }
+
+    /**
+     * Sends a lightweight heartbeat response for the unified service.
+     * Indicates that the Unified Lern Service is operational and encompassing all modules.
+     *
+     * @param httpRequest The incoming HTTP request.
+     * @return A CompletionStage containing the heartbeat result.
+     */
+    private CompletionStage<Result> sendHeartbeat(Http.Request httpRequest) {
+        try {
+            handleSigTerm();
+            Map<String, Object> finalResponseMap = new HashMap<>();
+            List<Map<String, Object>> responseList = new ArrayList<>();
+            responseList.add(ProjectUtil.createCheckResponse(JsonKey.LEARNER_SERVICE, false, null));
+            responseList.add(ProjectUtil.createCheckResponse("userorg-module", false, null));
+            responseList.add(ProjectUtil.createCheckResponse("lms-module", false, null));
+            responseList.add(ProjectUtil.createCheckResponse("notification-module", false, null));
+            finalResponseMap.put(JsonKey.CHECKS, responseList);
+            finalResponseMap.put(JsonKey.NAME, "Unified Lern Service health");
+            finalResponseMap.put(JsonKey.Healthy, true);
+
+            Response response = new Response();
+            response.getResult().put(JsonKey.RESPONSE, finalResponseMap);
+            response.setId("api.lern.service.health");
+            response.setVer("1.0");
+            response.setTs(Common.getFromRequest(httpRequest, Attrs.REQUEST_ID));
+            return CompletableFuture.completedFuture(ok(play.libs.Json.toJson(response)));
+        } catch (Exception e) {
+            logger.error("HealthController:sendHeartbeat: Exception occurred", e);
+            return CompletableFuture.completedFuture(createErrorResponse(e, httpRequest));
+        }
+    }
+
+    /**
+     * Routes a component-specific health check to the HealthActor.
+     * Maps the category parameter to the corresponding ActorOperations enum value.
+     *
+     * @param category    The health check category (cassandra, es, actor, etc.).
+     * @param httpRequest The incoming HTTP request.
+     * @return A CompletionStage containing the component health check result.
+     */
+    private CompletionStage<Result> sendCheckedHealth(String category, Http.Request httpRequest) {
+        try {
+            handleSigTerm();
+            Request reqObj = new Request();
+
+            // Map category to ActorOperations enum value
+            String operation;
+            switch (category.toLowerCase()) {
+                case "cassandra":
+                    operation = ActorOperations.CASSANDRA.getValue();
+                    break;
+                case "es":
+                    operation = ActorOperations.ES.getValue();
+                    break;
+                case "actor":
+                    operation = ActorOperations.ACTOR.getValue();
+                    break;
+                case "ekstep":
+                    operation = ActorOperations.EKSTEP.getValue();
+                    break;
+                default:
+                    operation = ActorOperations.HEALTH_CHECK.getValue();
+                    break;
             }
+
+            reqObj.setOperation(operation);
+            reqObj.setRequestId(Common.getFromRequest(httpRequest, Attrs.REQUEST_ID));
+            reqObj.getRequest().put(JsonKey.CREATED_BY, Common.getFromRequest(httpRequest, Attrs.USER_ID));
+            reqObj.setEnv(getEnvironment());
+
+            return actorResponseHandler(healthActor, reqObj, new Timeout(10, TimeUnit.SECONDS), httpRequest);
+        } catch (Exception e) {
+            logger.error("HealthController:sendCheckedHealth: Exception occurred", e);
+            return CompletableFuture.completedFuture(createErrorResponse(e, httpRequest));
         }
     }
 
@@ -148,6 +215,7 @@ public class HealthController extends Controller {
 
     /**
      * Helper method to process asynchronous responses from the HealthActor.
+     * Sets the response ID dynamically based on the operation performed.
      *
      * @param actorRef The target actor (HealthActor).
      * @param request  The request object sent to the actor.
@@ -159,7 +227,29 @@ public class HealthController extends Controller {
         return PatternsCS.ask(actorRef, request, timeout).thenApplyAsync(result -> {
             if (result instanceof Response) {
                 Response response = (Response) result;
-                response.setId("api.lern.service.health");
+
+                // Set response ID based on the operation
+                String operation = request.getOperation();
+                String responseId;
+                switch (operation.toLowerCase()) {
+                    case "cassandra":
+                        responseId = "api.lern.health.cassandra";
+                        break;
+                    case "es":
+                        responseId = "api.lern.health.es";
+                        break;
+                    case "actor":
+                        responseId = "api.lern.health.actor";
+                        break;
+                    case "ekstep":
+                        responseId = "api.lern.health.ekstep";
+                        break;
+                    default:
+                        responseId = "api.lern.service.health";
+                        break;
+                }
+
+                response.setId(responseId);
                 response.setVer("1.0");
                 response.setTs(ProjectUtil.getFormattedDate());
                 return ok(play.libs.Json.toJson(response));
