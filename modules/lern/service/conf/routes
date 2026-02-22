@@ -4,7 +4,7 @@
 
 # Health Check (Consolidated)
 GET     /health                                 @controllers.HealthController.health(request: play.mvc.Http.Request)
-GET     /:service/health                        @controllers.HealthController.serviceHealth(service:String, request: play.mvc.Http.Request)
+GET     /health/:val                            @controllers.HealthController.serviceHealth(val:String, request: play.mvc.Http.Request)
 
 # ==========================================
 # UserOrg Routes
