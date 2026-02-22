@@ -17,7 +17,6 @@ import org.apache.pekko.testkit.javadsl.TestKit;
 import org.apache.pekko.util.Timeout;
 import java.util.*;
 
-import org.codehaus.jackson.map.ObjectMapper;
 import org.junit.Before;
 import org.junit.runner.RunWith;
 import org.mockito.Mockito;
