@@ -36,10 +36,7 @@
         <httpcomponents.httpcore.version>4.4.16</httpcomponents.httpcore.version>
         <httpcomponents.httpasyncclient.version>4.1.5</httpcomponents.httpasyncclient.version>
         <httpcomponents.httpmime.version>4.5.14</httpcomponents.httpmime.version>
-        
-        <!-- Jackson -->
-        <jackson.version>2.14.3</jackson.version>
-        
+
         <!--  Apache Pekko -->
         <pekko.version>1.0.3</pekko.version>
         
@@ -82,7 +79,7 @@
         <!-- Testing -->
         <junit.version>4.13.1</junit.version>
         <powermock.version>2.0.9</powermock.version>
-        <mockito.version>3.4.6</mockito.version>
+        <mockito.version>3.12.4</mockito.version>
         
         <!-- Build Plugins -->
         <maven-compiler-plugin.version>3.8.1</maven-compiler-plugin.version>
