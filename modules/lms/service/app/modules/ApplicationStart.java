@@ -58,15 +58,11 @@ public class ApplicationStart {
 
   public static void mockServiceSetup() {
     LoggerUtil logger = new LoggerUtil(ApplicationStart.class);
-      try {
-        ContentSearchMock.setup();
-      } catch (Exception e) {
-    LoggerUtil logger = new LoggerUtil(ApplicationStart.class);
-      try {
-        ContentSearchMock.setup();
-      } catch (Exception e) {
-        logger.info((org.sunbird.request.RequestContext) null,"Error setting up ContentSearchMock:"+e);
-      }
+    try {
+      ContentSearchMock.setup();
+    } catch (Exception e) {
+      logger.info((org.sunbird.request.RequestContext) null, "Error setting up ContentSearchMock: {}", e.getMessage(), e);
+    }
   }
 
   private void checkCassandraConnections() {

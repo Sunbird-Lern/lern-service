@@ -136,8 +136,8 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
     logger.debug(requestContext, "ElasticSearchRestHighImpl:update: method started at =={} for Index {}", startTime, index);
 
     if (StringUtils.isBlank(index) || StringUtils.isBlank(identifier) || data == null) {
-      logger.info(requestContext, "ElasticSearchRestHighImpl:update: Invalid parameters - index: {} 
-          + ", identifier: " + identifier + ", data: " + (data == null ? "null" : "present"));
+      logger.info(requestContext, "ElasticSearchRestHighImpl:update: Invalid parameters - index: {}, identifier: {}, data: {}",
+          index, identifier, (data == null ? "null" : "present"));
       promise.failure(ProjectUtil.createClientException(ResponseCode.invalidData));
       return promise.future();
     }
@@ -149,8 +149,7 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
       ActionListener<UpdateResponse> listener = new ActionListener<UpdateResponse>() {
         @Override
         public void onResponse(UpdateResponse updateResponse) {
-          logger.info(requestContext, "ElasticSearchRestHighImpl:update: Success with {} response from Elasticsearch for index: {}, identifier: {}", updateResponse.getResult()
-, index, identifier);
+          logger.info(requestContext, "ElasticSearchRestHighImpl:update: Success with {} response from Elasticsearch for index: {}, identifier: {}", updateResponse.getResult(), index, identifier);
           promise.success(true);
           logUpdateEndTime(startTime, index, requestContext);
         }
@@ -189,12 +188,11 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
     long startTime = System.currentTimeMillis();
     Promise<Map<String, Object>> promise = Futures.promise();
 
-    logger.debug(requestContext, "ElasticSearchRestHighImpl:getDataByIdentifier: method started at =={} 
-        for Index {}", startTime, index);
+    logger.debug(requestContext, "ElasticSearchRestHighImpl:getDataByIdentifier: method started at =={} for Index {}", startTime, index);
 
     if (StringUtils.isBlank(index) || StringUtils.isBlank(identifier)) {
-      logger.info(requestContext, "ElasticSearchRestHighImpl:getDataByIdentifier: Invalid parameters - index: " 
-          + index + ", identifier: " + identifier);
+      logger.info(requestContext, "ElasticSearchRestHighImpl:getDataByIdentifier: Invalid parameters - index: {}, identifier: {}",
+          index, identifier);
       promise.failure(ProjectUtil.createClientException(ResponseCode.invalidData));
       return promise.future();
     }
@@ -502,8 +500,8 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
     logger.debug(requestContext, "ElasticSearchRestHighImpl:bulkInsert: method started at =={} for Index {}", startTime, index);
 
     if (StringUtils.isBlank(index) || dataList == null || dataList.isEmpty()) {
-      logger.info(requestContext, "ElasticSearchRestHighImpl:bulkInsert: Invalid parameters - index: {}, dataList size: {} 
-, (dataList == null ? "null" : dataList.size()));
+      logger.info(requestContext, "ElasticSearchRestHighImpl:bulkInsert: Invalid parameters - index: {}, dataList size: {}",
+          index, (dataList == null ? "null" : dataList.size()));
       promise.failure(ProjectUtil.createClientException(ResponseCode.invalidData));
       return promise.future();
     }
@@ -619,8 +617,8 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
     logger.debug(requestContext, "ElasticSearchRestHighImpl:upsert: method started at =={} for Index {}", startTime, index);
 
     if (StringUtils.isBlank(index) || StringUtils.isBlank(identifier) || data == null || data.isEmpty()) {
-      logger.info(requestContext, "ElasticSearchRestHighImpl:upsert: Invalid parameters - index: {}, identifier: {} 
-          + ", identifier: " + identifier + ", data: " + (data == null ? "null" : "size=" + data.size()));
+      logger.info(requestContext, "ElasticSearchRestHighImpl:upsert: Invalid parameters - index: {}, identifier: {}, data: {}",
+          index, identifier, (data == null ? "null" : "size=" + data.size()));
       promise.failure(ProjectUtil.createClientException(ResponseCode.invalidData));
       return promise.future();
     }
