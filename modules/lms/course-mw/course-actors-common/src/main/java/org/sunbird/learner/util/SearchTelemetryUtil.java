@@ -4,8 +4,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.sunbird.keys.JsonKey;
-import org.sunbird.logging.ProjectLogger;
 import org.sunbird.common.PropertiesCache;
 import org.sunbird.request.Request;
 import org.sunbird.dto.SearchDTO;
@@ -13,6 +14,8 @@ import org.sunbird.telemetry.util.TelemetryUtil;
 import org.sunbird.telemetry.util.TelemetryWriter;
 
 public class SearchTelemetryUtil {
+  private static final Logger logger = LoggerFactory.getLogger(SearchTelemetryUtil.class);
+  
   private SearchTelemetryUtil() {}
 
   public static void generateSearchTelemetryEvent(
@@ -30,7 +33,7 @@ public class SearchTelemetryUtil {
       request.setRequest(telemetryRequestForSearch(context, params));
       TelemetryWriter.write(request);
     } catch (Exception e) {
-      ProjectLogger.log(e.getMessage(), e);
+      logger.error("Error in generateSearchTelemetryEvent", e);
     }
   }
 

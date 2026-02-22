@@ -1,4 +1,5 @@
 package org.sunbird.util;
+import org.sunbird.utils.JsonUtil;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -48,7 +49,7 @@ public class AdminUtilHandler {
   public static Map<String, Object> fetchEncryptedToken(
       AdminUtilRequestPayload reqObject, RequestContext context) {
     Map<String, Object> data = null;
-    ObjectMapper mapper = new ObjectMapper();
+    ObjectMapper mapper = JsonUtil.MAPPER;
     try {
 
       String body = mapper.writeValueAsString(reqObject);
