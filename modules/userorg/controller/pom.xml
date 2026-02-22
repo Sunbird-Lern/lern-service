@@ -42,7 +42,6 @@
         <scala.version>2.13.12</scala.version>
         <pekko.version>1.0.3</pekko.version>
         <pekko-http.version>1.0.1</pekko-http.version>
-        <jackson.version>2.14.3</jackson.version>
         <guice.version>5.1.0</guice.version>
         <slf4j.version>2.0.9</slf4j.version>
         <logback.version>1.4.14</logback.version>
@@ -79,6 +78,15 @@
                     <groupId>org.scala-lang</groupId>
                     <artifactId>scala-library</artifactId>
                 </exclusion>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-core-asl</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
         <dependency>
@@ -90,6 +98,11 @@
                 <exclusion>
                     <artifactId>slf4j-api</artifactId>
                     <groupId>org.slf4j</groupId>
+                </exclusion>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
@@ -106,6 +119,11 @@
                 <exclusion>
                     <groupId>io.netty</groupId>
                     <artifactId>netty-codec-http</artifactId>
+                </exclusion>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
@@ -134,12 +152,28 @@
                     <groupId>org.scala-lang</groupId>
                     <artifactId>scala-library</artifactId>
                 </exclusion>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-core-asl</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
         <dependency>
             <groupId>org.playframework</groupId>
             <artifactId>play-pekko-http-server_${scala.major.version}</artifactId>
             <version>${play2.version}</version>
+            <exclusions>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- Sunbird Service Dependencies -->
@@ -159,6 +193,11 @@
                 <exclusion>
                     <groupId>org.scala-lang</groupId>
                     <artifactId>scala-reflect</artifactId>
+                </exclusion>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>

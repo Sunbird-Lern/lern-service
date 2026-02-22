@@ -21,11 +21,25 @@
             <groupId>org.sunbird</groupId>
             <artifactId>userorg-service-impl</artifactId>
             <version>${project.version}</version>
+            <exclusions>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.sunbird</groupId>
             <artifactId>userorg-controller</artifactId>
             <version>${project.version}</version>
+            <exclusions>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
     </dependencies>
 
