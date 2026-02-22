@@ -173,6 +173,42 @@ public class TelemetryObjectValidatorV3Test {
   }
 
   @Test
+  public void testLogSilentFieldRemoval() {
+    Telemetry telemetry = createBaseTelemetry(TelemetryEvents.LOG.getName());
+    Map<String, Object> logEdata = new HashMap<>();
+    logEdata.put(JsonKey.TYPE, "info");
+    logEdata.put(JsonKey.LEVEL, "LOW");
+    logEdata.put(JsonKey.MESSAGE, ""); // Blank optional field
+    telemetry.setEdata(logEdata);
+
+    boolean result = false;
+    try {
+      String json = mapper.writeValueAsString(telemetry);
+      result = validatorV3.validateLog(json);
+    } catch (JsonProcessingException e) {
+      ProjectLogger.log(e.getMessage(), e);
+    }
+    Assert.assertTrue(result);
+  }
+
+  @Test
+  public void testLogMandatoryFieldsMissing() {
+    Telemetry telemetry = createBaseTelemetry(TelemetryEvents.LOG.getName());
+    Map<String, Object> logEdata = new HashMap<>();
+    logEdata.put(JsonKey.MESSAGE, "Test message");
+    // Missing TYPE and LEVEL
+    telemetry.setEdata(logEdata);
+
+    boolean result = true;
+    try {
+      result = validatorV3.validateLog(mapper.writeValueAsString(telemetry));
+    } catch (JsonProcessingException e) {
+      ProjectLogger.log(e.getMessage(), e);
+    }
+    Assert.assertFalse(result);
+  }
+
+  @Test
   public void testErrorWithValidData() {
     Telemetry telemetry = createBaseTelemetry(TelemetryEvents.ERROR.getName());
     Map<String, Object> errorEdata = new HashMap<>();
