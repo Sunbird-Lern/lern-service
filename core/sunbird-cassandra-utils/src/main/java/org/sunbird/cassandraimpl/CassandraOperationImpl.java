@@ -1406,12 +1406,14 @@ public abstract class CassandraOperationImpl implements CassandraOperation {
    * Eliminates the 5-catch block pattern duplicated across batchInsert, batchDelete,
    * batchUpdate, batchUpdateById, performBatchAction, batchInsertLogged.
    */
-  private Response handleCassandraBatchException(Exception e, String operation) {
-    logger.error("Cassandra batch operation '{}' failed: {}", operation, e.getMessage(), e);
-    Response response = new Response();
-    response.put(JsonKey.RESPONSE, JsonKey.FAILURE);
-    ProjectUtil.createAndThrowServerError();
-    return response;
+  private void handleCassandraBatchException(Exception e, String operation, String keyspaceName, String tableName) {
+    logger.error("CassandraOperationImpl:{}: Cassandra operation failed on {}.{}: {}",
+        operation, keyspaceName, tableName, e.getMessage(), e);
+    throw new ProjectCommonException(
+        ResponseCode.SERVER_ERROR,
+        ResponseCode.SERVER_ERROR.getErrorMessage(),
+        ResponseCode.SERVER_ERROR.getResponseCode()
+    );
   }
 
   /**
@@ -1660,150 +1662,6 @@ public abstract class CassandraOperationImpl implements CassandraOperation {
             "updateRecord", startTime, updateQuery.toString(), requestContext);
       } else {
         logQueryElapseTime("updateRecord", startTime);
-      }
-    }
-
-    return response;
-  }
-
-  /**
-   * CM-01: Centralized exception handler for all Cassandra batch operations.
-   * Eliminates the 5-catch block pattern duplicated across batchInsert, batchDelete,
-   * batchUpdate, batchUpdateById, performBatchAction, batchInsertLogged.
-   */
-  private Response handleCassandraBatchException(Exception e, String operation) {
-    logger.error("Cassandra batch operation '{}' failed: {}", operation, e.getMessage(), e);
-    Response response = new Response();
-    response.put(JsonKey.RESPONSE, JsonKey.FAILURE);
-    ProjectUtil.createAndThrowServerError();
-    return response;
-  }
-
-  /**
-   * CM-06: Shared batch execution logic for both LOGGED and UNLOGGED batch types.
-   * Reduces code duplication between batchInsert and batchInsertLogged methods.
-   *
-   * @param batchType Type of batch (LOGGED or UNLOGGED)
-   * @param records List of records to insert
-   * @param keyspaceName The keyspace name
-   * @param tableName The table name
-   * @param requestContext Request context for logging
-   * @return Response with SUCCESS status
-   */
-  private Response executeBatch(
-      BatchStatement.Type batchType,
-      List<Map<String, Object>> records,
-      String keyspaceName,
-      String tableName,
-      RequestContext requestContext) {
-
-    long startTime = System.currentTimeMillis();
-    int recordCount = records != null ? records.size() : 0;
-
-    logDebug(
-        requestContext, formatLogMessage("Starting batch insert - batchType: {}, keyspace: {}, table: {}, records: {}",
-        batchType.name(),
-        keyspaceName,
-        tableName,
-        recordCount));
-
-    // Warn about large batch sizes
-    if (recordCount > 1000) {
-      logWarn(
-          requestContext, formatLogMessage("Large {} batch detected - keyspace: {}, table: {}, records: {} - Consider splitting into smaller batches",
-          batchType.name(),
-          keyspaceName,
-          tableName,
-          recordCount));
-    }
-
-    Response response = new Response();
-    BatchStatement batchStatement = new BatchStatement(batchType);
-
-    try {
-      Session session = connectionManager.getSession(keyspaceName);
-
-      // Build INSERT statements for each record
-      for (Map<String, Object> record : records) {
-        if (record != null && !record.isEmpty()) {
-          Insert insert = QueryBuilder.insertInto(keyspaceName, tableName);
-
-          // Add all columns and values from the record
-          for (Map.Entry<String, Object> entry : record.entrySet()) {
-            insert.value(entry.getKey(), entry.getValue());
-          }
-
-          batchStatement.add(insert);
-        }
-      }
-
-      logDebug(
-          requestContext, formatLogMessage("Executing {} batch with {} statements",
-          batchType.name(),
-          batchStatement.size()));
-
-      // Execute batch
-      ResultSet resultSet = session.execute(batchStatement);
-      response.put(Constants.RESPONSE, Constants.SUCCESS);
-
-      // Log successful batch insert
-      logInfo(
-          requestContext, formatLogMessage("Successfully batch inserted records - batchType: {}, keyspace: {}, table: {}, records: {}",
-          batchType.name(),
-          keyspaceName,
-          tableName,
-          recordCount));
-
-    } catch (QueryExecutionException e) {
-      logError(
-          requestContext, "Batch insert query execution failed - batchType: {}, keyspace: {}, table: {}, error: {}",
-          batchType.name(),
-          keyspaceName,
-          tableName,
-          e.getMessage(),
-          e);
-      throw e;
-
-    } catch (QueryValidationException e) {
-      logError(
-          requestContext, "Batch insert query validation failed - batchType: {}, keyspace: {}, table: {}, error: {}",
-          batchType.name(),
-          keyspaceName,
-          tableName,
-          e.getMessage(),
-          e);
-      throw e;
-
-    } catch (NoHostAvailableException e) {
-      logError(
-          requestContext, "No Cassandra hosts available for batch insert - batchType: {}, keyspace: {}, table: {}, error: {}",
-          batchType.name(),
-          keyspaceName,
-          tableName,
-          e.getMessage(),
-          e);
-      throw e;
-
-    } catch (IllegalStateException e) {
-      logError(
-          requestContext, "Illegal state during batch insert - batchType: {}, keyspace: {}, table: {}, error: {}",
-          batchType.name(),
-          keyspaceName,
-          tableName,
-          e.getMessage(),
-          e);
-      throw e;
-
-    } finally {
-      // Log query execution time
-      if (batchStatement != null && batchStatement.size() > 0) {
-        logQueryElapseTime(
-            "executeBatch[" + batchType.name() + "]",
-            startTime,
-            batchStatement.getStatements().toString(),
-            requestContext);
-      } else {
-        logQueryElapseTime("executeBatch[" + batchType.name() + "]", startTime);
       }
     }
 
@@ -2208,150 +2066,6 @@ public abstract class CassandraOperationImpl implements CassandraOperation {
     return response;
   }
 
-  /**
-   * CM-01: Centralized exception handler for all Cassandra batch operations.
-   * Eliminates the 5-catch block pattern duplicated across batchInsert, batchDelete,
-   * batchUpdate, batchUpdateById, performBatchAction, batchInsertLogged.
-   */
-  private Response handleCassandraBatchException(Exception e, String operation) {
-    logger.error("Cassandra batch operation '{}' failed: {}", operation, e.getMessage(), e);
-    Response response = new Response();
-    response.put(JsonKey.RESPONSE, JsonKey.FAILURE);
-    ProjectUtil.createAndThrowServerError();
-    return response;
-  }
-
-  /**
-   * CM-06: Shared batch execution logic for both LOGGED and UNLOGGED batch types.
-   * Reduces code duplication between batchInsert and batchInsertLogged methods.
-   *
-   * @param batchType Type of batch (LOGGED or UNLOGGED)
-   * @param records List of records to insert
-   * @param keyspaceName The keyspace name
-   * @param tableName The table name
-   * @param requestContext Request context for logging
-   * @return Response with SUCCESS status
-   */
-  private Response executeBatch(
-      BatchStatement.Type batchType,
-      List<Map<String, Object>> records,
-      String keyspaceName,
-      String tableName,
-      RequestContext requestContext) {
-
-    long startTime = System.currentTimeMillis();
-    int recordCount = records != null ? records.size() : 0;
-
-    logDebug(
-        requestContext, formatLogMessage("Starting batch insert - batchType: {}, keyspace: {}, table: {}, records: {}",
-        batchType.name(),
-        keyspaceName,
-        tableName,
-        recordCount));
-
-    // Warn about large batch sizes
-    if (recordCount > 1000) {
-      logWarn(
-          requestContext, formatLogMessage("Large {} batch detected - keyspace: {}, table: {}, records: {} - Consider splitting into smaller batches",
-          batchType.name(),
-          keyspaceName,
-          tableName,
-          recordCount));
-    }
-
-    Response response = new Response();
-    BatchStatement batchStatement = new BatchStatement(batchType);
-
-    try {
-      Session session = connectionManager.getSession(keyspaceName);
-
-      // Build INSERT statements for each record
-      for (Map<String, Object> record : records) {
-        if (record != null && !record.isEmpty()) {
-          Insert insert = QueryBuilder.insertInto(keyspaceName, tableName);
-
-          // Add all columns and values from the record
-          for (Map.Entry<String, Object> entry : record.entrySet()) {
-            insert.value(entry.getKey(), entry.getValue());
-          }
-
-          batchStatement.add(insert);
-        }
-      }
-
-      logDebug(
-          requestContext, formatLogMessage("Executing {} batch with {} statements",
-          batchType.name(),
-          batchStatement.size()));
-
-      // Execute batch
-      ResultSet resultSet = session.execute(batchStatement);
-      response.put(Constants.RESPONSE, Constants.SUCCESS);
-
-      // Log successful batch insert
-      logInfo(
-          requestContext, formatLogMessage("Successfully batch inserted records - batchType: {}, keyspace: {}, table: {}, records: {}",
-          batchType.name(),
-          keyspaceName,
-          tableName,
-          recordCount));
-
-    } catch (QueryExecutionException e) {
-      logError(
-          requestContext, "Batch insert query execution failed - batchType: {}, keyspace: {}, table: {}, error: {}",
-          batchType.name(),
-          keyspaceName,
-          tableName,
-          e.getMessage(),
-          e);
-      throw e;
-
-    } catch (QueryValidationException e) {
-      logError(
-          requestContext, "Batch insert query validation failed - batchType: {}, keyspace: {}, table: {}, error: {}",
-          batchType.name(),
-          keyspaceName,
-          tableName,
-          e.getMessage(),
-          e);
-      throw e;
-
-    } catch (NoHostAvailableException e) {
-      logError(
-          requestContext, "No Cassandra hosts available for batch insert - batchType: {}, keyspace: {}, table: {}, error: {}",
-          batchType.name(),
-          keyspaceName,
-          tableName,
-          e.getMessage(),
-          e);
-      throw e;
-
-    } catch (IllegalStateException e) {
-      logError(
-          requestContext, "Illegal state during batch insert - batchType: {}, keyspace: {}, table: {}, error: {}",
-          batchType.name(),
-          keyspaceName,
-          tableName,
-          e.getMessage(),
-          e);
-      throw e;
-
-    } finally {
-      // Log query execution time
-      if (batchStatement != null && batchStatement.size() > 0) {
-        logQueryElapseTime(
-            "executeBatch[" + batchType.name() + "]",
-            startTime,
-            batchStatement.getStatements().toString(),
-            requestContext);
-      } else {
-        logQueryElapseTime("executeBatch[" + batchType.name() + "]", startTime);
-      }
-    }
-
-    return response;
-  }
-
 
 
 
@@ -2433,66 +2147,9 @@ public abstract class CassandraOperationImpl implements CassandraOperation {
           tableName,
           recordCount));
 
-    } catch (QueryExecutionException e) {
-      // Handle query execution errors
-      logError(
-          requestContext, "Batch insert query execution failed - keyspace: {}, table: {}, records: {}, error: {}",
-          keyspaceName,
-          tableName,
-          recordCount,
-          e.getMessage(),
-          e);
-
-      throw new ProjectCommonException(
-          ResponseCode.SERVER_ERROR.getErrorCode(),
-          ResponseCode.SERVER_ERROR.getErrorMessage(),
-          ResponseCode.SERVER_ERROR.getResponseCode());
-
-    } catch (QueryValidationException e) {
-      // Handle query validation errors
-      logError(
-          requestContext, "Batch insert query validation failed - keyspace: {}, table: {}, records: {}, error: {}",
-          keyspaceName,
-          tableName,
-          recordCount,
-          e.getMessage(),
-          e);
-
-      throw new ProjectCommonException(
-          ResponseCode.SERVER_ERROR.getErrorCode(),
-          ResponseCode.SERVER_ERROR.getErrorMessage(),
-          ResponseCode.SERVER_ERROR.getResponseCode());
-
-    } catch (NoHostAvailableException e) {
-      // Handle no available hosts errors
-      logError(
-          requestContext, "No Cassandra hosts available for batch insert - keyspace: {}, table: {}, records: {}, error: {}",
-          keyspaceName,
-          tableName,
-          recordCount,
-          e.getMessage(),
-          e);
-
-      throw new ProjectCommonException(
-          ResponseCode.SERVER_ERROR.getErrorCode(),
-          ResponseCode.SERVER_ERROR.getErrorMessage(),
-          ResponseCode.SERVER_ERROR.getResponseCode());
-
-    } catch (IllegalStateException e) {
-      // Handle illegal state errors
-      logError(
-          requestContext, "Illegal state during batch insert - keyspace: {}, table: {}, records: {}, error: {}",
-          keyspaceName,
-          tableName,
-          recordCount,
-          e.getMessage(),
-          e);
-
-      throw new ProjectCommonException(
-          ResponseCode.SERVER_ERROR.getErrorCode(),
-          ResponseCode.SERVER_ERROR.getErrorMessage(),
-          ResponseCode.SERVER_ERROR.getResponseCode());
-
+    } catch (Exception e) {
+      handleCassandraBatchException(e, "batchInsert", keyspaceName, tableName);
+    }
     } finally {
       // Log query execution time
       if (batchStatement != null && batchStatement.size() > 0) {
@@ -2583,81 +2240,9 @@ public abstract class CassandraOperationImpl implements CassandraOperation {
           tableName,
           recordCount));
 
-    } catch (QueryExecutionException e) {
-      // Handle query execution errors
-      logError(
-          requestContext, "Batch delete query execution failed - keyspace: {}, table: {}, records: {}, error: {}",
-          keyspaceName,
-          tableName,
-          recordCount,
-          e.getMessage(),
-          e);
-
-      throw new ProjectCommonException(
-          ResponseCode.SERVER_ERROR.getErrorCode(),
-          ResponseCode.SERVER_ERROR.getErrorMessage(),
-          ResponseCode.SERVER_ERROR.getResponseCode());
-
-    } catch (QueryValidationException e) {
-      // Handle query validation errors
-      logError(
-          requestContext, "Batch delete query validation failed - keyspace: {}, table: {}, records: {}, error: {}",
-          keyspaceName,
-          tableName,
-          recordCount,
-          e.getMessage(),
-          e);
-
-      throw new ProjectCommonException(
-          ResponseCode.SERVER_ERROR.getErrorCode(),
-          ResponseCode.SERVER_ERROR.getErrorMessage(),
-          ResponseCode.SERVER_ERROR.getResponseCode());
-
-    } catch (NoHostAvailableException e) {
-      // Handle no available hosts errors
-      logError(
-          requestContext, "No Cassandra hosts available for batch delete - keyspace: {}, table: {}, records: {}, error: {}",
-          keyspaceName,
-          tableName,
-          recordCount,
-          e.getMessage(),
-          e);
-
-      throw new ProjectCommonException(
-          ResponseCode.SERVER_ERROR.getErrorCode(),
-          ResponseCode.SERVER_ERROR.getErrorMessage(),
-          ResponseCode.SERVER_ERROR.getResponseCode());
-
-    } catch (IllegalStateException e) {
-      // Handle illegal state errors
-      logError(
-          requestContext, "Illegal state during batch delete - keyspace: {}, table: {}, records: {}, error: {}",
-          keyspaceName,
-          tableName,
-          recordCount,
-          e.getMessage(),
-          e);
-
-      throw new ProjectCommonException(
-          ResponseCode.SERVER_ERROR.getErrorCode(),
-          ResponseCode.SERVER_ERROR.getErrorMessage(),
-          ResponseCode.SERVER_ERROR.getResponseCode());
-
     } catch (Exception e) {
-      // Handle any other unexpected errors
-      logError(
-          requestContext, "Unexpected error during batch delete - keyspace: {}, table: {}, records: {}, error: {}",
-          keyspaceName,
-          tableName,
-          recordCount,
-          e.getMessage(),
-          e);
-
-      throw new ProjectCommonException(
-          ResponseCode.SERVER_ERROR.getErrorCode(),
-          ResponseCode.SERVER_ERROR.getErrorMessage(),
-          ResponseCode.SERVER_ERROR.getResponseCode());
-
+      handleCassandraBatchException(e, "batchDelete", keyspaceName, tableName);
+    }
     } finally {
       // Log query execution time
       if (batchStatement != null && batchStatement.size() > 0) {
@@ -3627,50 +3212,9 @@ public abstract class CassandraOperationImpl implements CassandraOperation {
         throw e;
       }
 
-    } catch (QueryExecutionException e) {
-      // Handle query execution errors
-      logError(
-          requestContext, "LOGGED batch insert query execution failed - keyspace: {}, table: {}, records: {}, error: {}",
-          keyspaceName,
-          tableName,
-          recordCount,
-          e.getMessage(),
-          e);
-      throw e;
-
-    } catch (QueryValidationException e) {
-      // Handle query validation errors
-      logError(
-          requestContext, "LOGGED batch insert query validation failed - keyspace: {}, table: {}, records: {}, error: {}",
-          keyspaceName,
-          tableName,
-          recordCount,
-          e.getMessage(),
-          e);
-      throw e;
-
-    } catch (NoHostAvailableException e) {
-      // Handle no available hosts errors
-      logError(
-          requestContext, "No Cassandra hosts available for LOGGED batch insert - keyspace: {}, table: {}, records: {}, error: {}",
-          keyspaceName,
-          tableName,
-          recordCount,
-          e.getMessage(),
-          e);
-      throw e;
-
-    } catch (IllegalStateException e) {
-      // Handle illegal state errors
-      logError(
-          requestContext, "Illegal state during LOGGED batch insert - keyspace: {}, table: {}, records: {}, error: {}",
-          keyspaceName,
-          tableName,
-          recordCount,
-          e.getMessage(),
-          e);
-      throw e;
-
+    } catch (Exception e) {
+      handleCassandraBatchException(e, "batchInsertLogged", keyspaceName, tableName);
+    }
     } finally {
       // Log query execution time
       if (batchStatement != null && batchStatement.size() > 0) {
