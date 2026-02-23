@@ -44,7 +44,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: core-artifacts
-          path: core/**/target
+          path: core/**/target/**
 
   userorg-build:
     needs: build-core
@@ -72,7 +72,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: userorg-artifacts
-          path: modules/userorg/**/target
+          path: modules/userorg/**/target/**
 
   lms-build:
     needs: build-core
@@ -112,7 +112,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: lms-artifacts
-          path: modules/lms/**/target
+          path: modules/lms/**/target/**
 
   notification-build:
     needs: build-core
@@ -140,7 +140,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: notification-artifacts
-          path: modules/notification/**/target
+          path: modules/notification/**/target/**
 
   sonar-analysis:
     needs: [userorg-build, lms-build, notification-build]
@@ -187,7 +187,7 @@ jobs:
             # 1. Aggregate coverage reports using strictly pre-built target folders
             # We skip compilation entirely to prevent Maven from rebuilding due to GHA timestamp changes.
             mvn -P lern -pl lern-report -am jacoco:report-aggregate \
-              -DskipTests -Dmaven.main.compile.skip=true -Dmaven.test.compile.skip=true -Dcheckstyle.skip
+              -DskipTests -Dcheckstyle.skip
 
             # 2. Run Sonar analysis on the entire project
             mvn -P lern sonar:sonar \
