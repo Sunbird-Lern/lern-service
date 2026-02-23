@@ -134,7 +134,7 @@ public class SendNotificationActorTest {
     reqObj.setOperation(ActorOperations.V2_NOTIFICATION.getValue());
     VelocityContext context = PowerMockito.mock(VelocityContext.class);
     when(ProjectUtil.getContext(Mockito.anyMap())).thenReturn(context);
-    Object[] arr = new Object[1];
+    String[] arr = new String[1];
     arr[0] = "name";
     when(context.getKeys()).thenReturn(arr);
     HashMap<String, Object> innerMap = new HashMap<>();
@@ -173,7 +173,7 @@ public class SendNotificationActorTest {
     reqObj.setOperation(ActorOperations.V2_NOTIFICATION.getValue());
     VelocityContext context = PowerMockito.mock(VelocityContext.class);
     when(ProjectUtil.getContext(Mockito.anyMap())).thenReturn(context);
-    Object[] arr = new Object[1];
+    String[] arr = new String[1];
     arr[0] = "name";
     when(context.getKeys()).thenReturn(arr);
     HashMap<String, Object> innerMap = new HashMap<>();
@@ -212,7 +212,7 @@ public class SendNotificationActorTest {
     reqObj.setOperation(ActorOperations.V2_NOTIFICATION.getValue());
     VelocityContext context = PowerMockito.mock(VelocityContext.class);
     when(ProjectUtil.getContext(Mockito.anyMap())).thenReturn(context);
-    Object[] arr = new Object[1];
+    String[] arr = new String[1];
     arr[0] = "name";
     when(context.getKeys()).thenReturn(arr);
     HashMap<String, Object> innerMap = new HashMap<>();
