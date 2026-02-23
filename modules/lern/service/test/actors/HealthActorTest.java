@@ -99,7 +99,7 @@ public class HealthActorTest {
                     
                     Map<String, Object> result = (Map<String, Object>) res.getResult().get(JsonKey.RESPONSE);
                     assertTrue((boolean) result.get(JsonKey.Healthy));
-                    assertEquals("Lern Service Health Check", result.get(JsonKey.NAME));
+                    assertEquals("Unified Lern Service Health Check", result.get(JsonKey.NAME));
                 }
             }
         }};
