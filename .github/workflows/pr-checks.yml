@@ -162,6 +162,9 @@ jobs:
           
       - name: Build and Generate Coverage Report (Lern Service Impl)
         run: |
+          # Install dependencies into local repo skipped to ensure resolution
+          mvn install -P lern -pl modules/lern/service -am -DskipTests -Dcheckstyle.skip
+          # Run verification/tests for the target module
           mvn verify -P lern -pl modules/lern/service
           
       - name: Upload Lern Artifacts
@@ -186,31 +189,31 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: core-artifacts
-          path: core
+          path: .
 
       - name: Download UserOrg Artifacts
         uses: actions/download-artifact@v4
         with:
           name: userorg-artifacts
-          path: modules/userorg
+          path: .
 
       - name: Download LMS Artifacts
         uses: actions/download-artifact@v4
         with:
           name: lms-artifacts
-          path: modules/lms
+          path: .
 
       - name: Download Notification Artifacts
         uses: actions/download-artifact@v4
         with:
           name: notification-artifacts
-          path: modules/notification
+          path: .
 
       - name: Download Lern Artifacts
         uses: actions/download-artifact@v4
         with:
           name: lern-artifacts
-          path: modules/lern/service
+          path: .
 
       - name: Run Aggregated SonarQube Analysis
         env:
@@ -218,12 +221,16 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -n "$SONAR_TOKEN" ]; then
-            # 1. Aggregate coverage reports using strictly pre-built target folders
-            # We skip compilation entirely to prevent Maven from rebuilding due to GHA timestamp changes.
+            # 1. Ensure reactor is healthy and all modules are available in local repo
+            # We use install with skipTests so Maven knows where to find everything
+            mvn install -P lern -DskipTests -Dcheckstyle.skip -Dmaven.main.compile.skip=true
+
+            # 2. Aggregate coverage reports
             mvn -P lern -pl lern-report -am jacoco:report-aggregate \
               -DskipTests -Dcheckstyle.skip
 
-            # 2. Run Sonar analysis on the entire project
+            # 3. Run Sonar analysis on the entire project
+            # Note: We now have all binaries (downloaded) and the reactor is healthy (pre-installed)
             mvn -P lern sonar:sonar \
               -Dsonar.projectKey=Sunbird-Lern_lern-service \
               -Dsonar.organization=sunbird-lern \
