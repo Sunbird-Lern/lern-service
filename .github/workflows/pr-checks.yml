@@ -191,7 +191,7 @@ jobs:
 
             # 2. Run Sonar analysis on the entire project
             mvn -P lern sonar:sonar \
-              -Dsonar.projectKey=lern-service \
+              -Dsonar.projectKey=Sunbird-Lern_lern-service \
               -Dsonar.organization=sunbird-lern \
               -Dsonar.host.url=https://sonarcloud.io \
               -Dsonar.coverage.jacoco.xmlReportPaths=lern-report/target/site/jacoco-aggregate/jacoco.xml \
