@@ -4,7 +4,7 @@ import com.mashape.unirest.http.exceptions.UnirestException;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.sunbird.actor.base.BaseActor;
 import org.sunbird.exception.ProjectCommonException;
 import org.sunbird.response.Response;
