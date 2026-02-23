@@ -190,30 +190,35 @@ jobs:
         with:
           name: core-artifacts
           path: .
+          merge-multiple: true
 
       - name: Download UserOrg Artifacts
         uses: actions/download-artifact@v4
         with:
           name: userorg-artifacts
           path: .
+          merge-multiple: true
 
       - name: Download LMS Artifacts
         uses: actions/download-artifact@v4
         with:
           name: lms-artifacts
           path: .
+          merge-multiple: true
 
       - name: Download Notification Artifacts
         uses: actions/download-artifact@v4
         with:
           name: notification-artifacts
           path: .
+          merge-multiple: true
 
       - name: Download Lern Artifacts
         uses: actions/download-artifact@v4
         with:
           name: lern-artifacts
           path: .
+          merge-multiple: true
 
       - name: Run Aggregated SonarQube Analysis
         env:
