@@ -4,42 +4,57 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 
     <parent>
-        <artifactId>userorg-service</artifactId>
+        <artifactId>lms-service</artifactId>
         <groupId>org.sunbird</groupId>
         <version>1.0-SNAPSHOT</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>userorg-report</artifactId>
+    <artifactId>lms-jacoco-report</artifactId>
     <packaging>pom</packaging>
-    <name>UserOrg Service Coverage Report</name>
-    <description>Aggregated JaCoCo coverage report for UserOrg service and controller.</description>
+    <name>LMS Service Coverage Report</name>
+    <description>Aggregated JaCoCo coverage report for LMS service modules.</description>
 
     <dependencies>
-        <!-- Sunbird Modules for Reporting -->
+        <!-- LMS Service Implementation -->
         <dependency>
             <groupId>org.sunbird</groupId>
-            <artifactId>userorg-service-impl</artifactId>
+            <artifactId>lms-service-impl</artifactId>
             <version>${project.version}</version>
-            <exclusions>
-                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
-                <exclusion>
-                    <groupId>org.codehaus.jackson</groupId>
-                    <artifactId>jackson-mapper-asl</artifactId>
-                </exclusion>
-            </exclusions>
+        </dependency>
+
+        <!-- Course Middleware Modules -->
+        <dependency>
+            <groupId>org.sunbird</groupId>
+            <artifactId>course-actors-common</artifactId>
+            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>org.sunbird</groupId>
-            <artifactId>userorg-controller</artifactId>
+            <artifactId>course-actors</artifactId>
             <version>${project.version}</version>
-            <exclusions>
-                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
-                <exclusion>
-                    <groupId>org.codehaus.jackson</groupId>
-                    <artifactId>jackson-mapper-asl</artifactId>
-                </exclusion>
-            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.sunbird</groupId>
+            <artifactId>enrolment-actor</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.sunbird</groupId>
+            <artifactId>actor-util</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Aggregator Modules -->
+        <dependency>
+            <groupId>org.sunbird</groupId>
+            <artifactId>assessment-aggregator</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.sunbird</groupId>
+            <artifactId>activity-aggregator</artifactId>
+            <version>${project.version}</version>
         </dependency>
     </dependencies>
 

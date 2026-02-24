@@ -20,6 +20,6 @@
     <modules>
         <module>service</module>
         <module>controller</module>
-        <module>userorg-report</module>
+        <module>userorg-jacoco-report</module>
     </modules>
 </project>

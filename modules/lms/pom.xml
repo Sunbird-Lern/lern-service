@@ -22,7 +22,7 @@
         <module>service</module>
         <module>assessment-aggregator</module>
         <module>activity-aggregator</module>
-        <module>lms-report</module>
+        <module>lms-jacoco-report</module>
     </modules>
 
     <!-- Dependency Management -->

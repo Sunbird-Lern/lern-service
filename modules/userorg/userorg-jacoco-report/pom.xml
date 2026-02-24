@@ -4,48 +4,42 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 
     <parent>
+        <artifactId>userorg-service</artifactId>
         <groupId>org.sunbird</groupId>
-        <artifactId>core</artifactId>
         <version>1.0-SNAPSHOT</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>sunbird-core-report</artifactId>
+    <artifactId>userorg-jacoco-report</artifactId>
     <packaging>pom</packaging>
-    <name>Sunbird Core Coverage Report</name>
-    <description>Aggregated JaCoCo coverage report for all core modules.</description>
+    <name>UserOrg Service Coverage Report</name>
+    <description>Aggregated JaCoCo coverage report for UserOrg service and controller.</description>
 
     <dependencies>
-        <!-- Sunbird Core Modules -->
+        <!-- Sunbird Modules for Reporting -->
         <dependency>
             <groupId>org.sunbird</groupId>
-            <artifactId>sunbird-platform-common</artifactId>
+            <artifactId>userorg-service-impl</artifactId>
             <version>${project.version}</version>
+            <exclusions>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.sunbird</groupId>
-            <artifactId>sunbird-cassandra-utils</artifactId>
+            <artifactId>userorg-controller</artifactId>
             <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.sunbird</groupId>
-            <artifactId>sunbird-es-utils</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.sunbird</groupId>
-            <artifactId>sunbird-actor-utils</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.sunbird</groupId>
-            <artifactId>sunbird-notification-utils</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.sunbird</groupId>
-            <artifactId>sunbird-redis-utils</artifactId>
-            <version>${project.version}</version>
+            <exclusions>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
     </dependencies>
 
