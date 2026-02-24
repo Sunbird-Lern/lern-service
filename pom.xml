@@ -253,6 +253,36 @@
             </plugin>
 
             <!-- 
+                Maven Enforcer Plugin to enforce project build requirements.
+                Ensures minimum Java 11 and Maven 3.6.0 versions.
+                Prevents duplicate dependency versions.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>enforce-build-environment</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireMavenVersion>
+                                    <version>[3.6.0,)</version>
+                                </requireMavenVersion>
+                                <requireJavaVersion>
+                                    <version>[11,)</version>
+                                </requireJavaVersion>
+                                <banDuplicatePomDependencyVersions/>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- 
                 JaCoCo Plugin for Code Coverage reporting.
                 Excludes generated routes and model classes from coverage metrics.
             -->
