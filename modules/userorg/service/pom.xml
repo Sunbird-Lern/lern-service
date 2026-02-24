@@ -11,7 +11,7 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>service</artifactId>
+    <artifactId>userorg-service-impl</artifactId>
     <name>UserOrg Service</name>
     <description>Core business logic and service layer for User and Organization management.</description>
 
@@ -25,7 +25,6 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <scoverage.plugin.version>1.1.1</scoverage.plugin.version>
-        <slf4j.version>2.0.9</slf4j.version>
         <logback.version>1.4.14</logback.version>
         <powermock.version>2.0.9</powermock.version>
     </properties>

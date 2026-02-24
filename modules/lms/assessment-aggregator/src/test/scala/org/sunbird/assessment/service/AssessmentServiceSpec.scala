@@ -86,7 +86,8 @@ class AssessmentServiceSpec extends AnyFlatSpec with Matchers with MockitoSugar 
     val metadata = ContentMetadata(isValid = false, totalQuestions = 10)
     val req = AssessmentRequest("att", "u1", "c1", "b1", "cont1", 1000L, List.empty)
     
-    // Default (validation disabled)
+    // Explicitly disable validation for first sub-test
+    PropertiesCache.getInstance().saveConfigProperty("assessment_enable_content_validation", "false")
     assessmentService.validateContent(req, metadata) should be (true)
     
     // Enabled but valid

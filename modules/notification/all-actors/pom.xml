@@ -46,7 +46,8 @@
     <dependency>
         <groupId>org.sunbird</groupId>
         <artifactId>notification-sdk</artifactId>
-        <version>1.0.0</version>
+        <version>1.0-SNAPSHOT</version>
+        <scope>compile</scope>
     </dependency>
     <dependency>
         <groupId>org.sunbird</groupId>
@@ -120,45 +121,6 @@
                         --add-opens java.base/java.time=ALL-UNNAMED
                     </argLine>
                 </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-shade-plugin</artifactId>
-                <version>3.2.4</version>
-                <executions>
-                    <execution>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>shade</goal>
-                        </goals>
-                        <configuration>
-                            <artifactSet>
-                                <excludes>
-                                    <exclude>classworlds:classworlds</exclude>
-                                    <exclude>junit:junit</exclude>
-                                    <exclude>jmock:*</exclude>
-                                    <exclude>*:xml-apis</exclude>
-                                    <exclude>org.apache.maven:lib:tests</exclude>
-                                </excludes>
-                            </artifactSet>
-                            <filters>
-                                <filter>
-                                    <!-- Do not copy the signatures in the META-INF folder.
-                                    Otherwise, this might cause SecurityExceptions when using the JAR. -->
-                                    <artifact>*:*</artifact>
-                                    <excludes>
-                                        <exclude>META-INF/*.SF</exclude>
-                                        <exclude>META-INF/*.DSA</exclude>
-                                        <exclude>META-INF/*.RSA</exclude>
-                                        <exclude>org/slf4j/**</exclude>
-                                        <exclude>ch/qos/logback/**</exclude>
-                                        <exclude>META-INF/services/org.slf4j.spi.SLF4JServiceProvider</exclude>
-                                    </excludes>
-                                </filter>
-                            </filters>
-                        </configuration>
-                    </execution>
-                </executions>
             </plugin>
             <plugin>
                 <groupId>org.jacoco</groupId>
