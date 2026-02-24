@@ -10,7 +10,7 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>sunbird-core-report</artifactId>
+    <artifactId>sunbird-core-jacoco-report</artifactId>
     <packaging>pom</packaging>
     <name>Sunbird Core Coverage Report</name>
     <description>Aggregated JaCoCo coverage report for all core modules.</description>

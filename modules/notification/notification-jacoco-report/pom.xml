@@ -10,7 +10,7 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>notification-report</artifactId>
+    <artifactId>notification-jacoco-report</artifactId>
     <packaging>pom</packaging>
     <name>Notification Service Coverage Report</name>
     <description>Aggregated JaCoCo coverage report for Notification Service modules.</description>

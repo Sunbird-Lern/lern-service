@@ -10,7 +10,7 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>lern-report</artifactId>
+    <artifactId>lern-jacoco-report</artifactId>
     <packaging>pom</packaging>
     <name>Lern Service Coverage Report</name>
     <description>Aggregated JaCoCo coverage report for the entire Lern Service project.</description>

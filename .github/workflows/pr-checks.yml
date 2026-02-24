@@ -44,7 +44,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: core-artifacts
-          path: core/**/target
+          path: core/**/target/**
 
   userorg-build:
     needs: build-core
@@ -72,7 +72,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: userorg-artifacts
-          path: modules/userorg/**/target
+          path: modules/userorg/**/target/**
 
   lms-build:
     needs: build-core
@@ -112,7 +112,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: lms-artifacts
-          path: modules/lms/**/target
+          path: modules/lms/**/target/**
 
   notification-build:
     needs: build-core
@@ -140,10 +140,41 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: notification-artifacts
-          path: modules/notification/**/target
+          path: modules/notification/**/target/**
+
+  lern-build:
+    needs: build-core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up JDK 11
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+          
+      - name: Restore Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ github.run_id }}
+          
+      - name: Build and Generate Coverage Report (Lern Service Impl)
+        run: |
+          # Install dependencies into local repo skipped to ensure resolution
+          mvn install -P lern -pl modules/lern/service -am -DskipTests -Dcheckstyle.skip
+          # Run verification/tests for the target module
+          mvn verify -P lern -pl modules/lern/service
+          
+      - name: Upload Lern Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lern-artifacts
+          path: modules/lern/service/**/target/**
 
   sonar-analysis:
-    needs: [userorg-build, lms-build, notification-build]
+    needs: [userorg-build, lms-build, notification-build, lern-build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -158,25 +189,36 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: core-artifacts
-          path: core
+          path: .
+          merge-multiple: true
 
       - name: Download UserOrg Artifacts
         uses: actions/download-artifact@v4
         with:
           name: userorg-artifacts
-          path: modules/userorg
+          path: .
+          merge-multiple: true
 
       - name: Download LMS Artifacts
         uses: actions/download-artifact@v4
         with:
           name: lms-artifacts
-          path: modules/lms
+          path: .
+          merge-multiple: true
 
       - name: Download Notification Artifacts
         uses: actions/download-artifact@v4
         with:
           name: notification-artifacts
-          path: modules/notification
+          path: .
+          merge-multiple: true
+
+      - name: Download Lern Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: lern-artifacts
+          path: .
+          merge-multiple: true
 
       - name: Run Aggregated SonarQube Analysis
         env:
@@ -184,18 +226,22 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -n "$SONAR_TOKEN" ]; then
-            # 1. Aggregate coverage reports using strictly pre-built target folders
-            # We skip compilation entirely to prevent Maven from rebuilding due to GHA timestamp changes.
-            mvn -P lern -pl lern-report -am jacoco:report-aggregate \
-              -DskipTests -Dmaven.main.compile.skip=true -Dmaven.test.compile.skip=true -Dcheckstyle.skip
+            # 1. Ensure reactor is healthy and all modules are available in local repo
+            # We use install with skipTests so Maven knows where to find everything
+            mvn install -P lern -DskipTests -Dcheckstyle.skip -Dmaven.main.compile.skip=true
 
-            # 2. Run Sonar analysis on the entire project
+            # 2. Aggregate coverage reports
+            mvn -P lern -pl lern-jacoco-report -am jacoco:report-aggregate \
+              -DskipTests -Dcheckstyle.skip
+
+            # 3. Run Sonar analysis on the entire project
+            # Note: We now have all binaries (downloaded) and the reactor is healthy (pre-installed)
             mvn -P lern sonar:sonar \
-              -Dsonar.projectKey=lern-service \
+              -Dsonar.projectKey=Sunbird-Lern_lern-service \
               -Dsonar.organization=sunbird-lern \
               -Dsonar.host.url=https://sonarcloud.io \
-              -Dsonar.coverage.jacoco.xmlReportPaths=lern-report/target/site/jacoco-aggregate/jacoco.xml \
-              -DskipTests -Dmaven.main.compile.skip=true -Dmaven.test.compile.skip=true -Dcheckstyle.skip
+              -Dsonar.coverage.jacoco.xmlReportPaths=lern-jacoco-report/target/site/jacoco-aggregate/jacoco.xml \
+              -DskipTests -Dcheckstyle.skip
           else
             echo "Skipping SonarQube analysis: SONAR_TOKEN is missing"
           fi

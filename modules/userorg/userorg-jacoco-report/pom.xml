@@ -10,7 +10,7 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>userorg-report</artifactId>
+    <artifactId>userorg-jacoco-report</artifactId>
     <packaging>pom</packaging>
     <name>UserOrg Service Coverage Report</name>
     <description>Aggregated JaCoCo coverage report for UserOrg service and controller.</description>

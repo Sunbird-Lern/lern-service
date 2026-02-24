@@ -28,7 +28,7 @@
         <module>notification-sdk</module>
         <module>all-actors</module>
         <module>service</module>
-        <module>notification-report</module>
+        <module>notification-jacoco-report</module>
     </modules>
 
     <!-- Dependencies -->
