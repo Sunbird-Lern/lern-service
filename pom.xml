@@ -103,7 +103,7 @@
                 <module>modules/lms</module>
                 <module>modules/notification</module>
                 <module>modules/lern/service</module>
-                <module>lern-report</module>
+                <module>lern-jacoco-report</module>
             </modules>
         </profile>
     </profiles>

@@ -104,7 +104,7 @@
         <module>sunbird-actor-utils</module>
         <module>sunbird-notification-utils</module>
         <module>sunbird-redis-utils</module>
-        <module>sunbird-core-report</module>
+        <module>sunbird-core-jacoco-report</module>
     </modules>
 
     <build>
