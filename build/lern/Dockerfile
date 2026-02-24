@@ -1,15 +1,15 @@
 # Sunbird Lern Service Dockerfile
 # Stage 1: Extraction
-FROM alpine:3.14 AS builder
+FROM alpine:3.20 AS builder
 RUN apk update && apk add unzip
 WORKDIR /app
 COPY modules/lern/service/target/lern-service-impl-1.0-SNAPSHOT-dist.zip .
 RUN unzip lern-service-impl-1.0-SNAPSHOT-dist.zip
 
 # Stage 2: Runtime
-FROM sunbird/openjdk-java11-alpine:latest
+FROM eclipse-temurin:11-jre-alpine
 
-RUN apk update \
+RUN apk upgrade --no-cache \
     && apk add --no-cache curl \
     && adduser -u 1001 -h /home/sunbird/ -D sunbird \
     && mkdir -p /home/sunbird/
