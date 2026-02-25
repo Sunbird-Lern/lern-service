@@ -3,7 +3,7 @@ import org.sunbird.assessment.models._
 import org.sunbird.common.ProjectUtil
 import java.text.DecimalFormat
 
-class AssessmentService(redisService: RedisService, contentService: ContentService) {
+class AssessmentService(contentService: ContentService) {
 
   private val decimalFormat = new DecimalFormat("0.0#")
   private val aggType = Option(org.sunbird.common.ProjectUtil.getConfigValue("user_activity_agg_type")).getOrElse("assessment")
@@ -21,20 +21,8 @@ class AssessmentService(redisService: RedisService, contentService: ContentServi
     ScoreMetrics(totalScore, totalMaxScore, grandTotal, questions)
   }
 
-  /**
-   * Fetches content metadata once by combining Redis and Content API checks.
-   */
   def getMetadata(courseId: String, contentId: String, context: org.sunbird.request.RequestContext): ContentMetadata = {
-    val isValidInCache = redisService.isValidContent(courseId, contentId)
-    val cachedCount = redisService.getTotalQuestionsCount(contentId)
-    if (isValidInCache && cachedCount.isDefined) {
-      ContentMetadata(isValid = true, totalQuestions = cachedCount.get)
-    } else {
-      val apiMetadata = contentService.fetchMetadata(contentId, context)
-      val finalValidity = if (apiMetadata.isValid) true else isValidInCache
-      val finalCount = if (apiMetadata.totalQuestions > 0) apiMetadata.totalQuestions else cachedCount.getOrElse(0)
-      ContentMetadata(finalValidity, finalCount)
-    }
+    contentService.fetchMetadata(contentId, context)
   }
 
   def validateContent(req: AssessmentRequest, metadata: ContentMetadata): Boolean = {
@@ -51,7 +39,7 @@ class AssessmentService(redisService: RedisService, contentService: ContentServi
     val details = assessments.map(a => AttemptDetail(a.attemptId, a.lastAttemptedOn, a.totalScore, a.contentId, a.totalMaxScore, aggType))
     UserActivityAggregate(userId, courseId, batchId, aggregates, details)
   }
-  
+
   def getLatestAttemptId(aggregate: UserActivityAggregate): String = {
     if (aggregate.aggregateDetails.isEmpty) return ""
     val scoreKeys = aggregate.aggregates.keySet.filter(_.startsWith("score:"))

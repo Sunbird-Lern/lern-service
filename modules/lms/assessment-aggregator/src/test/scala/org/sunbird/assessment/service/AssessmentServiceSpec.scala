@@ -10,9 +10,8 @@ import org.sunbird.request.RequestContext
 
 class AssessmentServiceSpec extends AnyFlatSpec with Matchers with MockitoSugar {
 
-  val mockRedis = mock[RedisService]
   val mockContent = mock[ContentService]
-  val assessmentService = new AssessmentService(mockRedis, mockContent)
+  val assessmentService = new AssessmentService(mockContent)
 
   "AssessmentService" should "filter unique questions keeping the latest" in {
     val events = List(
@@ -20,7 +19,7 @@ class AssessmentServiceSpec extends AnyFlatSpec with Matchers with MockitoSugar 
       AssessmentEvent("q1", 4, 5, 15, 2000L),
       AssessmentEvent("q2", 5, 5, 5, 1500L)
     )
-    
+
     val unique = assessmentService.getUniqueQuestions(events)
     unique.size should be (2)
     unique.find(_.questionId == "q1").get.score should be (4)
@@ -32,7 +31,7 @@ class AssessmentServiceSpec extends AnyFlatSpec with Matchers with MockitoSugar 
       AssessmentEvent("q1", 2.0, 5.0, 10, 1000L),
       AssessmentEvent("q2", 3.0, 5.0, 10, 1000L)
     )
-    
+
     val metrics = assessmentService.computeScoreMetrics(events)
     metrics.totalScore should be (5.0)
     metrics.totalMaxScore should be (10.0)
@@ -40,25 +39,14 @@ class AssessmentServiceSpec extends AnyFlatSpec with Matchers with MockitoSugar 
     metrics.questions.size should be (2)
   }
 
-  it should "fetch metadata from Redis when available" in {
-    when(mockRedis.isValidContent("c1", "cont1")).thenReturn(true)
-    when(mockRedis.getTotalQuestionsCount("cont1")).thenReturn(Some(10))
-    
-    val metadata = assessmentService.getMetadata("c1", "cont1", null)
-    metadata.isValid should be (true)
-    metadata.totalQuestions should be (10)
-    verifyNoMoreInteractions(mockContent)
-  }
-
-  it should "fetch metadata from Content Service when Redis is empty" in {
-    when(mockRedis.isValidContent("c1", "cont1")).thenReturn(false)
-    when(mockRedis.getTotalQuestionsCount("cont1")).thenReturn(None)
+  it should "fetch metadata from Content Service" in {
     val ctx = mock[RequestContext]
-    when(mockContent.fetchMetadata(anyString, any[RequestContext])).thenReturn(ContentMetadata(isValid = true, totalQuestions = 15))
-    
+    when(mockContent.fetchMetadata(anyString, any[RequestContext])).thenReturn(ContentMetadata(isValid = true, totalQuestions = 10))
+
     val metadata = assessmentService.getMetadata("c1", "cont1", ctx)
     metadata.isValid should be (true)
-    metadata.totalQuestions should be (15)
+    metadata.totalQuestions should be (10)
+    verify(mockContent).fetchMetadata(anyString, any[RequestContext])
   }
 
   it should "compute user aggregates correctly" in {
@@ -66,7 +54,7 @@ class AssessmentServiceSpec extends AnyFlatSpec with Matchers with MockitoSugar 
       ExistingAssessment("a1", "cont1", 2000L, 1000L, 5.0, 10.0, List.empty),
       ExistingAssessment("a2", "cont1", 3000L, 1000L, 8.0, 10.0, List.empty)
     )
-    
+
     val agg = assessmentService.computeUserAggregates("u1", "c1", "b1", assessments)
     agg.aggregates("score:cont1") should be (8.0)
     agg.aggregates("attempts_count:cont1") should be (2.0)
@@ -85,17 +73,14 @@ class AssessmentServiceSpec extends AnyFlatSpec with Matchers with MockitoSugar 
   it should "validate content based on configuration" in {
     val metadata = ContentMetadata(isValid = false, totalQuestions = 10)
     val req = AssessmentRequest("att", "u1", "c1", "b1", "cont1", 1000L, List.empty)
-    
-    // Explicitly disable validation for first sub-test
+
     PropertiesCache.getInstance().saveConfigProperty("assessment_enable_content_validation", "false")
     assessmentService.validateContent(req, metadata) should be (true)
-    
-    // Enabled but valid
+
     val validMetadata = ContentMetadata(isValid = true, totalQuestions = 10)
     PropertiesCache.getInstance().saveConfigProperty("assessment_enable_content_validation", "true")
     assessmentService.validateContent(req, validMetadata) should be (true)
-    
-    // Enabled and invalid
+
     assessmentService.validateContent(req, metadata) should be (false)
     PropertiesCache.getInstance().saveConfigProperty("assessment_enable_content_validation", "false")
   }

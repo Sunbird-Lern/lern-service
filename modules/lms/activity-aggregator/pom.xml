@@ -57,6 +57,12 @@
             <groupId>org.sunbird</groupId>
             <artifactId>enrolment-actor</artifactId>
             <version>1.0-SNAPSHOT</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.sunbird</groupId>
+                    <artifactId>sunbird-cache-utils</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- Utilities and Data -->
