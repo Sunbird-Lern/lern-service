@@ -144,6 +144,11 @@
                     <groupId>org.apache.struts</groupId>
                     <artifactId>struts-taglib</artifactId>
                 </exclusion>
+                <!-- Security: Exclude commons-io explicitly to satisfy static image scans -->
+                <exclusion>
+                    <groupId>commons-io</groupId>
+                    <artifactId>commons-io</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
 
@@ -168,6 +173,13 @@
             <groupId>org.jboss.resteasy</groupId>
             <artifactId>resteasy-client</artifactId>
             <version>${resteasy-client.version}</version>
+            <exclusions>
+                <!-- Security: Exclude commons-io explicitly to satisfy static image scans -->
+                <exclusion>
+                    <groupId>commons-io</groupId>
+                    <artifactId>commons-io</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.jboss.resteasy</groupId>
@@ -237,6 +249,11 @@
             <artifactId>cloud-store-sdk_2.13</artifactId>
             <version>${cloud-store-sdk.version}</version>
             <exclusions>
+                <!-- Security: Exclude vulnerable hadoop-shaded-protobuf from transitive hadoop-common -->
+                <exclusion>
+                    <groupId>org.apache.hadoop.thirdparty</groupId>
+                    <artifactId>hadoop-shaded-protobuf_3_7</artifactId>
+                </exclusion>
                 <exclusion>
                     <groupId>org.apache.avro</groupId>
                     <artifactId>avro</artifactId>
