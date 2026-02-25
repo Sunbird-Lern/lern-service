@@ -18,7 +18,6 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-
     steps:
       - uses: actions/checkout@v4
       
@@ -39,7 +38,6 @@ jobs:
       - name: Build Core
         run: |
           mvn clean install
-
       - name: Upload Core Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -88,7 +86,6 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-
     steps:
       - uses: actions/checkout@v4
       
@@ -135,7 +132,6 @@ jobs:
       - name: Build and Generate Coverage Report (Notification)
         run: |
           mvn verify -P notification -rf :notification-service
-
       - name: Upload Notification Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -228,11 +224,9 @@ jobs:
           if [ -n "$SONAR_TOKEN" ]; then
             # 1. Ensure reactor is healthy and all modules are available in local repo
             mvn install -P lern -DskipTests -Dcheckstyle.skip -Dmaven.main.compile.skip=true
-
             # 2. Aggregate coverage reports
             mvn -P lern -pl lern-jacoco-report -am jacoco:report-aggregate \
               -DskipTests -Dcheckstyle.skip
-
             # 3. Run Sonar analysis on the entire project
             # Note: We now have all binaries (downloaded) and the reactor is healthy (pre-installed)
             mvn -P lern sonar:sonar \
