@@ -405,7 +405,7 @@ public class UserServiceImpl implements UserService {
       usersList = (List<Map<String, Object>>) esResult.get(JsonKey.CONTENT);
       usersList.forEach(
           user -> {
-            if (org.apache.commons.lang.StringUtils.isNotBlank((String) user.get(JsonKey.EMAIL))) {
+            if (org.apache.commons.lang3.StringUtils.isNotBlank((String) user.get(JsonKey.EMAIL))) {
               String email = getDecryptedValue((String) user.get(JsonKey.EMAIL), context);
               if (ProjectUtil.isEmailvalid(email)) {
                 user.put(JsonKey.EMAIL, email);

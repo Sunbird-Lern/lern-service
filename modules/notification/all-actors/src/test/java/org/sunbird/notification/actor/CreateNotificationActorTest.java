@@ -75,6 +75,8 @@ public class CreateNotificationActorTest extends BaseActorTest{
             PowerMockito.mockStatic(ServiceFactory.class);
             cassandraOperation = mock(CassandraOperationImpl.class);
             when(ServiceFactory.getInstance()).thenReturn(cassandraOperation);
+            org.powermock.reflect.Whitebox.setInternalState(org.sunbird.dao.TemplateDaoImpl.getInstance(), "cassandraOperation", cassandraOperation);
+            org.powermock.reflect.Whitebox.setInternalState(org.sunbird.dao.NotificationDaoImpl.getInstance(), "cassandraOperation", cassandraOperation);
             when(cassandraOperation.getRecordsByProperty(
                     Mockito.eq(JsonKey.SUNBIRD_NOTIFICATIONS),
                     Mockito.eq("action_template"),
@@ -134,6 +136,8 @@ public class CreateNotificationActorTest extends BaseActorTest{
             PowerMockito.mockStatic(ServiceFactory.class);
             cassandraOperation = mock(CassandraOperationImpl.class);
             when(ServiceFactory.getInstance()).thenReturn(cassandraOperation);
+            org.powermock.reflect.Whitebox.setInternalState(org.sunbird.dao.TemplateDaoImpl.getInstance(), "cassandraOperation", cassandraOperation);
+            org.powermock.reflect.Whitebox.setInternalState(org.sunbird.dao.NotificationDaoImpl.getInstance(), "cassandraOperation", cassandraOperation);
             when(cassandraOperation.getRecordsByProperty(
                     Mockito.eq(JsonKey.SUNBIRD_NOTIFICATIONS),
                     Mockito.eq("action_template"),
@@ -194,6 +198,8 @@ public class CreateNotificationActorTest extends BaseActorTest{
             PowerMockito.mockStatic(ServiceFactory.class);
             cassandraOperation = mock(CassandraOperationImpl.class);
             when(ServiceFactory.getInstance()).thenReturn(cassandraOperation);
+            org.powermock.reflect.Whitebox.setInternalState(org.sunbird.dao.TemplateDaoImpl.getInstance(), "cassandraOperation", cassandraOperation);
+            org.powermock.reflect.Whitebox.setInternalState(org.sunbird.dao.NotificationDaoImpl.getInstance(), "cassandraOperation", cassandraOperation);
             when(cassandraOperation.getRecordsByProperty(
                     Mockito.eq(JsonKey.SUNBIRD_NOTIFICATIONS),
                     Mockito.eq("action_template"),
@@ -254,6 +260,8 @@ public class CreateNotificationActorTest extends BaseActorTest{
             PowerMockito.mockStatic(ServiceFactory.class);
             cassandraOperation = mock(CassandraOperationImpl.class);
             when(ServiceFactory.getInstance()).thenReturn(cassandraOperation);
+            org.powermock.reflect.Whitebox.setInternalState(org.sunbird.dao.TemplateDaoImpl.getInstance(), "cassandraOperation", cassandraOperation);
+            org.powermock.reflect.Whitebox.setInternalState(org.sunbird.dao.NotificationDaoImpl.getInstance(), "cassandraOperation", cassandraOperation);
             when(cassandraOperation.getRecordsByProperty(
                     Mockito.eq(JsonKey.SUNBIRD_NOTIFICATIONS),
                     Mockito.eq("action_template"),

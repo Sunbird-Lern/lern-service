@@ -36,10 +36,7 @@
         <httpcomponents.httpcore.version>4.4.16</httpcomponents.httpcore.version>
         <httpcomponents.httpasyncclient.version>4.1.5</httpcomponents.httpasyncclient.version>
         <httpcomponents.httpmime.version>4.5.14</httpcomponents.httpmime.version>
-        
-        <!-- Jackson -->
-        <jackson.version>2.14.3</jackson.version>
-        
+
         <!--  Apache Pekko -->
         <pekko.version>1.0.3</pekko.version>
         
@@ -56,8 +53,6 @@
         <commons-lang3.version>3.12.0</commons-lang3.version>
         <commons-validator.version>1.7</commons-validator.version>
         
-        <!-- Apache Velocity -->
-        <velocity-tools.version>2.0</velocity-tools.version>
         
         <!-- Keycloak and RestEasy -->
         <keycloak.version>21.1.2</keycloak.version>
@@ -82,7 +77,7 @@
         <!-- Testing -->
         <junit.version>4.13.1</junit.version>
         <powermock.version>2.0.9</powermock.version>
-        <mockito.version>3.4.6</mockito.version>
+        <mockito.version>3.12.4</mockito.version>
         
         <!-- Build Plugins -->
         <maven-compiler-plugin.version>3.8.1</maven-compiler-plugin.version>
@@ -109,7 +104,7 @@
         <module>sunbird-actor-utils</module>
         <module>sunbird-notification-utils</module>
         <module>sunbird-redis-utils</module>
-        <module>sunbird-core-report</module>
+        <module>sunbird-core-jacoco-report</module>
     </modules>
 
     <build>
@@ -132,7 +127,7 @@
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>${maven-surefire-plugin.version}</version>
                     <configuration>
-                        <argLine>--illegal-access=warn</argLine>
+                        <argLine>@{argLine} --illegal-access=warn</argLine>
                     </configuration>
                 </plugin>
             </plugins>

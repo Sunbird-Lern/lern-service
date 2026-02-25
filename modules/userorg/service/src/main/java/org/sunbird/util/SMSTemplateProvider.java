@@ -3,11 +3,8 @@ package org.sunbird.util;
 import java.io.StringWriter;
 import java.util.Map;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.velocity.Template;
 import org.apache.velocity.VelocityContext;
-import org.apache.velocity.runtime.RuntimeServices;
-import org.apache.velocity.runtime.RuntimeSingleton;
-import org.apache.velocity.runtime.parser.node.SimpleNode;
+import org.apache.velocity.app.Velocity;
 import org.sunbird.dao.notification.EmailTemplateDao;
 import org.sunbird.dao.notification.impl.EmailTemplateDaoImpl;
 import org.sunbird.keys.JsonKey;
@@ -39,15 +36,12 @@ public class SMSTemplateProvider {
         logger.info(requestContext, "SMSTemplateProvider:getSMSBody: Template not found: " + smsTemplate);
         return "";
       }
-      RuntimeServices rs = RuntimeSingleton.getRuntimeServices();
-      SimpleNode sn = rs.parse(template, "Sms Information");
-      Template t = new Template();
-      t.setRuntimeServices(rs);
-      t.setData(sn);
-      t.initDocument();
-      VelocityContext context = new VelocityContext(templateConfig);
+      VelocityContext context = new VelocityContext();
+      if (templateConfig != null) {
+        templateConfig.forEach(context::put);
+      }
       StringWriter writer = new StringWriter();
-      t.merge(context, writer);
+      Velocity.evaluate(context, writer, "SMSBody", template);
       return writer.toString();
     } catch (Exception ex) {
       logger.error("Exception occurred while formatting SMS ", ex);

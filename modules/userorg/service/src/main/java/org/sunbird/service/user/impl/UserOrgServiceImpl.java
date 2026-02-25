@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
 import org.apache.commons.lang3.StringUtils;
-import org.codehaus.jackson.map.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.sunbird.dao.user.UserOrgDao;
 import org.sunbird.dao.user.impl.UserOrgDaoImpl;
 import org.sunbird.keys.JsonKey;

@@ -4,47 +4,52 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 
     <parent>
+        <artifactId>notification-service</artifactId>
         <groupId>org.sunbird</groupId>
-        <artifactId>core</artifactId>
         <version>1.0-SNAPSHOT</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>sunbird-core-report</artifactId>
+    <artifactId>notification-jacoco-report</artifactId>
     <packaging>pom</packaging>
-    <name>Sunbird Core Coverage Report</name>
-    <description>Aggregated JaCoCo coverage report for all core modules.</description>
+    <name>Notification Service Coverage Report</name>
+    <description>Aggregated JaCoCo coverage report for Notification Service modules.</description>
 
     <dependencies>
-        <!-- Sunbird Core Modules -->
+        <!-- Notification Modules for Reporting -->
         <dependency>
             <groupId>org.sunbird</groupId>
-            <artifactId>sunbird-platform-common</artifactId>
+            <artifactId>all-actors</artifactId>
             <version>${project.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>at.yawk.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.sunbird</groupId>
-            <artifactId>sunbird-cassandra-utils</artifactId>
+            <artifactId>notification-service-impl</artifactId>
             <version>${project.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>at.yawk.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.sunbird</groupId>
-            <artifactId>sunbird-es-utils</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.sunbird</groupId>
-            <artifactId>sunbird-actor-utils</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.sunbird</groupId>
-            <artifactId>sunbird-notification-utils</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.sunbird</groupId>
-            <artifactId>sunbird-redis-utils</artifactId>
+            <artifactId>notification-sdk</artifactId>
             <version>${project.version}</version>
         </dependency>
     </dependencies>

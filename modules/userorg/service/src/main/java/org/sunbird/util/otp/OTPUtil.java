@@ -27,7 +27,7 @@ public final class OTPUtil {
   private static final int MAXIMUM_OTP_LENGTH = 6;
   private static final int SECONDS_IN_MINUTES = 60;
   private static final int RETRY_COUNT = 2;
-  private static final int MIN_OTP_LENGTH = 4;
+  private static final int MIN_OTP_LENGTH = 6;
 
   private OTPUtil() {}
 
@@ -70,11 +70,7 @@ public final class OTPUtil {
    * @return
    */
   private static String ensureOtpLength(String otp) {
-    if (otp.length() < MIN_OTP_LENGTH) {
-      int multiplier = (int) Math.pow(10, MAXIMUM_OTP_LENGTH - MIN_OTP_LENGTH + 1.0);
-      otp = String.valueOf(Integer.valueOf(otp) * multiplier);
-    }
-    return otp;
+    return StringUtils.leftPad(otp, MAXIMUM_OTP_LENGTH, "0");
   }
 
   public static boolean sendOTPViaSMS(Map<String, Object> otpMap, RequestContext context) {

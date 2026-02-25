@@ -9,7 +9,7 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>controller</artifactId>
+    <artifactId>userorg-controller</artifactId>
     <packaging>play2</packaging>
     <name>UserOrg Controller</name>
     <description>Web controller module for User and Organization service, built with Play Framework.</description>
@@ -42,9 +42,7 @@
         <scala.version>2.13.12</scala.version>
         <pekko.version>1.0.3</pekko.version>
         <pekko-http.version>1.0.1</pekko-http.version>
-        <jackson.version>2.14.3</jackson.version>
         <guice.version>5.1.0</guice.version>
-        <slf4j.version>2.0.9</slf4j.version>
         <logback.version>1.4.14</logback.version>
     </properties>
 
@@ -79,6 +77,23 @@
                     <groupId>org.scala-lang</groupId>
                     <artifactId>scala-library</artifactId>
                 </exclusion>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-core-asl</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>at.yawk.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
         <dependency>
@@ -90,6 +105,19 @@
                 <exclusion>
                     <artifactId>slf4j-api</artifactId>
                     <groupId>org.slf4j</groupId>
+                </exclusion>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>at.yawk.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
@@ -106,6 +134,19 @@
                 <exclusion>
                     <groupId>io.netty</groupId>
                     <artifactId>netty-codec-http</artifactId>
+                </exclusion>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>at.yawk.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
@@ -134,18 +175,50 @@
                     <groupId>org.scala-lang</groupId>
                     <artifactId>scala-library</artifactId>
                 </exclusion>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-core-asl</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>at.yawk.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
         <dependency>
             <groupId>org.playframework</groupId>
             <artifactId>play-pekko-http-server_${scala.major.version}</artifactId>
             <version>${play2.version}</version>
+            <exclusions>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>at.yawk.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- Sunbird Service Dependencies -->
         <dependency>
             <groupId>org.sunbird</groupId>
-            <artifactId>service</artifactId>
+            <artifactId>userorg-service-impl</artifactId>
             <version>1.0-SNAPSHOT</version>
             <exclusions>
                 <exclusion>
@@ -159,6 +232,11 @@
                 <exclusion>
                     <groupId>org.scala-lang</groupId>
                     <artifactId>scala-reflect</artifactId>
+                </exclusion>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
@@ -222,6 +300,16 @@
             <groupId>com.github.danielwegener</groupId>
             <artifactId>logback-kafka-appender</artifactId>
             <version>0.2.0-RC2</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>at.yawk.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>ch.qos.logback.contrib</groupId>

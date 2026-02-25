@@ -1,0 +1,240 @@
+name: PR Code Coverage and SonarQube Analysis
+
+on:
+  pull_request:
+    branches: ['**']
+
+jobs:
+  build-core:
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:4.0.0
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up JDK 11
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+      
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+            
+      - name: Build Core
+        run: |
+          mvn clean install
+      - name: Upload Core Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-artifacts
+          path: core/**/target/**
+
+  userorg-build:
+    needs: build-core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up JDK 11
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+          
+      - name: Restore Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ github.run_id }}
+          
+      - name: Build and Generate Coverage Report (UserOrg)
+        run: |
+          mvn verify -P userorg -rf :userorg-service
+          
+      - name: Upload UserOrg Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: userorg-artifacts
+          path: modules/userorg/**/target/**
+
+  lms-build:
+    needs: build-core
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:4.0.0
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up JDK 11
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+          
+      - name: Restore Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ github.run_id }}
+          
+      - name: Build and Generate Coverage Report (LMS)
+        run: |
+          mvn verify -P lms -rf :lms-service
+          
+      - name: Upload LMS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lms-artifacts
+          path: modules/lms/**/target/**
+
+  notification-build:
+    needs: build-core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up JDK 11
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+          
+      - name: Restore Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ github.run_id }}
+          
+      - name: Build and Generate Coverage Report (Notification)
+        run: |
+          mvn verify -P notification -rf :notification-service
+      - name: Upload Notification Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: notification-artifacts
+          path: modules/notification/**/target/**
+
+  lern-build:
+    needs: build-core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up JDK 11
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+          
+      - name: Restore Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ github.run_id }}
+          
+      - name: Build and Generate Coverage Report (Lern Service Impl)
+        run: |
+          # Install dependencies into local repo skipped to ensure resolution
+          mvn install -P lern -pl modules/lern/service -am -DskipTests -Dcheckstyle.skip
+          # Run verification/tests for the target module
+          mvn verify -P lern -pl modules/lern/service
+          
+      - name: Upload Lern Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lern-artifacts
+          path: modules/lern/service/**/target/**
+
+  sonar-analysis:
+    needs: [userorg-build, lms-build, notification-build, lern-build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          
+      - name: Download Core Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: core-artifacts
+          path: .
+          merge-multiple: true
+
+      - name: Download UserOrg Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: userorg-artifacts
+          path: .
+          merge-multiple: true
+
+      - name: Download LMS Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: lms-artifacts
+          path: .
+          merge-multiple: true
+
+      - name: Download Notification Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: notification-artifacts
+          path: .
+          merge-multiple: true
+
+      - name: Download Lern Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: lern-artifacts
+          path: .
+          merge-multiple: true
+
+      - name: Run Aggregated SonarQube Analysis
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "$SONAR_TOKEN" ]; then
+            # 1. Ensure reactor is healthy and all modules are available in local repo
+            mvn install -P lern -DskipTests -Dcheckstyle.skip -Dmaven.main.compile.skip=true
+            # 2. Aggregate coverage reports
+            mvn -P lern -pl lern-jacoco-report -am jacoco:report-aggregate \
+              -DskipTests -Dcheckstyle.skip
+            # 3. Run Sonar analysis on the entire project
+            # Note: We now have all binaries (downloaded) and the reactor is healthy (pre-installed)
+            mvn -P lern sonar:sonar \
+              -Dsonar.projectKey=Sunbird-Lern_lern-service \
+              -Dsonar.organization=sunbird-lern \
+              -Dsonar.host.url=https://sonarcloud.io \
+              -Dsonar.coverage.jacoco.xmlReportPaths=lern-jacoco-report/target/site/jacoco-aggregate/jacoco.xml \
+              -DskipTests -Dcheckstyle.skip
+          else
+            echo "Skipping SonarQube analysis: SONAR_TOKEN is missing"
+          fi
