@@ -16,7 +16,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import org.junit.Assert;
@@ -102,7 +101,7 @@ public class UserSelfDeclarationManagementActorTest {
         Mockito.anyMap(),
         Mockito.any());
 
-    List userOrgLst = new LinkedList<HashMap<String, Object>>();
+    List userOrgLst = new ArrayList<HashMap<String, Object>>();
     Map userOrg = new HashMap();
     userOrg.put(JsonKey.ORGANISATION_ID, "someStateSubOrgId");
     userOrg.put(JsonKey.EXTERNAL_ID, "someStateExternalId");
