@@ -2,7 +2,7 @@ package filters
 
 import org.apache.pekko.stream.Materializer
 import org.apache.pekko.util.ByteString
-import org.apache.commons.lang.StringUtils
+import org.apache.commons.lang3.StringUtils
 import org.sunbird.keys.JsonKey
 import org.sunbird.keys.JsonKey.{CLOUD_STORAGE_CNAME_URL, CLOUD_STORE_BASE_PATH, CONTENT_CLOUD_STORAGE_CONTAINER}
 import org.sunbird.common.ProjectUtil.getConfigValue

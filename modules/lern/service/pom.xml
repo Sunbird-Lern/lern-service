@@ -20,7 +20,6 @@
         <scala.major.version>2.13</scala.major.version>
         <scala.version>2.13.12</scala.version>
         <pekko.version>1.0.3</pekko.version>
-        <jackson.version>2.14.3</jackson.version>
     </properties>
 
     <repositories>
@@ -80,12 +79,40 @@
                     <groupId>org.sabot</groupId>
                     <artifactId>play_2.12</artifactId>
                 </exclusion>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-core-asl</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
         <dependency>
             <groupId>org.playframework</groupId>
             <artifactId>play_${scala.major.version}</artifactId>
             <version>${play2.version}</version>
+            <exclusions>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-core-asl</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
+                </exclusion>
+                 <exclusion>
+                    <groupId>at.yawk.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.playframework</groupId>
@@ -96,6 +123,15 @@
                     <groupId>com.google.inject</groupId>
                     <artifactId>guice</artifactId>
                 </exclusion>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-core-asl</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
         <dependency>
@@ -103,22 +139,50 @@
             <artifactId>play-logback_${scala.major.version}</artifactId>
             <version>${play2.version}</version>
             <scope>runtime</scope>
+            <exclusions>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.playframework</groupId>
             <artifactId>play-netty-server_${scala.major.version}</artifactId>
             <version>${play2.version}</version>
             <scope>runtime</scope>
+            <exclusions>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.playframework</groupId>
             <artifactId>play-filters-helpers_${scala.major.version}</artifactId>
             <version>${play2.version}</version>
+            <exclusions>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.playframework</groupId>
             <artifactId>play-ahc-ws_${scala.major.version}</artifactId>
             <version>${play2.version}</version>
+            <exclusions>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.playframework</groupId>
@@ -126,19 +190,67 @@
             <version>${play2.version}</version>
             <scope>test</scope>
         </dependency>
-        
+
+        <!-- Pekko TestKit Dependencies for testing actors -->
+        <dependency>
+            <groupId>org.apache.pekko</groupId>
+            <artifactId>pekko-actor-testkit-typed_${scala.major.version}</artifactId>
+            <version>${pekko.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.pekko</groupId>
+            <artifactId>pekko-testkit_${scala.major.version}</artifactId>
+            <version>${pekko.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- JUnit and Mockito for unit testing -->
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>3.12.4</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-inline</artifactId>
+            <version>3.12.4</version>
+            <scope>test</scope>
+        </dependency>
+
         <!-- Service Dependencies -->
         <!-- UserOrg Service (artifactId: service) -->
         <dependency>
             <groupId>org.sunbird</groupId>
             <artifactId>userorg-service-impl</artifactId>
             <version>1.0-SNAPSHOT</version>
+            <exclusions>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <!-- UserOrg Controller (artifactId: controller) -->
         <dependency>
             <groupId>org.sunbird</groupId>
             <artifactId>userorg-controller</artifactId>
             <version>1.0-SNAPSHOT</version>
+            <exclusions>
+                <!-- Security: Exclude vulnerable jackson-mapper-asl -->
+                <exclusion>
+                    <groupId>org.codehaus.jackson</groupId>
+                    <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- LMS Service Modules -->
@@ -166,6 +278,16 @@
             <groupId>org.sunbird</groupId>
             <artifactId>assessment-aggregator</artifactId>
             <version>1.0-SNAPSHOT</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>at.yawk.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.sunbird</groupId>

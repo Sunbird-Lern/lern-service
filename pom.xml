@@ -28,13 +28,29 @@
         <scala.major.version>2.13</scala.major.version>
         <scala.version>2.13.12</scala.version>
         <pekko.version>1.0.3</pekko.version>
-        <jackson.version>2.14.3</jackson.version>
-        <netty.version>4.1.112.Final</netty.version>
+        <jackson.version>2.17.0</jackson.version>
+        <netty.version>4.1.118.Final</netty.version>
         <junit.version>4.13.1</junit.version>
         <powermock.version>2.0.9</powermock.version>
+        <mockito.version>3.12.4</mockito.version>
         <slf4j.version>2.0.13</slf4j.version>
         <logback.version>1.4.14</logback.version>
         <kafka.version>3.7.1</kafka.version>
+        <tika.version>3.2.2</tika.version>
+
+        <!-- Security: Vulnerability Remediation Versions -->
+        <protobuf.version>3.25.5</protobuf.version>
+        <nimbus-jose-jwt.version>9.37.2</nimbus-jose-jwt.version>
+        <okhttp3.version>4.9.2</okhttp3.version>
+        <dnsjava.version>3.6.0</dnsjava.version>
+        <jetty.version>9.4.57.v20241219</jetty.version>
+        <snakeyaml.version>2.0</snakeyaml.version>
+        <grpc.version>1.75.0</grpc.version>
+        <json.version>20231013</json.version>
+        <commons-beanutils.version>1.11.0</commons-beanutils.version>
+        <lz4-java.version>1.10.3</lz4-java.version>
+        <snappy-java.version>1.1.10.4</snappy-java.version>
+        <velocity-tools.version>3.1</velocity-tools.version>
 
         <!-- Dependency Versions -->
         <surefire.plugin.version>3.0.0</surefire.plugin.version>
@@ -143,6 +159,11 @@
                 <artifactId>jackson-annotations</artifactId>
                 <version>${jackson.version}</version>
             </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.module</groupId>
+                <artifactId>jackson-module-scala_${scala.major.version}</artifactId>
+                <version>${jackson.version}</version>
+            </dependency>
 
             <!-- Standardize Pekko -->
             <dependency>
@@ -154,6 +175,20 @@
                 <groupId>org.apache.pekko</groupId>
                 <artifactId>pekko-slf4j_${scala.major.version}</artifactId>
                 <version>${pekko.version}</version>
+            </dependency>
+            
+            <!-- Standardize Mockito -->
+            <dependency>
+                <groupId>org.mockito</groupId>
+                <artifactId>mockito-core</artifactId>
+                <version>${mockito.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.mockito</groupId>
+                <artifactId>mockito-inline</artifactId>
+                <version>${mockito.version}</version>
+                <scope>test</scope>
             </dependency>
 
             <!-- Standardize Guava -->
@@ -211,10 +246,129 @@
                 <artifactId>netty-codec-dns</artifactId>
                 <version>${netty.version}</version>
             </dependency>
+
+            <!-- Security: Override vulnerable tika-core from hadoop-common transitive dependency -->
+            <dependency>
+                <groupId>org.apache.tika</groupId>
+                <artifactId>tika-core</artifactId>
+                <version>${tika.version}</version>
+            </dependency>
+
+            <!-- Security: Replace vulnerable dom4j 1.1 with maintained dom4j 2.x -->
+            <dependency>
+                <groupId>org.dom4j</groupId>
+                <artifactId>dom4j</artifactId>
+                <version>2.1.4</version>
+            </dependency>
+
+            <!-- Security: Vulnerability Remediation - Force secure versions -->
+            <dependency>
+                <groupId>com.google.protobuf</groupId>
+                <artifactId>protobuf-java</artifactId>
+                <version>${protobuf.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.nimbusds</groupId>
+                <artifactId>nimbus-jose-jwt</artifactId>
+                <version>${nimbus-jose-jwt.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.squareup.okhttp3</groupId>
+                <artifactId>okhttp</artifactId>
+                <version>${okhttp3.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.squareup.okhttp3</groupId>
+                <artifactId>mockwebserver</artifactId>
+                <version>${okhttp3.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>dnsjava</groupId>
+                <artifactId>dnsjava</artifactId>
+                <version>${dnsjava.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>at.yawk.lz4</groupId>
+                <artifactId>lz4-java</artifactId>
+                <version>${lz4-java.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.xerial.snappy</groupId>
+                <artifactId>snappy-java</artifactId>
+                <version>${snappy-java.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.velocity.tools</groupId>
+                <artifactId>velocity-tools-generic</artifactId>
+                <version>${velocity-tools.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.velocity</groupId>
+                <artifactId>velocity-engine-core</artifactId>
+                <version>2.4.1</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-server</artifactId>
+                <version>${jetty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.yaml</groupId>
+                <artifactId>snakeyaml</artifactId>
+                <version>${snakeyaml.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-core</artifactId>
+                <version>${grpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-api</artifactId>
+                <version>${grpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-netty-shaded</artifactId>
+                <version>${grpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-protobuf</artifactId>
+                <version>${grpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.json</groupId>
+                <artifactId>json</artifactId>
+                <version>${json.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>commons-beanutils</groupId>
+                <artifactId>commons-beanutils</artifactId>
+                <version>${commons-beanutils.version}</version>
+            </dependency>
+
+            <!-- Security: Managed Commons IO -->
+            <dependency>
+                <groupId>commons-io</groupId>
+                <artifactId>commons-io</artifactId>
+                <version>2.14.0</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
     <dependencies>
+        <!-- Security: Global secure versions of vulnerable transitive dependencies -->
+        <dependency>
+            <groupId>org.xerial.snappy</groupId>
+            <artifactId>snappy-java</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>at.yawk.lz4</groupId>
+            <artifactId>lz4-java</artifactId>
+        </dependency>
+
         <!-- Test Dependencies -->
         <dependency>
             <groupId>junit</groupId>

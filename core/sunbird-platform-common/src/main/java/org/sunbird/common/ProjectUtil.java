@@ -24,7 +24,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.validator.UrlValidator;
 import org.apache.velocity.Template;
 import org.apache.velocity.VelocityContext;
@@ -926,9 +926,9 @@ public class ProjectUtil {
   public static String getSMSBody(Map<String, String> smsTemplate) {
     try {
       Properties props = new Properties();
-      props.put("resource.loader", "class");
+      props.put("resource.loaders", "class");
       props.put(
-          "class.resource.loader.class",
+          "resource.loader.class.class",
           "org.apache.velocity.runtime.resource.loader.ClasspathResourceLoader");
 
       VelocityEngine ve = new VelocityEngine();
@@ -940,7 +940,10 @@ public class ProjectUtil {
               ? ""
               : smsTemplate.get("instanceName"));
       Template t = ve.getTemplate("/welcomeSmsTemplate.vm");
-      VelocityContext context = new VelocityContext(smsTemplate);
+      VelocityContext context = new VelocityContext();
+      if (smsTemplate != null) {
+        smsTemplate.forEach(context::put);
+      }
       StringWriter writer = new StringWriter();
       t.merge(context, writer);
       return writer.toString();

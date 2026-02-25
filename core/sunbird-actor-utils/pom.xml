@@ -65,6 +65,13 @@
             <version>${pekko.version}</version>
         </dependency>
 
+        <!-- Scala library (needed for Pekko types) -->
+        <dependency>
+            <groupId>org.scala-lang</groupId>
+            <artifactId>scala-library</artifactId>
+            <version>${scala.version}</version>
+        </dependency>
+
         <!-- Utilities -->
         <dependency>
             <groupId>org.reflections</groupId>
@@ -87,6 +94,50 @@
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
             <version>${jackson.version}</version>
+        </dependency>
+
+        <!-- Testing: JUnit 4 -->
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Mockito core + inline (static mocking) -->
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>${mockito.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-inline</artifactId>
+            <version>${mockito.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- PowerMock: for mocking ConfigFactory, ActorSystem.create(), Reflections -->
+        <dependency>
+            <groupId>org.powermock</groupId>
+            <artifactId>powermock-module-junit4</artifactId>
+            <version>${powermock.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.powermock</groupId>
+            <artifactId>powermock-api-mockito2</artifactId>
+            <version>${powermock.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Pekko TestKit: for actor message send/receive assertions -->
+        <dependency>
+            <groupId>org.apache.pekko</groupId>
+            <artifactId>pekko-testkit_${scala.major.version}</artifactId>
+            <version>${pekko.version}</version>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 

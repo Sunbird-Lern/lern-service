@@ -1,7 +1,7 @@
 package org.sunbird.learner.util;
 
 import org.apache.commons.collections4.MapUtils;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.BooleanUtils;
 import org.junit.Test;
 

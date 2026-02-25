@@ -20,7 +20,6 @@
 		<scala.version>2.13.12</scala.version>
 		<pekko.version>1.0.3</pekko.version>
 		<play2.plugin.version>1.0.0-rc5</play2.plugin.version>
-		<jackson.version>2.14.3</jackson.version>
 		<powermock.version>2.0.9</powermock.version>
 		<jacoco-maven-plugin.version>0.8.8</jacoco-maven-plugin.version>
 		<scoverage.plugin.version>1.4.1</scoverage.plugin.version>
@@ -140,8 +139,8 @@
 		        <artifactId>jacoco-maven-plugin</artifactId>
 		        <version>${jacoco-maven-plugin.version}</version>
 		        <configuration>
-					<destFile>${basedir}/target/coverage-reports/jacoco-unit.exec</destFile>
-					<dataFile>${basedir}/target/coverage-reports/jacoco-unit.exec</dataFile>
+					<destFile>${project.build.directory}/jacoco.exec</destFile>
+					<dataFile>${project.build.directory}/jacoco.exec</dataFile>
 				</configuration>
 				<executions>
 					<execution>

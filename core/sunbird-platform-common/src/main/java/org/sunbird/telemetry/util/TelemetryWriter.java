@@ -19,9 +19,9 @@ import org.sunbird.telemetry.validator.TelemetryObjectValidatorV3;
  */
 public class TelemetryWriter {
 
-  private static final TelemetryDataAssembler telemetryDataAssembler =
+  private static TelemetryDataAssembler telemetryDataAssembler =
       TelemetryAssemblerFactory.get();
-  private static final TelemetryObjectValidator telemetryObjectValidator =
+  private static TelemetryObjectValidator telemetryObjectValidator =
       new TelemetryObjectValidatorV3();
   private static final LoggerUtil logger = new LoggerUtil(TelemetryWriter.class);
   private static final Logger telemetryEventLogger =

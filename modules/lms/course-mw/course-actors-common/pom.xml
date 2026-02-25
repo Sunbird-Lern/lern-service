@@ -43,12 +43,10 @@
 		<dependency>
 			<groupId>ch.qos.logback</groupId>
 			<artifactId>logback-classic</artifactId>
-			<version>1.2.3</version>
 		</dependency>
 		<dependency>
 			<groupId>ch.qos.logback</groupId>
 			<artifactId>logback-core</artifactId>
-			<version>1.2.3</version>
 		</dependency>
 
 		<!-- Pekko and Scala -->
@@ -116,12 +114,10 @@
 		<dependency>
 			<groupId>com.fasterxml.jackson.core</groupId>
 			<artifactId>jackson-core</artifactId>
-			<version>2.14.3</version>
 		</dependency>
 		<dependency>
 			<groupId>com.fasterxml.jackson.core</groupId>
 			<artifactId>jackson-databind</artifactId>
-			<version>2.14.3</version>
 		</dependency>
 		<dependency>
 			<groupId>com.opencsv</groupId>
@@ -160,7 +156,8 @@
 		<dependency>
 			<groupId>com.squareup.okhttp3</groupId>
 			<artifactId>mockwebserver</artifactId>
-			<version>3.12.13</version>
+			<version>4.9.0</version>
+			<scope>compile</scope>
 		</dependency>
 
 		<!-- Test Dependencies -->
