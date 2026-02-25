@@ -47,17 +47,9 @@ jobs:
         id: vars
         run: |
           echo "LERN_ENABLE=${{ vars.LERN_SERVICE_BUILD == 'true' }}" >> $GITHUB_ENV
-          
-          # If LERN is true, others are false. Else check their specific vars.
-          if [ "${{ vars.LERN_SERVICE_BUILD }}" == "true" ]; then
-            echo "USERORG_ENABLE=false" >> $GITHUB_ENV
-            echo "LMS_ENABLE=false" >> $GITHUB_ENV
-            echo "NOTIFICATION_ENABLE=false" >> $GITHUB_ENV
-          else
-            echo "USERORG_ENABLE=${{ vars.USERORG_SERVICE_BUILD == 'true' }}" >> $GITHUB_ENV
-            echo "LMS_ENABLE=${{ vars.LMS_SERVICE_BUILD == 'true' }}" >> $GITHUB_ENV
-            echo "NOTIFICATION_ENABLE=${{ vars.NOTIFICATION_SERVICE_BUILD == 'true' }}" >> $GITHUB_ENV
-          fi
+          echo "USERORG_ENABLE=${{ vars.USERORG_SERVICE_BUILD == 'true' }}" >> $GITHUB_ENV
+          echo "LMS_ENABLE=${{ vars.LMS_SERVICE_BUILD == 'true' }}" >> $GITHUB_ENV
+          echo "NOTIFICATION_ENABLE=${{ vars.NOTIFICATION_SERVICE_BUILD == 'true' }}" >> $GITHUB_ENV
 
           # Prepare Image Meta
           REPO_LOWER=$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')
