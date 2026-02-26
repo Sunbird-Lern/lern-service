@@ -17,17 +17,15 @@ import org.apache.commons.lang3.StringUtils
 class AssessmentAggregatorActor(
   _cassandraService: Option[CassandraService],
   _kafkaService: Option[KafkaService],
-  _redisService: Option[RedisService],
   _contentService: Option[ContentService]
 ) extends BaseActor {
 
-  def this() = this(None, None, None, None)
+  def this() = this(None, None, None)
 
   private lazy val cassandraService = _cassandraService.getOrElse(AssessmentAggregatorActor.cassandraService)
   private lazy val kafkaService = _kafkaService.getOrElse(AssessmentAggregatorActor.kafkaService)
-  private lazy val redisService = _redisService.getOrElse(AssessmentAggregatorActor.redisService)
   private lazy val contentService = _contentService.getOrElse(AssessmentAggregatorActor.contentService)
-  private lazy val assessmentService = new AssessmentService(redisService, contentService)
+  private lazy val assessmentService = new AssessmentService(contentService)
   
   override def onReceive(request: Request): Unit = {
     request.getOperation match {
@@ -242,13 +240,11 @@ class AssessmentAggregatorActor(
 object AssessmentAggregatorActor {
   lazy val cassandraService = new CassandraService()
   lazy val kafkaService = new KafkaService()
-  lazy val redisService = new RedisService()
   lazy val contentService = new ContentService()
 
   def props(): Props = Props(new AssessmentAggregatorActor(
     Some(cassandraService),
     Some(kafkaService),
-    Some(redisService),
     Some(contentService)
   ))
 }

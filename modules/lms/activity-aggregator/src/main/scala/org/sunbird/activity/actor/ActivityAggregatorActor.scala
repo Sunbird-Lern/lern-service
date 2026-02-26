@@ -4,8 +4,7 @@ import com.google.gson.Gson
 import org.apache.pekko.actor.Props
 import org.apache.commons.lang3.StringUtils
 import org.sunbird.activity.domain.{CollectionProgress, ContentStatus, TelemetryEvent, UserContentConsumption, UserEnrolmentAgg}
-import org.sunbird.activity.util.{ActivityAggregateUtil, CertificateUtil, ContentSearchUtil, DeDupUtil, RedisUtil}
-import org.sunbird.cache.util.RedisCacheUtil
+import org.sunbird.activity.util.{ActivityAggregateUtil, CertificateUtil, ContentSearchUtil, DeDupUtil, HierarchyRelationsUtil}
 import org.sunbird.cassandra.CassandraOperation
 import org.sunbird.exception.ProjectCommonException
 import org.sunbird.keys.JsonKey
@@ -19,42 +18,26 @@ import org.sunbird.kafka.KafkaClient
 import org.sunbird.learner.util.Util
 
 import java.util
-import javax.inject.Inject
 import scala.collection.JavaConverters._
 
-class ActivityAggregatorActor @Inject()(implicit val cacheUtil: RedisCacheUtil) extends BaseEnrolmentActor {
+class ActivityAggregatorActor extends BaseEnrolmentActor {
 
-  private val cassandraOperation: CassandraOperation = ServiceFactory.getInstance
-  private val enrolmentDBInfo = Util.dbInfoMap.get(JsonKey.LEARNER_COURSE_DB)
-  private val activityAggDBInfo = Util.dbInfoMap.get(JsonKey.GROUP_ACTIVITY_DB)
-  private val consumptionDBInfo = Util.dbInfoMap.get(JsonKey.LEARNER_CONTENT_DB)
-  
+  private var cassandraOperation: CassandraOperation = ActivityAggregatorActor.sharedCassandraOperation
+  private var hierarchyRelationsUtil: HierarchyRelationsUtil = ActivityAggregatorActor.sharedHierarchyRelationsUtil
+  private var certificateUtil: CertificateUtil = ActivityAggregatorActor.sharedCertificateUtil
+  private var contentSearchUtil: ContentSearchUtil = ActivityAggregatorActor.sharedContentSearchUtil
+  private var deDupUtil: DeDupUtil = ActivityAggregatorActor.sharedDeDupUtil
+
+  private def gson = ActivityAggregatorActor.sharedGson
+  private def enrolmentDBInfo = ActivityAggregatorActor.sharedEnrolmentDBInfo
+  private def activityAggDBInfo = ActivityAggregatorActor.sharedActivityAggDBInfo
+  private def consumptionDBInfo = ActivityAggregatorActor.sharedConsumptionDBInfo
+  private def auditEventTopic = ActivityAggregatorActor.sharedAuditEventTopic
+  private def moduleAggEnabled = ActivityAggregatorActor.sharedModuleAggEnabled
+  private def filterCompletedEnrolments = ActivityAggregatorActor.sharedFilterCompletedEnrolments
+  private def dedupEnabled = ActivityAggregatorActor.sharedDedupEnabled
+
   private val activityAggUtil = new ActivityAggregateUtil()
-  private val redisUtil = RedisUtil()
-  private val certificateUtil = CertificateUtil()
-  private val contentSearchUtil = ContentSearchUtil()
-  private val deDupUtil = DeDupUtil()
-  private val gson = new Gson()
-  
-  private val auditEventTopic = ProjectUtil.getConfigValue("kafka_topics_audit_event") match {
-    case value if value != null => value
-    case _ => "dev.telemetry.raw"
-  }
-  
-  private val moduleAggEnabled = ProjectUtil.getConfigValue("enable_module_aggregation") match {
-    case value if value != null => value.toBoolean
-    case _ => true
-  }
-  
-  private val filterCompletedEnrolments = ProjectUtil.getConfigValue("filter_processed_enrolments") match {
-    case value if value != null => value.toBoolean
-    case _ => true
-  }
-  
-  private val dedupEnabled = ProjectUtil.getConfigValue("activity_input_dedup_enabled") match {
-    case value if value != null => value.toBoolean
-    case _ => false
-  }
 
   override def onReceive(request: Request): Unit = {
     request.getOperation match {
@@ -139,9 +122,9 @@ class ActivityAggregatorActor @Inject()(implicit val cacheUtil: RedisCacheUtil) 
     
     updateContentConsumption(finalUserConsumption, requestContext)
     
-    // Fetch leaf nodes and optional nodes from Redis
-    val leafNodes = redisUtil.getLeafNodes(courseId, courseId, requestContext)
-    val optionalNodes = redisUtil.getOptionalNodes(courseId, courseId, requestContext)
+    // Fetch leaf nodes and optional nodes from Yugabyte hierarchy_relations table
+    val leafNodes = hierarchyRelationsUtil.getLeafNodes(courseId, courseId, requestContext)
+    val optionalNodes = hierarchyRelationsUtil.getOptionalNodes(courseId, courseId, requestContext)
     
     if (leafNodes.nonEmpty) {
       val courseAggregations = computeCourseAggregations(finalUserConsumption, courseId, leafNodes, optionalNodes, requestContext)
@@ -249,7 +232,7 @@ class ActivityAggregatorActor @Inject()(implicit val cacheUtil: RedisCacheUtil) 
     if (moduleAggEnabled) {
       logger.info(requestContext, s"computeCourseAggregations: Module aggregation enabled, computing module-level aggregations")
       val ancestors = userConsumption.contents.map { case (contentId, content) =>
-        val ancestorList = redisUtil.getAncestors(courseId, content.contentId, requestContext)
+        val ancestorList = hierarchyRelationsUtil.getAncestors(courseId, content.contentId, requestContext)
         logger.info(requestContext, s"computeCourseAggregations: contentId: $contentId has ${ancestorList.size} ancestors")
         (contentId, ancestorList)
       }.toMap
@@ -258,7 +241,7 @@ class ActivityAggregatorActor @Inject()(implicit val cacheUtil: RedisCacheUtil) 
       logger.info(requestContext, s"computeCourseAggregations: Found ${childCollections.size} child collections: ${childCollections.mkString(", ")}")
       
       val collectionsWithLeafNodes = childCollections.map(collectionId => {
-        val collectionLeafNodes = redisUtil.getRequiredLeafNodes(courseId, collectionId, requestContext)
+        val collectionLeafNodes = hierarchyRelationsUtil.getRequiredLeafNodes(courseId, collectionId, requestContext)
         logger.info(requestContext, s"computeCourseAggregations: collectionId: $collectionId has ${collectionLeafNodes.size} required leaf nodes")
         (collectionId, collectionLeafNodes)
       }).toMap
@@ -445,5 +428,37 @@ class ActivityAggregatorActor @Inject()(implicit val cacheUtil: RedisCacheUtil) 
 }
 
 object ActivityAggregatorActor {
-  def props(cacheUtil: RedisCacheUtil): Props = Props(new ActivityAggregatorActor()(cacheUtil))
+
+  // Shared singletons — initialized once per JVM, reused across all actor instances in the pool
+  lazy val sharedCassandraOperation: CassandraOperation = ServiceFactory.getInstance
+  lazy val sharedHierarchyRelationsUtil: HierarchyRelationsUtil = HierarchyRelationsUtil(sharedCassandraOperation)
+  lazy val sharedCertificateUtil: CertificateUtil = CertificateUtil()
+  lazy val sharedContentSearchUtil: ContentSearchUtil = ContentSearchUtil()
+  lazy val sharedDeDupUtil: DeDupUtil = DeDupUtil()
+  lazy val sharedGson: Gson = new Gson()
+
+  // DB info — lazy guards against access before Util.dbInfoMap is populated at startup
+  lazy val sharedEnrolmentDBInfo = Util.dbInfoMap.get(JsonKey.LEARNER_COURSE_DB)
+  lazy val sharedActivityAggDBInfo = Util.dbInfoMap.get(JsonKey.GROUP_ACTIVITY_DB)
+  lazy val sharedConsumptionDBInfo = Util.dbInfoMap.get(JsonKey.LEARNER_CONTENT_DB)
+
+  // Config values — read once per JVM, not per actor instance
+  lazy val sharedAuditEventTopic: String = ProjectUtil.getConfigValue("kafka_topics_audit_event") match {
+    case value if value != null => value
+    case _ => "dev.telemetry.raw"
+  }
+  lazy val sharedModuleAggEnabled: Boolean = ProjectUtil.getConfigValue("enable_module_aggregation") match {
+    case value if value != null => value.toBoolean
+    case _ => true
+  }
+  lazy val sharedFilterCompletedEnrolments: Boolean = ProjectUtil.getConfigValue("filter_processed_enrolments") match {
+    case value if value != null => value.toBoolean
+    case _ => true
+  }
+  lazy val sharedDedupEnabled: Boolean = ProjectUtil.getConfigValue("activity_input_dedup_enabled") match {
+    case value if value != null => value.toBoolean
+    case _ => false
+  }
+
+  def props(): Props = Props(new ActivityAggregatorActor())
 }

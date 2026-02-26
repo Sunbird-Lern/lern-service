@@ -6,9 +6,8 @@ import org.scalamock.scalatest.MockFactory
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers
-import org.sunbird.activity.util.{CertificateUtil, ContentSearchUtil, DeDupUtil, RedisUtil}
+import org.sunbird.activity.util.{CertificateUtil, ContentSearchUtil, DeDupUtil, HierarchyRelationsUtil}
 import org.sunbird.activity.domain.{CollectionProgress, TelemetryEvent}
-import org.sunbird.cache.util.RedisCacheUtil
 import org.sunbird.cassandra.CassandraOperation
 import org.sunbird.response.Response
 import org.sunbird.keys.JsonKey
@@ -28,11 +27,9 @@ class ActivityAggregatorActorTest
     TestKit.shutdownActorSystem(system)
   }
 
-  implicit val cacheUtil: RedisCacheUtil = mock[RedisCacheUtil]
-
   "ActivityAggregatorActor" should "process valid contents successfully" in {
     val cassandraOperation = mock[CassandraOperation]
-    val redisUtil = mock[RedisUtil]
+    val hierarchyRelationsUtil = mock[HierarchyRelationsUtil]
     val deDupUtil = mock[DeDupUtil]
     val contentSearchUtil = mock[ContentSearchUtil]
     val certificateUtil = mock[CertificateUtil]
@@ -40,10 +37,10 @@ class ActivityAggregatorActorTest
 
     val emptyConsumptionResponse = createEmptyResponse()
     
-    // Redis Expectations
-    (redisUtil.getLeafNodes _).expects(*, *, *).returning(List("content1", "content2")).anyNumberOfTimes()
-    (redisUtil.getOptionalNodes _).expects(*, *, *).returning(List.empty).anyNumberOfTimes()
-    (redisUtil.getAncestors _).expects(*, *, *).returning(List("course456")).anyNumberOfTimes()
+    // HierarchyRelationsUtil Expectations
+    (hierarchyRelationsUtil.getLeafNodes _).expects(*, *, *).returning(List("content1", "content2")).anyNumberOfTimes()
+    (hierarchyRelationsUtil.getOptionalNodes _).expects(*, *, *).returning(List.empty).anyNumberOfTimes()
+    (hierarchyRelationsUtil.getAncestors _).expects(*, *, *).returning(List("course456")).anyNumberOfTimes()
     
     // DeDup Expectations
     (deDupUtil.isUniqueEvent _).expects(*, *).returning(true).anyNumberOfTimes()
@@ -86,7 +83,7 @@ class ActivityAggregatorActorTest
       .returning(new Response())
       .anyNumberOfTimes()
 
-    val actor = system.actorOf(Props(new TestableActivityAggregatorActor(cassandraOperation, redisUtil, deDupUtil, contentSearchUtil, certificateUtil)))
+    val actor = system.actorOf(Props(new TestableActivityAggregatorActor(cassandraOperation, hierarchyRelationsUtil, deDupUtil, contentSearchUtil, certificateUtil)))
     
     val request = createUpdateRequest(
       userId = "user123",
@@ -101,7 +98,7 @@ class ActivityAggregatorActorTest
 
   it should "handle missing contents key (Force Sync)" in {
     val cassandraOperation = mock[CassandraOperation]
-    val redisUtil = mock[RedisUtil]
+    val hierarchyRelationsUtil = mock[HierarchyRelationsUtil]
     val deDupUtil = mock[DeDupUtil]
     val contentSearchUtil = mock[ContentSearchUtil]
     val certificateUtil = mock[CertificateUtil]
@@ -109,9 +106,9 @@ class ActivityAggregatorActorTest
 
     val consumptionResponse = createConsumptionResponse()
     
-    (redisUtil.getLeafNodes _).expects(*, *, *).returning(List("content1", "content2")).anyNumberOfTimes()
-    (redisUtil.getOptionalNodes _).expects(*, *, *).returning(List.empty).anyNumberOfTimes()
-    (redisUtil.getAncestors _).expects(*, *, *).returning(List("course456")).anyNumberOfTimes()
+    (hierarchyRelationsUtil.getLeafNodes _).expects(*, *, *).returning(List("content1", "content2")).anyNumberOfTimes()
+    (hierarchyRelationsUtil.getOptionalNodes _).expects(*, *, *).returning(List.empty).anyNumberOfTimes()
+    (hierarchyRelationsUtil.getAncestors _).expects(*, *, *).returning(List("course456")).anyNumberOfTimes()
 
     (cassandraOperation.getRecordsByProperties(_: String, _: String, _: util.Map[String, Object], _: RequestContext))
       .expects(*, "user_content_consumption", *, *)
@@ -138,7 +135,7 @@ class ActivityAggregatorActorTest
       .returning(new Response())
       .anyNumberOfTimes()
 
-    val actor = system.actorOf(Props(new TestableActivityAggregatorActor(cassandraOperation, redisUtil, deDupUtil, contentSearchUtil, certificateUtil)))
+    val actor = system.actorOf(Props(new TestableActivityAggregatorActor(cassandraOperation, hierarchyRelationsUtil, deDupUtil, contentSearchUtil, certificateUtil)))
     
     val request = createUpdateRequest(
       userId = "user123",
@@ -153,13 +150,13 @@ class ActivityAggregatorActorTest
 
   it should "handle empty contents list gracefully" in {
     val cassandraOperation = mock[CassandraOperation]
-    val redisUtil = mock[RedisUtil]
+    val hierarchyRelationsUtil = mock[HierarchyRelationsUtil]
     val deDupUtil = mock[DeDupUtil]
     val contentSearchUtil = mock[ContentSearchUtil]
     val certificateUtil = mock[CertificateUtil]
     val probe = TestProbe()
 
-    val actor = system.actorOf(Props(new TestableActivityAggregatorActor(cassandraOperation, redisUtil, deDupUtil, contentSearchUtil, certificateUtil)))
+    val actor = system.actorOf(Props(new TestableActivityAggregatorActor(cassandraOperation, hierarchyRelationsUtil, deDupUtil, contentSearchUtil, certificateUtil)))
     
     val request = createUpdateRequest(
       userId = "user123",
@@ -174,16 +171,15 @@ class ActivityAggregatorActorTest
 
   it should "filter out invalid contents" in {
     val cassandraOperation = mock[CassandraOperation]
-    val redisUtil = mock[RedisUtil]
+    val hierarchyRelationsUtil = mock[HierarchyRelationsUtil]
     val deDupUtil = mock[DeDupUtil]
     val contentSearchUtil = mock[ContentSearchUtil]
     val certificateUtil = mock[CertificateUtil]
     val probe = TestProbe()
 
-    // Redis
-    (redisUtil.getLeafNodes _).expects(*, *, *).returning(List("content1", "content2")).anyNumberOfTimes()
-    (redisUtil.getOptionalNodes _).expects(*, *, *).returning(List.empty).anyNumberOfTimes()
-    (redisUtil.getAncestors _).expects(*, *, *).returning(List("course456")).anyNumberOfTimes()
+    (hierarchyRelationsUtil.getLeafNodes _).expects(*, *, *).returning(List("content1", "content2")).anyNumberOfTimes()
+    (hierarchyRelationsUtil.getOptionalNodes _).expects(*, *, *).returning(List.empty).anyNumberOfTimes()
+    (hierarchyRelationsUtil.getAncestors _).expects(*, *, *).returning(List("course456")).anyNumberOfTimes()
     
     // DeDup
     (deDupUtil.isUniqueEvent _).expects(*, *).returning(true).anyNumberOfTimes()
@@ -209,7 +205,7 @@ class ActivityAggregatorActorTest
       .returning(new Response())
       .anyNumberOfTimes()
 
-    val actor = system.actorOf(Props(new TestableActivityAggregatorActor(cassandraOperation, redisUtil, deDupUtil, contentSearchUtil, certificateUtil)))
+    val actor = system.actorOf(Props(new TestableActivityAggregatorActor(cassandraOperation, hierarchyRelationsUtil, deDupUtil, contentSearchUtil, certificateUtil)))
     
     val contentsWithInvalid = new util.ArrayList[util.Map[String, AnyRef]]()
     
@@ -236,22 +232,22 @@ class ActivityAggregatorActorTest
 
   it should "handle DB with no existing consumption for Force Sync" in {
     val cassandraOperation = mock[CassandraOperation]
-    val redisUtil = mock[RedisUtil]
+    val hierarchyRelationsUtil = mock[HierarchyRelationsUtil]
     val deDupUtil = mock[DeDupUtil]
     val contentSearchUtil = mock[ContentSearchUtil]
     val certificateUtil = mock[CertificateUtil]
     val probe = TestProbe()
 
-    (redisUtil.getLeafNodes _).expects(*, *, *).returning(List("content1", "content2")).anyNumberOfTimes()
-    (redisUtil.getOptionalNodes _).expects(*, *, *).returning(List.empty).anyNumberOfTimes()
-    (redisUtil.getAncestors _).expects(*, *, *).returning(List("course456")).anyNumberOfTimes()
+    (hierarchyRelationsUtil.getLeafNodes _).expects(*, *, *).returning(List("content1", "content2")).anyNumberOfTimes()
+    (hierarchyRelationsUtil.getOptionalNodes _).expects(*, *, *).returning(List.empty).anyNumberOfTimes()
+    (hierarchyRelationsUtil.getAncestors _).expects(*, *, *).returning(List("course456")).anyNumberOfTimes()
 
     (cassandraOperation.getRecordsByProperties(_: String, _: String, _: util.Map[String, Object], _: RequestContext))
       .expects(*, "user_content_consumption", *, *)
       .returning(createEmptyResponse())
       .once()
 
-    val actor = system.actorOf(Props(new TestableActivityAggregatorActor(cassandraOperation, redisUtil, deDupUtil, contentSearchUtil, certificateUtil)))
+    val actor = system.actorOf(Props(new TestableActivityAggregatorActor(cassandraOperation, hierarchyRelationsUtil, deDupUtil, contentSearchUtil, certificateUtil)))
     
     val request = createUpdateRequest(
       userId = "user123",
@@ -266,15 +262,15 @@ class ActivityAggregatorActorTest
 
   it should "merge input consumption with DB consumption correctly" in {
     val cassandraOperation = mock[CassandraOperation]
-    val redisUtil = mock[RedisUtil]
+    val hierarchyRelationsUtil = mock[HierarchyRelationsUtil]
     val deDupUtil = mock[DeDupUtil]
     val contentSearchUtil = mock[ContentSearchUtil]
     val certificateUtil = mock[CertificateUtil]
     val probe = TestProbe()
 
-    (redisUtil.getLeafNodes _).expects(*, *, *).returning(List("content1", "content2")).anyNumberOfTimes()
-    (redisUtil.getOptionalNodes _).expects(*, *, *).returning(List.empty).anyNumberOfTimes()
-    (redisUtil.getAncestors _).expects(*, *, *).returning(List("course456")).anyNumberOfTimes()
+    (hierarchyRelationsUtil.getLeafNodes _).expects(*, *, *).returning(List("content1", "content2")).anyNumberOfTimes()
+    (hierarchyRelationsUtil.getOptionalNodes _).expects(*, *, *).returning(List.empty).anyNumberOfTimes()
+    (hierarchyRelationsUtil.getAncestors _).expects(*, *, *).returning(List("course456")).anyNumberOfTimes()
     
     (deDupUtil.isUniqueEvent _).expects(*, *).returning(true).anyNumberOfTimes()
     (deDupUtil.storeChecksum _).expects(*, *).returning(()).anyNumberOfTimes()
@@ -316,7 +312,7 @@ class ActivityAggregatorActorTest
       .returning(new Response())
       .anyNumberOfTimes()
 
-    val actor = system.actorOf(Props(new TestableActivityAggregatorActor(cassandraOperation, redisUtil, deDupUtil, contentSearchUtil, certificateUtil)))
+    val actor = system.actorOf(Props(new TestableActivityAggregatorActor(cassandraOperation, hierarchyRelationsUtil, deDupUtil, contentSearchUtil, certificateUtil)))
     
     val inputContents = new util.ArrayList[util.Map[String, AnyRef]]()
     val inputContent = new util.HashMap[String, AnyRef]()
@@ -417,16 +413,16 @@ class ActivityAggregatorActorTest
   }
 
   class TestableActivityAggregatorActor(
-      cassandraOp: CassandraOperation, 
-      redisUtil: RedisUtil,
+      cassandraOp: CassandraOperation,
+      hierarchyRelationsUtil: HierarchyRelationsUtil,
       deDupUtil: DeDupUtil,
       contentSearchUtil: ContentSearchUtil,
       certificateUtil: CertificateUtil
   ) extends ActivityAggregatorActor {
-    
+
     override def onReceive(request: Request): Unit = {
       setField("cassandraOperation", cassandraOp)
-      setField("redisUtil", redisUtil)
+      setField("hierarchyRelationsUtil", hierarchyRelationsUtil)
       setField("deDupUtil", deDupUtil)
       setField("contentSearchUtil", contentSearchUtil)
       setField("certificateUtil", certificateUtil)

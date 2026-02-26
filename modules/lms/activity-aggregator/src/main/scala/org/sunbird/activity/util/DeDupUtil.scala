@@ -6,19 +6,21 @@ import org.sunbird.request.RequestContext
 
 import java.security.MessageDigest
 
-class DeDupUtil(implicit cacheUtil: RedisCacheUtil) {
+class DeDupUtil {
 
-  private val deDupRedisIndex = ProjectUtil.getConfigValue("dedup_redis_index") match {
+  private lazy val cacheUtil: RedisCacheUtil = new RedisCacheUtil()
+
+  private lazy val deDupRedisIndex = ProjectUtil.getConfigValue("dedup_redis_index") match {
     case value if value != null => value.toInt
     case _ => 3
   }
   
-  private val deDupExpirySec = ProjectUtil.getConfigValue("dedup_redis_expiry") match {
+  private lazy val deDupExpirySec = ProjectUtil.getConfigValue("dedup_redis_expiry") match {
     case value if value != null => value.toInt
     case _ => 604800
   }
   
-  private val dedupEnabled = ProjectUtil.getConfigValue("activity_input_dedup_enabled") match {
+  private lazy val dedupEnabled = ProjectUtil.getConfigValue("activity_input_dedup_enabled") match {
     case value if value != null => value.toBoolean
     case _ => false
   }
@@ -29,30 +31,26 @@ class DeDupUtil(implicit cacheUtil: RedisCacheUtil) {
   }
 
   def isUniqueEvent(checksum: String, requestContext: RequestContext): Boolean = {
-    if (!dedupEnabled) {
-      true
-    } else {
-      val jedis = cacheUtil.getConnection(deDupRedisIndex)
-      try {
-        !jedis.exists(checksum)
-      } finally {
-        jedis.close()
-      }
+    if (!dedupEnabled) return true
+    val jedis = cacheUtil.getConnection(deDupRedisIndex)
+    try {
+      !jedis.exists(checksum)
+    } finally {
+      jedis.close()
     }
   }
 
   def storeChecksum(checksum: String, requestContext: RequestContext): Unit = {
-    if (dedupEnabled) {
-      val jedis = cacheUtil.getConnection(deDupRedisIndex)
-      try {
-        jedis.setex(checksum, deDupExpirySec, "1")
-      } finally {
-        jedis.close()
-      }
+    if (!dedupEnabled) return
+    val jedis = cacheUtil.getConnection(deDupRedisIndex)
+    try {
+      jedis.setex(checksum, deDupExpirySec, "1")
+    } finally {
+      jedis.close()
     }
   }
 }
 
 object DeDupUtil {
-  def apply()(implicit cacheUtil: RedisCacheUtil): DeDupUtil = new DeDupUtil()
+  def apply(): DeDupUtil = new DeDupUtil()
 }
