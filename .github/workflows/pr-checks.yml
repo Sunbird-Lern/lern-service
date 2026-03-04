@@ -141,6 +141,17 @@ jobs:
   lern-build:
     needs: build-core
     runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:4.0.0
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       
@@ -161,7 +172,11 @@ jobs:
           # Install dependencies into local repo skipped to ensure resolution
           mvn install -P lern -pl modules/lern/service -am -DskipTests -Dcheckstyle.skip
           # Run verification/tests for the target module
-          mvn verify -P lern -pl modules/lern/service
+          # -DreuseForks=false: each test class gets its own JVM, preventing mockStatic classloader contamination
+          # --add-opens: allows Mockito to instrument sun.misc.Signal used by SignalHandler on Java 11
+          mvn verify -P lern -pl modules/lern/service \
+            -DreuseForks=false \
+            -DargLine="--add-opens java.base/sun.misc=ALL-UNNAMED -Djdk.attach.allowAttachSelf=true"
           
       - name: Upload Lern Artifacts
         uses: actions/upload-artifact@v4

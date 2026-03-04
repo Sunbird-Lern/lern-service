@@ -645,6 +645,11 @@ public class UserRequestValidator extends BaseRequestValidator {
           JsonKey.FRAMEWORK,
           JsonKey.MAP);
     } else {
+      boolean isFrameworkValidationEnabled =
+          Boolean.parseBoolean(ProjectUtil.getConfigValue(JsonKey.FRAMEWORK_VALIDATION));
+      if (!isFrameworkValidationEnabled) {
+        return;
+      }
       Map<String, Object> framework =
           (Map<String, Object>) request.getRequest().get(JsonKey.FRAMEWORK);
       if (!MapUtils.isEmpty(framework)) {
