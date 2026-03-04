@@ -91,15 +91,22 @@ public class LernServiceApplicationStart {
 
     private void initializeUserOrgComponents() {
         logger.info("Initializing UserOrg Components...");
-        org.sunbird.util.user.SchedulerManager.schedule();
-        logger.info("UserOrg Scheduler started");
+        try {
+            org.sunbird.util.user.SchedulerManager.schedule();
+            logger.info("UserOrg Scheduler started");
+        } catch (Exception e) {
+            logger.error("Error starting UserOrg components", e);
+        }
     }
 
     private void initializeLMSComponents() {
         logger.info("Initializing LMS Components...");
-        org.sunbird.learner.util.SchedulerManager.schedule();
-        logger.info("LMS Scheduler started");
-        
+        try {
+            org.sunbird.learner.util.SchedulerManager.schedule();
+            logger.info("LMS Scheduler started");
+        } catch (Exception e) {
+            logger.error("Error starting LMS components", e);
+        }
         if (Boolean.parseBoolean(ProjectUtil.getConfigValue("content_service_mock_enabled"))) {
              try {
                 org.sunbird.learner.util.ContentSearchMock.setup();
