@@ -453,6 +453,45 @@ public class UserUtilTest {
   }
 
   @Test
+  public void testValidateUserFrameworkDataDisabled() {
+    beforeEachTest();
+    Map<String, Object> userRequestMap = new HashMap<>();
+    Map<String, Object> framework = new HashMap<>();
+    
+    framework.put("board", "CBSE");
+    framework.put("gradeLevel", java.util.Arrays.asList("Class 1", "Class 2"));
+    Map<String, String> complexObject = new HashMap<>();
+    complexObject.put("id", "123");
+    framework.put("complex", java.util.Arrays.asList(complexObject));
+    framework.put("booleanVal", true);
+    
+    userRequestMap.put(JsonKey.FRAMEWORK, framework);
+    
+    UserUtil.validateUserFrameworkData(userRequestMap, new HashMap<>(), new RequestContext());
+    
+    Map<String, Object> processedFramework = (Map<String, Object>) userRequestMap.get(JsonKey.FRAMEWORK);
+    Assert.assertNotNull(processedFramework);
+    Assert.assertEquals(java.util.Arrays.asList("CBSE"), processedFramework.get("board"));
+    Assert.assertEquals(java.util.Arrays.asList("Class 1", "Class 2"), processedFramework.get("gradeLevel"));
+    Assert.assertEquals(java.util.Arrays.asList("true"), processedFramework.get("booleanVal"));
+    List<String> complexList = (List<String>) processedFramework.get("complex");
+    Assert.assertTrue(complexList.get(0).contains("\"id\":\"123\""));
+  }
+
+  @Test
+  public void testValidateUserFrameworkDataTypeBypass() {
+    beforeEachTest();
+    Map<String, Object> userRequestMap = new HashMap<>();
+    // Send a string instead of a map
+    userRequestMap.put(JsonKey.FRAMEWORK, "invalid-framework-string");
+    
+    UserUtil.validateUserFrameworkData(userRequestMap, new HashMap<>(), new RequestContext());
+    
+    // It should have safely dropped the framework key due to instanceof check
+    Assert.assertFalse(userRequestMap.containsKey(JsonKey.FRAMEWORK));
+  }
+
+  @Test
   public void testRemoveEntryFromUserLookUp() {
     beforeEachTest();
     Map<String, Object> mergeeMap = new HashMap<>();

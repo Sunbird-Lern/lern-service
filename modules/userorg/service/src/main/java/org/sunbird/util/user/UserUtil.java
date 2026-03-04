@@ -852,7 +852,16 @@ public class UserUtil {
         Boolean.parseBoolean(ProjectUtil.getConfigValue(JsonKey.FRAMEWORK_VALIDATION));
     if (!isFrameworkValidationEnabled) {
       if (userRequestMap.containsKey(JsonKey.FRAMEWORK)) {
-        Map<String, Object> framework = (Map<String, Object>) userRequestMap.get(JsonKey.FRAMEWORK);
+        Object frameworkObj = userRequestMap.get(JsonKey.FRAMEWORK);
+        if (!(frameworkObj instanceof Map)) {
+          logger.info(
+              context,
+              "UserUtil:validateUserFrameworkData: Ignoring invalid framework data type: " + (frameworkObj != null ? frameworkObj.getClass().getName() : "null"));
+          userRequestMap.remove(JsonKey.FRAMEWORK);
+          return;
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> framework = (Map<String, Object>) frameworkObj;
         for (Map.Entry<String, Object> entry : framework.entrySet()) {
           String key = entry.getKey();
           Object value = entry.getValue();
@@ -868,7 +877,13 @@ public class UserUtil {
               } else {
                 try {
                   stringList.add(mapper.writeValueAsString(item));
-                } catch (Exception e) {}
+                } catch (Exception e) {
+                  logger.error(
+                      context, 
+                      "UserUtil:validateUserFrameworkData: Failed to serialize framework item, using fallback. " + e.getMessage(), 
+                      e);
+                  stringList.add(String.valueOf(item));
+                }
               }
             }
             framework.put(key, stringList);
@@ -877,7 +892,13 @@ public class UserUtil {
           } else {
             try {
               framework.put(key, Arrays.asList(mapper.writeValueAsString(value)));
-            } catch (Exception e) {}
+            } catch (Exception e) {
+              logger.error(
+                  context, 
+                  "UserUtil:validateUserFrameworkData: Failed to serialize framework value, using fallback. " + e.getMessage(), 
+                  e);
+              framework.put(key, Arrays.asList(String.valueOf(value)));
+            }
           }
         }
       }
