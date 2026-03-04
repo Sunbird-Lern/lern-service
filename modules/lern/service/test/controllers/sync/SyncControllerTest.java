@@ -2,9 +2,8 @@ package controllers.sync;
 
 import static org.junit.Assert.*;
 
-import com.typesafe.config.ConfigFactory;
-import org.junit.After;
-import org.junit.Before;
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import play.Application;
 import play.Mode;
@@ -22,18 +21,18 @@ import com.fasterxml.jackson.databind.JsonNode;
  */
 public class SyncControllerTest {
 
-  private Application application;
+  private static Application application;
 
-  @Before
-  public void setUp() {
+  @BeforeClass
+  public static void setUp() {
     application = new GuiceApplicationBuilder()
         .in(Mode.TEST)
         .build();
     Helpers.start(application);
   }
 
-  @After
-  public void tearDown() {
+  @AfterClass
+  public static void tearDown() {
     if (application != null) {
       Helpers.stop(application);
     }
