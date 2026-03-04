@@ -16,6 +16,7 @@ public final class JsonKey {
   public static final String ACCOUNT_KEY = "sunbird_account_key";
   public static final String ACCOUNT_NAME = "sunbird_account_name";
   public static final String ACCOUNT_ENDPOINT = "sunbird_account_endpoint";
+  public static final String AUTH_TYPE = "sunbird_cloud_storage_auth_type";
   public static final String DOWNLOAD_LINK_EXPIRY_TIMEOUT = "download_link_expiry_timeout";
   public static final String SIGNED_URL = "signedUrl";
   public static final String ACTION_NAME = "actionName";

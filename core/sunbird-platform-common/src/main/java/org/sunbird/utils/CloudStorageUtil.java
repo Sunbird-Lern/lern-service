@@ -148,8 +148,14 @@ public class CloudStorageUtil {
       scala.Option<String> storageEndpoint =
           scala.Option.apply(PropertiesCache.getInstance().getProperty(JsonKey.ACCOUNT_ENDPOINT));
       scala.Option<String> storageRegion = scala.Option.apply("");
+      scala.Option<String> authType =
+          scala.Option.apply(PropertiesCache.getInstance().getProperty(JsonKey.AUTH_TYPE));
+      if (authType.isEmpty()) {
+        authType = scala.Option.apply("access_key");
+      }
       StorageConfig storageConfig =
-          new StorageConfig(storageType, storageKey, storageSecret, storageEndpoint, storageRegion);
+          new StorageConfig(
+              storageType, storageKey, storageSecret, storageEndpoint, storageRegion, authType);
       BaseStorageService storageService = StorageServiceFactory.getStorageService(storageConfig);
       storageServiceMap.put(compositeKey, storageService);
     }

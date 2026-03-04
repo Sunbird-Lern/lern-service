@@ -65,7 +65,7 @@
         <guava.version>32.1.2-jre</guava.version>
         
         <!-- Cloud Storage -->
-        <cloud-store-sdk.version>1.4.8.1</cloud-store-sdk.version>
+        <cloud-store-sdk.version>1.5.1</cloud-store-sdk.version>
         
         <!-- Unirest HTTP Client -->
         <unirest.version>1.4.9</unirest.version>
