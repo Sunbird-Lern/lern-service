@@ -636,6 +636,12 @@ public class UserRequestValidator extends BaseRequestValidator {
 
   @SuppressWarnings("unchecked")
   private void validateFrameworkDetails(Request request) {
+    boolean isFrameworkValidationEnabled =
+        Boolean.parseBoolean(ProjectUtil.getConfigValue(JsonKey.FRAMEWORK_VALIDATION));
+    if (!isFrameworkValidationEnabled) {
+      return;
+    }
+    
     if (request.getRequest().containsKey(JsonKey.FRAMEWORK)
         && (!(request.getRequest().get(JsonKey.FRAMEWORK) instanceof Map))) {
       throw new ProjectCommonException(

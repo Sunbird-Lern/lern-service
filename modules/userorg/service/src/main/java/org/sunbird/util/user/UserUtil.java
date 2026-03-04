@@ -848,6 +848,41 @@ public class UserUtil {
       Map<String, Object> userRequestMap,
       Map<String, Object> userDbRecord,
       RequestContext context) {
+    boolean isFrameworkValidationEnabled =
+        Boolean.parseBoolean(ProjectUtil.getConfigValue(JsonKey.FRAMEWORK_VALIDATION));
+    if (!isFrameworkValidationEnabled) {
+      if (userRequestMap.containsKey(JsonKey.FRAMEWORK)) {
+        Map<String, Object> framework = (Map<String, Object>) userRequestMap.get(JsonKey.FRAMEWORK);
+        for (Map.Entry<String, Object> entry : framework.entrySet()) {
+          String key = entry.getKey();
+          Object value = entry.getValue();
+          if (value == null) {
+            continue;
+          }
+          if (value instanceof List) {
+            List<?> listValue = (List<?>) value;
+            List<String> stringList = new ArrayList<>();
+            for (Object item : listValue) {
+              if (item instanceof String) {
+                stringList.add((String) item);
+              } else {
+                try {
+                  stringList.add(mapper.writeValueAsString(item));
+                } catch (Exception e) {}
+              }
+            }
+            framework.put(key, stringList);
+          } else if (value instanceof String) {
+            framework.put(key, Arrays.asList((String) value));
+          } else {
+            try {
+              framework.put(key, Arrays.asList(mapper.writeValueAsString(value)));
+            } catch (Exception e) {}
+          }
+        }
+      }
+      return;
+    }
     UserRequestValidator userRequestValidator = new UserRequestValidator();
     if (userRequestMap.containsKey(JsonKey.FRAMEWORK)) {
       Map<String, Object> framework = (Map<String, Object>) userRequestMap.get(JsonKey.FRAMEWORK);
