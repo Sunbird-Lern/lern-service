@@ -107,7 +107,8 @@ public class HealthActor extends BaseActor {
         } catch (Exception e) {
             responseList.add(ProjectUtil.createCheckResponse(JsonKey.CASSANDRA_SERVICE, true, e));
             isAllHealthy = false;
-            logger.error("HealthActor: Cassandra health check failed", e);
+            logger.error("HealthActor: Cassandra health check failed. Triggering reconnection...", e);
+            org.sunbird.helper.CassandraConnectionMngrFactory.getInstance().reconnect();
         }
 
         // 2. Elasticsearch Health Check

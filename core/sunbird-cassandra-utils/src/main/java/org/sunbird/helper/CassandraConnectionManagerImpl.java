@@ -11,12 +11,15 @@ import com.datastax.driver.core.ProtocolVersion;
 import com.datastax.driver.core.QueryOptions;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.TableMetadata;
+import com.datastax.driver.core.policies.ConstantReconnectionPolicy;
 import com.datastax.driver.core.policies.DCAwareRoundRobinPolicy;
 import com.datastax.driver.core.policies.DefaultRetryPolicy;
+import com.datastax.driver.core.SocketOptions;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -62,6 +65,18 @@ public class CassandraConnectionManagerImpl implements CassandraConnectionManage
   /** Cache of Cassandra sessions per keyspace for performance optimization. */
   private static final Map<String, Session> cassandraSessionMap = new ConcurrentHashMap<>(2);
 
+  /** Original contact points (hosts) used for reconnection. */
+  private static String[] contactPoints;
+
+  /** Lock to ensure only one thread triggers reconnection at a time. */
+  private static final ReentrantLock reconnectionLock = new ReentrantLock();
+
+  /** Last reconnection attempt timestamp to prevent reconnection storms. */
+  private static long lastReconnectionTime = 0;
+
+  /** Cooldown period (60 seconds) between forced reconnection attempts. */
+  private static final long RECONNECTION_COOLDOWN_MS = 60000;
+
   static {
     registerShutDownHook();
   }
@@ -75,6 +90,7 @@ public class CassandraConnectionManagerImpl implements CassandraConnectionManage
    */
   @Override
   public void createConnection(String[] hosts) {
+    contactPoints = hosts;
     createCassandraConnection(hosts);
   }
 
@@ -95,8 +111,14 @@ public class CassandraConnectionManagerImpl implements CassandraConnectionManage
   @Override
   public Session getSession(String keyspace) {
     Session session = cassandraSessionMap.get(keyspace);
-    if (session != null) {
+    if (session != null && !session.isClosed()) {
       return session;
+    }
+
+    // If cluster is completely down and cooldown has passed, try self-healing
+    if (isClusterUnreachable()) {
+        logger.warn("CassandraConnectionManagerImpl:getSession: Cluster is unreachable. Attempting self-healing...");
+        reconnect();
     }
     
     // Create new session and cache it
@@ -183,12 +205,15 @@ public class CassandraConnectionManagerImpl implements CassandraConnectionManage
    * @return The configured Cluster object ready for use.
    */
   private static Cluster createCluster(String[] hosts, PoolingOptions poolingOptions, boolean isMultiDCEnabled) {
+    logger.info("CassandraConnectionManagerImpl:createCluster: Attempting to connect to hosts: {}", java.util.Arrays.toString(hosts));
     Cluster.Builder builder =
             Cluster.builder()
                     .addContactPoints(hosts)
-                    .withProtocolVersion(ProtocolVersion.V3)
+                    // Let the driver negotiate the protocol version automatically
                     .withRetryPolicy(DefaultRetryPolicy.INSTANCE)
                     .withTimestampGenerator(new AtomicMonotonicTimestampGenerator())
+                    .withReconnectionPolicy(new ConstantReconnectionPolicy(2000))
+                    .withSocketOptions(new SocketOptions().setKeepAlive(true))
                     .withPoolingOptions(poolingOptions);
 
     ConsistencyLevel consistencyLevel = getConsistencyLevel();
@@ -266,6 +291,76 @@ public class CassandraConnectionManagerImpl implements CassandraConnectionManage
     Runtime runtime = Runtime.getRuntime();
     runtime.addShutdownHook(new ResourceCleanUp());
     logger.info("Cassandra ShutDownHook registered.");
+  }
+
+  /**
+   * Checks if all hosts in the cluster are marked as DOWN.
+   * 
+   * @return true if no hosts are available, false otherwise.
+   */
+  private boolean isClusterUnreachable() {
+    if (cluster == null || cluster.isClosed()) {
+        return true;
+    }
+    Metadata metadata = cluster.getMetadata();
+    for (Host host : metadata.getAllHosts()) {
+        if (host.isUp()) {
+            return false;
+        }
+    }
+    return true;
+  }
+
+  /**
+   * Forces a reconnection to the cluster by disposing of the current cluster/sessions
+   * and recreating them from scratch. This is used to fix "IP Pinning" when Yugabyte pods
+   * get new IPs.
+   */
+  @Override
+  public void reconnect() {
+    if (reconnectionLock.tryLock()) {
+      try {
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastReconnectionTime < RECONNECTION_COOLDOWN_MS) {
+          logger.info("CassandraConnectionManagerImpl:reconnect: Reconnection skipped due to cooldown.");
+          return;
+        }
+
+        logger.warn("CassandraConnectionManagerImpl:reconnect: Triggering reconnection for hosts: {}", 
+            java.util.Arrays.toString(contactPoints));
+        
+        // 1. Clear sessions
+        for (Map.Entry<String, Session> entry : cassandraSessionMap.entrySet()) {
+          try {
+            entry.getValue().close();
+          } catch (Exception e) {
+            logger.error("Error closing session during reconnect: {}", e.getMessage());
+          }
+        }
+        cassandraSessionMap.clear();
+
+        // 2. Close Cluster
+        if (cluster != null && !cluster.isClosed()) {
+          try {
+            cluster.close();
+          } catch (Exception e) {
+            logger.error("Error closing cluster during reconnect: {}", e.getMessage());
+          }
+        }
+
+        // 3. Re-initialize
+        createCassandraConnection(contactPoints);
+        lastReconnectionTime = currentTime;
+        logger.info("CassandraConnectionManagerImpl:reconnect: Reconnection completed successfully.");
+
+      } catch (Exception e) {
+        logger.error("CassandraConnectionManagerImpl:reconnect: Reconnection failed: {}", e.getMessage(), e);
+      } finally {
+        reconnectionLock.unlock();
+      }
+    } else {
+        logger.info("CassandraConnectionManagerImpl:reconnect: Reconnection already in progress by another thread.");
+    }
   }
 
   /**
