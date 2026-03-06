@@ -7,7 +7,6 @@ import com.datastax.driver.core.Host;
 import com.datastax.driver.core.HostDistance;
 import com.datastax.driver.core.Metadata;
 import com.datastax.driver.core.PoolingOptions;
-import com.datastax.driver.core.ProtocolVersion;
 import com.datastax.driver.core.QueryOptions;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.TableMetadata;
@@ -117,8 +116,9 @@ public class CassandraConnectionManagerImpl implements CassandraConnectionManage
 
     // If cluster is completely down and cooldown has passed, try self-healing
     if (isClusterUnreachable()) {
-        logger.warn("CassandraConnectionManagerImpl:getSession: Cluster is unreachable. Attempting self-healing...");
-        reconnect();
+      logger.warn(
+          "CassandraConnectionManagerImpl:getSession: Cluster is unreachable. Attempting self-healing...");
+      reconnect();
     }
     
     // Create new session and cache it
@@ -191,7 +191,6 @@ public class CassandraConnectionManagerImpl implements CassandraConnectionManage
    * This method sets up:
    * <ul>
    *   <li>Contact points (host addresses)</li>
-   *   <li>Protocol version (V3)</li>
    *   <li>Retry policy (DefaultRetryPolicy)</li>
    *   <li>Timestamp generator (AtomicMonotonicTimestampGenerator)</li>
    *   <li>Pooling options</li>
@@ -298,7 +297,8 @@ public class CassandraConnectionManagerImpl implements CassandraConnectionManage
    * 
    * @return true if no hosts are available, false otherwise.
    */
-  private boolean isClusterUnreachable() {
+  @Override
+  public boolean isClusterUnreachable() {
     if (cluster == null || cluster.isClosed()) {
         return true;
     }
@@ -326,9 +326,17 @@ public class CassandraConnectionManagerImpl implements CassandraConnectionManage
           return;
         }
 
+        if (contactPoints == null || contactPoints.length == 0) {
+          logger.error("CassandraConnectionManagerImpl:reconnect: No contact points available for reconnection.");
+          return;
+        }
+
         logger.warn("CassandraConnectionManagerImpl:reconnect: Triggering reconnection for hosts: {}", 
             java.util.Arrays.toString(contactPoints));
         
+        // Update timestamp immediately to prevent storms even if this attempt fails
+        lastReconnectionTime = currentTime;
+
         // 1. Clear sessions
         for (Map.Entry<String, Session> entry : cassandraSessionMap.entrySet()) {
           try {
@@ -350,7 +358,6 @@ public class CassandraConnectionManagerImpl implements CassandraConnectionManage
 
         // 3. Re-initialize
         createCassandraConnection(contactPoints);
-        lastReconnectionTime = currentTime;
         logger.info("CassandraConnectionManagerImpl:reconnect: Reconnection completed successfully.");
 
       } catch (Exception e) {

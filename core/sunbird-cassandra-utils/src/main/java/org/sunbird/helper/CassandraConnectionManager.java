@@ -37,4 +37,11 @@ public interface CassandraConnectionManager {
    * Useful in environments like Kubernetes where pod IPs change.
    */
   void reconnect();
+
+  /**
+   * Checks if the Cassandra cluster is currently unreachable (down).
+   *
+   * @return true if cluster is unreachable.
+   */
+  boolean isClusterUnreachable();
 }

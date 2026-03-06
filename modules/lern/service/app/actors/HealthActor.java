@@ -107,8 +107,24 @@ public class HealthActor extends BaseActor {
         } catch (Exception e) {
             responseList.add(ProjectUtil.createCheckResponse(JsonKey.CASSANDRA_SERVICE, true, e));
             isAllHealthy = false;
-            logger.error("HealthActor: Cassandra health check failed. Triggering reconnection...", e);
-            org.sunbird.helper.CassandraConnectionMngrFactory.getInstance().reconnect();
+            logger.error("HealthActor: Cassandra health check failed", e);
+            
+            // Trigger reconnection only for connectivity issues using cluster reachability check or string matching
+            String errorMsg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+            if (errorMsg.contains("no host") || errorMsg.contains("all host") || errorMsg.contains("connection") || errorMsg.contains("timeout") || org.sunbird.helper.CassandraConnectionMngrFactory.getInstance().isClusterUnreachable()) {
+                try {
+                    logger.info("HealthActor: Cluster connectivity issue detected from health check. Triggering self-healing in background...");
+                    java.util.concurrent.CompletableFuture.runAsync(() -> {
+                        try {
+                            org.sunbird.helper.CassandraConnectionMngrFactory.getInstance().reconnect();
+                        } catch (Exception ex) {
+                            logger.error("HealthActor: Background reconnection failed", ex);
+                        }
+                    });
+                } catch (Exception ex) {
+                    logger.error("HealthActor: Error while triggering reconnection", ex);
+                }
+            }
         }
 
         // 2. Elasticsearch Health Check
@@ -220,6 +236,22 @@ public class HealthActor extends BaseActor {
             responseList.add(ProjectUtil.createCheckResponse(JsonKey.CASSANDRA_SERVICE, true, e));
             isHealthy = false;
             logger.error("HealthActor:checkCassandraHealth: Cassandra health check failed", e);
+
+            String errorMsg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+            if (errorMsg.contains("no host") || errorMsg.contains("all host") || errorMsg.contains("connection") || errorMsg.contains("timeout") || org.sunbird.helper.CassandraConnectionMngrFactory.getInstance().isClusterUnreachable()) {
+                try {
+                    logger.info("HealthActor:checkCassandraHealth: Cluster connectivity issue detected. Triggering self-healing in background...");
+                    java.util.concurrent.CompletableFuture.runAsync(() -> {
+                        try {
+                            org.sunbird.helper.CassandraConnectionMngrFactory.getInstance().reconnect();
+                        } catch (Exception ex) {
+                            logger.error("HealthActor:checkCassandraHealth: Background reconnection failed", ex);
+                        }
+                    });
+                } catch (Exception ex) {
+                    logger.error("HealthActor: Error while triggering reconnection", ex);
+                }
+            }
         }
 
         finalResponseMap.put(JsonKey.CHECKS, responseList);
