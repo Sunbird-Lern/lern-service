@@ -39,7 +39,7 @@ public class RedisCache implements Cache {
 
   @Override
   public boolean clear(String mapName) {
-    logger.info( "RedisCache:clear: mapName = " + mapName);
+    logger.info("RedisCache:clear: mapName = {}", mapName);
     try {
       RMap<String, String> map = client.getMap(mapName);
       map.clear();

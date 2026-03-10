@@ -1,4 +1,5 @@
 package org.sunbird.util.contentstore;
+import org.sunbird.utils.JsonUtil;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.HashMap;
@@ -29,7 +30,7 @@ public class ContentStoreUtil {
   private static Map<String, Object> handleReadRequest(String id, String urlPath, RequestContext context) {
     Map<String, String> headers = getHeaders();
     ProjectUtil.setTraceIdInHeader(headers, context);
-    ObjectMapper mapper = new ObjectMapper();
+    ObjectMapper mapper = JsonUtil.MAPPER;
     Map<String, Object> resultMap = new HashMap<>();
 
     logger.info(context, "ContentStoreUtil:handleReadRequest: id = " + id);
