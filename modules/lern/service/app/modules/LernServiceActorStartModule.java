@@ -14,6 +14,7 @@ import org.sunbird.notification.actor.NotificationActor;
 import org.sunbird.notification.actor.NotificationTemplateActor;
 import org.sunbird.notification.actor.ReadNotificationActor;
 import org.sunbird.notification.actor.UpdateNotificationActor;
+import org.sunbird.observability.actor.ObservabilityReportActor;
 
 public class LernServiceActorStartModule extends AbstractModule implements PekkoGuiceSupport {
     private static LoggerUtil logger = new LoggerUtil(LernServiceActorStartModule.class);
@@ -47,6 +48,11 @@ public class LernServiceActorStartModule extends AbstractModule implements Pekko
         bindActor(NotificationTemplateActor.class, "NotificationTemplateActor", props -> props.withRouter(config));
         
         logger.info("Notification actors bound");
+
+        // 4. Bind Observability Actors
+        bindActor(ObservabilityReportActor.class, "observability-report-actor", props -> props.withRouter(config));
+        logger.info("Observability actors bound");
+
         logger.info("LernServiceActorStartModule: All actors bound successfully");
     }
 }

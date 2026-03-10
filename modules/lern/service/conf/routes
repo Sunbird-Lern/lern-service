@@ -279,3 +279,10 @@ PATCH /v1/notification/template/update             @controllers.notification.Not
 PATCH /v1/notification/template/action/update       @controllers.notification.NotificationTemplateController.upsertActionTemplate(request: play.mvc.Http.Request)
 
 GET /v1/notification/template/:action            @controllers.notification.NotificationTemplateController.getAction(action: String, request: play.mvc.Http.Request)
+
+# ==========================================
+# Observability Report Routes
+# ==========================================
+
+POST    /v1/observability/reports         @controllers.observability.ObservabilityReportController.generateReport(request: play.mvc.Http.Request)
+GET     /v1/observability/reports/list    @controllers.observability.ObservabilityReportController.listReports(request: play.mvc.Http.Request)

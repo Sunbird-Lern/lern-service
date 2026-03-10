@@ -294,6 +294,11 @@
             <artifactId>activity-aggregator</artifactId>
             <version>1.0-SNAPSHOT</version>
         </dependency>
+        <dependency>
+            <groupId>org.sunbird</groupId>
+            <artifactId>observability</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
 
         <!-- Notification Service (artifactId: notification-service-impl, version: 1.0-SNAPSHOT) -->
         <dependency>
