@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import javax.inject.Inject;
 import javax.ws.rs.core.MediaType;
 import org.apache.commons.lang3.StringUtils;
@@ -17,6 +18,7 @@ import org.sunbird.common.ProjectUtil;
 import org.sunbird.common.PropertiesCache;
 import org.sunbird.common.factory.EsClientFactory;
 import org.sunbird.common.inf.ElasticSearchService;
+import org.sunbird.helper.CassandraConnectionMngrFactory;
 import org.sunbird.helper.ServiceFactory;
 import org.sunbird.http.HttpUtil;
 import org.sunbird.keys.JsonKey;
@@ -92,40 +94,7 @@ public class HealthActor extends BaseActor {
         List<Map<String, Object>> responseList = new ArrayList<>();
 
         // 1. Cassandra Health Check
-        try {
-            // Attempt to read from a standard table (e.g., ROLE) to verify DB connectivity
-            Util.DbInfo orgTypeDbInfo = Util.dbInfoMap.get(JsonKey.ROLE);
-            
-            // Fallback to a default keyspace if specific table info isn't available
-            String keyspace = (orgTypeDbInfo != null) ? orgTypeDbInfo.getKeySpace() : 
-                               ProjectUtil.getConfigValue(JsonKey.SUNBIRD_KEYSPACE);
-            
-            String table = (orgTypeDbInfo != null) ? orgTypeDbInfo.getTableName() : "user_org";
-
-            cassandraOperation.getRecordsWithLimit(keyspace, table, null, null, 1, null);
-            responseList.add(ProjectUtil.createCheckResponse(JsonKey.CASSANDRA_SERVICE, false, null));
-        } catch (Exception e) {
-            responseList.add(ProjectUtil.createCheckResponse(JsonKey.CASSANDRA_SERVICE, true, e));
-            isAllHealthy = false;
-            logger.error("HealthActor: Cassandra health check failed", e);
-            
-            // Trigger reconnection only for connectivity issues using cluster reachability check or string matching
-            String errorMsg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
-            if (errorMsg.contains("no host") || errorMsg.contains("all host") || errorMsg.contains("connection") || errorMsg.contains("timeout") || org.sunbird.helper.CassandraConnectionMngrFactory.getInstance().isClusterUnreachable()) {
-                try {
-                    logger.info("HealthActor: Cluster connectivity issue detected from health check. Triggering self-healing in background...");
-                    java.util.concurrent.CompletableFuture.runAsync(() -> {
-                        try {
-                            org.sunbird.helper.CassandraConnectionMngrFactory.getInstance().reconnect();
-                        } catch (Exception ex) {
-                            logger.error("HealthActor: Background reconnection failed", ex);
-                        }
-                    });
-                } catch (Exception ex) {
-                    logger.error("HealthActor: Error while triggering reconnection", ex);
-                }
-            }
-        }
+        isAllHealthy &= addCassandraHealthCheck(responseList);
 
         // 2. Elasticsearch Health Check
         try {
@@ -179,6 +148,59 @@ public class HealthActor extends BaseActor {
     }
 
     /**
+     * Runs the Cassandra health check and adds the result to the response list.
+     *
+     * @param responseList List to append the check result to.
+     * @return true if Cassandra is healthy, false otherwise.
+     */
+    private boolean addCassandraHealthCheck(List<Map<String, Object>> responseList) {
+        try {
+            Util.DbInfo orgTypeDbInfo = Util.dbInfoMap.get(JsonKey.ROLE);
+            String keyspace = (orgTypeDbInfo != null) ? orgTypeDbInfo.getKeySpace() :
+                               ProjectUtil.getConfigValue(JsonKey.SUNBIRD_KEYSPACE);
+            String table = (orgTypeDbInfo != null) ? orgTypeDbInfo.getTableName() : "user_org";
+
+            cassandraOperation.getRecordsWithLimit(keyspace, table, null, null, 1, null);
+            responseList.add(ProjectUtil.createCheckResponse(JsonKey.CASSANDRA_SERVICE, false, null));
+            return true;
+        } catch (Exception e) {
+            responseList.add(ProjectUtil.createCheckResponse(JsonKey.CASSANDRA_SERVICE, true, e));
+            logger.error("HealthActor: Cassandra health check failed", e);
+            triggerCassandraReconnectIfNeeded(e);
+            return false;
+        }
+    }
+
+    /**
+     * Triggers an asynchronous Cassandra reconnection if the error indicates a connectivity issue.
+     *
+     * @param e The exception that caused the health check failure.
+     */
+    private void triggerCassandraReconnectIfNeeded(Exception e) {
+        String errorMsg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+        boolean isConnectivityError = errorMsg.contains("no host")
+                || errorMsg.contains("all host")
+                || errorMsg.contains("connection")
+                || errorMsg.contains("timeout")
+                || CassandraConnectionMngrFactory.getInstance().isClusterUnreachable();
+        if (!isConnectivityError) {
+            return;
+        }
+        logger.info("HealthActor: Cluster connectivity issue detected. Triggering self-healing in background...");
+        try {
+            CompletableFuture.runAsync(() -> {
+                try {
+                    CassandraConnectionMngrFactory.getInstance().reconnect();
+                } catch (Exception ex) {
+                    logger.error("HealthActor: Background reconnection failed", ex);
+                }
+            });
+        } catch (Exception ex) {
+            logger.error("HealthActor: Error while triggering reconnection", ex);
+        }
+    }
+
+    /**
      * Verifies the connectivity and status of the Content Service.
      * It attempts a simple search operation as a heartbeat check.
      *
@@ -222,37 +244,8 @@ public class HealthActor extends BaseActor {
     private void checkCassandraHealth() {
         Map<String, Object> finalResponseMap = new HashMap<>();
         List<Map<String, Object>> responseList = new ArrayList<>();
-        boolean isHealthy = true;
 
-        try {
-            Util.DbInfo orgTypeDbInfo = Util.dbInfoMap.get(JsonKey.ROLE);
-            String keyspace = (orgTypeDbInfo != null) ? orgTypeDbInfo.getKeySpace() :
-                               ProjectUtil.getConfigValue(JsonKey.SUNBIRD_KEYSPACE);
-            String table = (orgTypeDbInfo != null) ? orgTypeDbInfo.getTableName() : "user_org";
-
-            cassandraOperation.getRecordsWithLimit(keyspace, table, null, null, 1, null);
-            responseList.add(ProjectUtil.createCheckResponse(JsonKey.CASSANDRA_SERVICE, false, null));
-        } catch (Exception e) {
-            responseList.add(ProjectUtil.createCheckResponse(JsonKey.CASSANDRA_SERVICE, true, e));
-            isHealthy = false;
-            logger.error("HealthActor:checkCassandraHealth: Cassandra health check failed", e);
-
-            String errorMsg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
-            if (errorMsg.contains("no host") || errorMsg.contains("all host") || errorMsg.contains("connection") || errorMsg.contains("timeout") || org.sunbird.helper.CassandraConnectionMngrFactory.getInstance().isClusterUnreachable()) {
-                try {
-                    logger.info("HealthActor:checkCassandraHealth: Cluster connectivity issue detected. Triggering self-healing in background...");
-                    java.util.concurrent.CompletableFuture.runAsync(() -> {
-                        try {
-                            org.sunbird.helper.CassandraConnectionMngrFactory.getInstance().reconnect();
-                        } catch (Exception ex) {
-                            logger.error("HealthActor:checkCassandraHealth: Background reconnection failed", ex);
-                        }
-                    });
-                } catch (Exception ex) {
-                    logger.error("HealthActor: Error while triggering reconnection", ex);
-                }
-            }
-        }
+        boolean isHealthy = addCassandraHealthCheck(responseList);
 
         finalResponseMap.put(JsonKey.CHECKS, responseList);
         finalResponseMap.put(JsonKey.NAME, "Cassandra Health Check");
