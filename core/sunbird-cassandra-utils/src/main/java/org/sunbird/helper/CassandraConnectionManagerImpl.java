@@ -10,7 +10,7 @@ import com.datastax.driver.core.PoolingOptions;
 import com.datastax.driver.core.QueryOptions;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.TableMetadata;
-import com.datastax.driver.core.policies.ConstantReconnectionPolicy;
+import com.datastax.driver.core.policies.ExponentialReconnectionPolicy;
 import com.datastax.driver.core.policies.DCAwareRoundRobinPolicy;
 import com.datastax.driver.core.policies.DefaultRetryPolicy;
 import com.datastax.driver.core.SocketOptions;
@@ -59,19 +59,19 @@ public class CassandraConnectionManagerImpl implements CassandraConnectionManage
   private static final Logger logger = LoggerFactory.getLogger(CassandraConnectionManagerImpl.class);
   
   /** Singleton Cassandra cluster instance. */
-  private static Cluster cluster;
+  private static volatile Cluster cluster;
   
   /** Cache of Cassandra sessions per keyspace for performance optimization. */
   private static final Map<String, Session> cassandraSessionMap = new ConcurrentHashMap<>(2);
 
   /** Original contact points (hosts) used for reconnection. */
-  private static String[] contactPoints;
+  private static volatile String[] contactPoints;
 
   /** Lock to ensure only one thread triggers reconnection at a time. */
   private static final ReentrantLock reconnectionLock = new ReentrantLock();
 
   /** Last reconnection attempt timestamp to prevent reconnection storms. */
-  private static long lastReconnectionTime = 0;
+  private static volatile long lastReconnectionTime = 0;
 
   /** Cooldown period (60 seconds) between forced reconnection attempts. */
   private static final long RECONNECTION_COOLDOWN_MS = 60000;
@@ -89,12 +89,8 @@ public class CassandraConnectionManagerImpl implements CassandraConnectionManage
    */
   @Override
   public void createConnection(String[] hosts) {
-    setContactPoints(hosts);
-    CassandraConnectionManagerImpl.createCassandraConnection(hosts);
-  }
-
-  private static void setContactPoints(String[] hosts) {
     contactPoints = hosts;
+    CassandraConnectionManagerImpl.createCassandraConnection(hosts);
   }
 
   /**
@@ -121,10 +117,21 @@ public class CassandraConnectionManagerImpl implements CassandraConnectionManage
     // If cluster is completely down and cooldown has passed, try self-healing
     if (isClusterUnreachable()) {
       logger.warn(
-          "CassandraConnectionManagerImpl:getSession: Cluster is unreachable. Attempting self-healing...");
-      reconnect();
+          "CassandraConnectionManagerImpl:getSession: Cluster is unreachable. Attempting background self-healing...");
+      java.util.concurrent.CompletableFuture.runAsync(() -> reconnect());
+      throw new ProjectCommonException(
+          ResponseCode.internalError.getErrorCode(),
+          "Cassandra cluster unavailable. Background reconnect initiated.",
+          ResponseCode.SERVER_ERROR.getResponseCode());
     }
-    
+
+    if (cluster == null || cluster.isClosed()) {
+      throw new ProjectCommonException(
+          ResponseCode.internalError.getErrorCode(),
+          "Cassandra cluster unavailable",
+          ResponseCode.SERVER_ERROR.getResponseCode());
+    }
+
     // Create new session and cache it
     Session newSession = cluster.connect(keyspace);
     cassandraSessionMap.put(keyspace, newSession);
@@ -215,7 +222,7 @@ public class CassandraConnectionManagerImpl implements CassandraConnectionManage
                     // Let the driver negotiate the protocol version automatically
                     .withRetryPolicy(DefaultRetryPolicy.INSTANCE)
                     .withTimestampGenerator(new AtomicMonotonicTimestampGenerator())
-                    .withReconnectionPolicy(new ConstantReconnectionPolicy(2000))
+                    .withReconnectionPolicy(new ExponentialReconnectionPolicy(1000, 600000))
                     .withSocketOptions(new SocketOptions().setKeepAlive(true))
                     .withPoolingOptions(poolingOptions);
 
@@ -304,13 +311,17 @@ public class CassandraConnectionManagerImpl implements CassandraConnectionManage
   @Override
   public boolean isClusterUnreachable() {
     if (cluster == null || cluster.isClosed()) {
-        return true;
+      return true;
     }
     Metadata metadata = cluster.getMetadata();
-    for (Host host : metadata.getAllHosts()) {
-        if (host.isUp()) {
-            return false;
-        }
+    Collection<Host> hosts = metadata.getAllHosts();
+    if (hosts.isEmpty()) {
+      return false;
+    }
+    for (Host host : hosts) {
+      if (host.isUp()) {
+        return false;
+      }
     }
     return true;
   }
@@ -354,7 +365,7 @@ public class CassandraConnectionManagerImpl implements CassandraConnectionManage
         (Object) contactPoints);
 
     // Update timestamp immediately to prevent storms even if this attempt fails
-    setLastReconnectionTime(currentTime);
+    lastReconnectionTime = currentTime;
 
     // 1. Clear sessions
     closeAllSessions();
@@ -365,10 +376,6 @@ public class CassandraConnectionManagerImpl implements CassandraConnectionManage
     // 3. Re-initialize
     CassandraConnectionManagerImpl.createCassandraConnection(contactPoints);
     logger.info("CassandraConnectionManagerImpl:reconnect: Reconnection completed successfully.");
-  }
-
-  private static void setLastReconnectionTime(long time) {
-    lastReconnectionTime = time;
   }
 
   private static void closeAllSessions() {

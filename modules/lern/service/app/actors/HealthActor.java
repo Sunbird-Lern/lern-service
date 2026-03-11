@@ -28,6 +28,10 @@ import org.sunbird.request.Request;
 import org.sunbird.response.Response;
 import org.sunbird.util.Util;
 import scala.concurrent.Future;
+import com.datastax.driver.core.exceptions.NoHostAvailableException;
+import com.datastax.driver.core.exceptions.TransportException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * HealthActor is responsible for checking the health status of various components
@@ -44,6 +48,12 @@ public class HealthActor extends BaseActor {
     private final CassandraOperation cassandraOperation = ServiceFactory.getInstance();
     private final ElasticSearchService esUtil = EsClientFactory.getInstance(JsonKey.REST);
     private final RedisCacheUtil redisCacheUtil;
+
+    private static final ExecutorService reconnectExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "cassandra-reconnect-thread");
+        t.setDaemon(true);
+        return t;
+    });
 
     /**
      * Default constructor for HealthActor.
@@ -94,7 +104,7 @@ public class HealthActor extends BaseActor {
         List<Map<String, Object>> responseList = new ArrayList<>();
 
         // 1. Cassandra Health Check
-        isAllHealthy &= addCassandraHealthCheck(responseList);
+        isAllHealthy &= addCassandraHealthCheck(responseList, "HealthActor:checkAllComponentHealth:");
 
         // 2. Elasticsearch Health Check
         try {
@@ -151,9 +161,10 @@ public class HealthActor extends BaseActor {
      * Runs the Cassandra health check and adds the result to the response list.
      *
      * @param responseList List to append the check result to.
+     * @param logPrefix Contextual prefix for logging.
      * @return true if Cassandra is healthy, false otherwise.
      */
-    private boolean addCassandraHealthCheck(List<Map<String, Object>> responseList) {
+    private boolean addCassandraHealthCheck(List<Map<String, Object>> responseList, String logPrefix) {
         try {
             Util.DbInfo orgTypeDbInfo = Util.dbInfoMap.get(JsonKey.ROLE);
             String keyspace = (orgTypeDbInfo != null) ? orgTypeDbInfo.getKeySpace() :
@@ -165,7 +176,7 @@ public class HealthActor extends BaseActor {
             return true;
         } catch (Exception e) {
             responseList.add(ProjectUtil.createCheckResponse(JsonKey.CASSANDRA_SERVICE, true, e));
-            logger.error("HealthActor: Cassandra health check failed", e);
+            logger.error(logPrefix + " Cassandra health check failed", e);
             triggerCassandraReconnectIfNeeded(e);
             return false;
         }
@@ -177,11 +188,8 @@ public class HealthActor extends BaseActor {
      * @param e The exception that caused the health check failure.
      */
     private void triggerCassandraReconnectIfNeeded(Exception e) {
-        String errorMsg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
-        boolean isConnectivityError = errorMsg.contains("no host")
-                || errorMsg.contains("all host")
-                || errorMsg.contains("connection")
-                || errorMsg.contains("timeout")
+        boolean isConnectivityError = (e instanceof NoHostAvailableException)
+                || (e instanceof TransportException)
                 || CassandraConnectionMngrFactory.getInstance().isClusterUnreachable();
         if (!isConnectivityError) {
             return;
@@ -194,7 +202,7 @@ public class HealthActor extends BaseActor {
                 } catch (Exception ex) {
                     logger.error("HealthActor: Background reconnection failed", ex);
                 }
-            });
+            }, reconnectExecutor);
         } catch (Exception ex) {
             logger.error("HealthActor: Error while triggering reconnection", ex);
         }
@@ -245,7 +253,7 @@ public class HealthActor extends BaseActor {
         Map<String, Object> finalResponseMap = new HashMap<>();
         List<Map<String, Object>> responseList = new ArrayList<>();
 
-        boolean isHealthy = addCassandraHealthCheck(responseList);
+        boolean isHealthy = addCassandraHealthCheck(responseList, "HealthActor:checkCassandraHealth:");
 
         finalResponseMap.put(JsonKey.CHECKS, responseList);
         finalResponseMap.put(JsonKey.NAME, "Cassandra Health Check");
