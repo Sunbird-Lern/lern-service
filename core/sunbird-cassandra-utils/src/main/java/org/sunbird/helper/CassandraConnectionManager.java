@@ -31,4 +31,17 @@ public interface CassandraConnectionManager {
    * @return A list of table names.
    */
   List<String> getTableList(String keyspaceName);
+
+  /**
+   * Forces a reconnection to the cluster by re-resolving contact points.
+   * Useful in environments like Kubernetes where pod IPs change.
+   */
+  void reconnect();
+
+  /**
+   * Checks if the Cassandra cluster is currently unreachable (down).
+   *
+   * @return true if cluster is unreachable.
+   */
+  boolean isClusterUnreachable();
 }

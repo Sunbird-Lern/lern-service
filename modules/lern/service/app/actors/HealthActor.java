@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import javax.inject.Inject;
 import javax.ws.rs.core.MediaType;
 import org.apache.commons.lang3.StringUtils;
@@ -17,6 +18,7 @@ import org.sunbird.common.ProjectUtil;
 import org.sunbird.common.PropertiesCache;
 import org.sunbird.common.factory.EsClientFactory;
 import org.sunbird.common.inf.ElasticSearchService;
+import org.sunbird.helper.CassandraConnectionMngrFactory;
 import org.sunbird.helper.ServiceFactory;
 import org.sunbird.http.HttpUtil;
 import org.sunbird.keys.JsonKey;
@@ -26,6 +28,10 @@ import org.sunbird.request.Request;
 import org.sunbird.response.Response;
 import org.sunbird.util.Util;
 import scala.concurrent.Future;
+import com.datastax.driver.core.exceptions.NoHostAvailableException;
+import com.datastax.driver.core.exceptions.TransportException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * HealthActor is responsible for checking the health status of various components
@@ -42,6 +48,12 @@ public class HealthActor extends BaseActor {
     private final CassandraOperation cassandraOperation = ServiceFactory.getInstance();
     private final ElasticSearchService esUtil = EsClientFactory.getInstance(JsonKey.REST);
     private final RedisCacheUtil redisCacheUtil;
+
+    private static final ExecutorService reconnectExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "cassandra-reconnect-thread");
+        t.setDaemon(true);
+        return t;
+    });
 
     /**
      * Default constructor for HealthActor.
@@ -92,23 +104,7 @@ public class HealthActor extends BaseActor {
         List<Map<String, Object>> responseList = new ArrayList<>();
 
         // 1. Cassandra Health Check
-        try {
-            // Attempt to read from a standard table (e.g., ROLE) to verify DB connectivity
-            Util.DbInfo orgTypeDbInfo = Util.dbInfoMap.get(JsonKey.ROLE);
-            
-            // Fallback to a default keyspace if specific table info isn't available
-            String keyspace = (orgTypeDbInfo != null) ? orgTypeDbInfo.getKeySpace() : 
-                               ProjectUtil.getConfigValue(JsonKey.SUNBIRD_KEYSPACE);
-            
-            String table = (orgTypeDbInfo != null) ? orgTypeDbInfo.getTableName() : "user_org";
-
-            cassandraOperation.getRecordsWithLimit(keyspace, table, null, null, 1, null);
-            responseList.add(ProjectUtil.createCheckResponse(JsonKey.CASSANDRA_SERVICE, false, null));
-        } catch (Exception e) {
-            responseList.add(ProjectUtil.createCheckResponse(JsonKey.CASSANDRA_SERVICE, true, e));
-            isAllHealthy = false;
-            logger.error("HealthActor: Cassandra health check failed", e);
-        }
+        isAllHealthy &= addCassandraHealthCheck(responseList, "HealthActor:checkAllComponentHealth:");
 
         // 2. Elasticsearch Health Check
         try {
@@ -162,6 +158,57 @@ public class HealthActor extends BaseActor {
     }
 
     /**
+     * Runs the Cassandra health check and adds the result to the response list.
+     *
+     * @param responseList List to append the check result to.
+     * @param logPrefix Contextual prefix for logging.
+     * @return true if Cassandra is healthy, false otherwise.
+     */
+    private boolean addCassandraHealthCheck(List<Map<String, Object>> responseList, String logPrefix) {
+        try {
+            Util.DbInfo orgTypeDbInfo = Util.dbInfoMap.get(JsonKey.ROLE);
+            String keyspace = (orgTypeDbInfo != null) ? orgTypeDbInfo.getKeySpace() :
+                               ProjectUtil.getConfigValue(JsonKey.SUNBIRD_KEYSPACE);
+            String table = (orgTypeDbInfo != null) ? orgTypeDbInfo.getTableName() : "user_org";
+
+            cassandraOperation.getRecordsWithLimit(keyspace, table, null, null, 1, null);
+            responseList.add(ProjectUtil.createCheckResponse(JsonKey.CASSANDRA_SERVICE, false, null));
+            return true;
+        } catch (Exception e) {
+            responseList.add(ProjectUtil.createCheckResponse(JsonKey.CASSANDRA_SERVICE, true, e));
+            logger.error(logPrefix + " Cassandra health check failed", e);
+            triggerCassandraReconnectIfNeeded(e);
+            return false;
+        }
+    }
+
+    /**
+     * Triggers an asynchronous Cassandra reconnection if the error indicates a connectivity issue.
+     *
+     * @param e The exception that caused the health check failure.
+     */
+    private void triggerCassandraReconnectIfNeeded(Exception e) {
+        boolean isConnectivityError = (e instanceof NoHostAvailableException)
+                || (e instanceof TransportException)
+                || CassandraConnectionMngrFactory.getInstance().isClusterUnreachable();
+        if (!isConnectivityError) {
+            return;
+        }
+        logger.info("HealthActor: Cluster connectivity issue detected. Triggering self-healing in background...");
+        try {
+            CompletableFuture.runAsync(() -> {
+                try {
+                    CassandraConnectionMngrFactory.getInstance().reconnect();
+                } catch (Exception ex) {
+                    logger.error("HealthActor: Background reconnection failed", ex);
+                }
+            }, reconnectExecutor);
+        } catch (Exception ex) {
+            logger.error("HealthActor: Error while triggering reconnection", ex);
+        }
+    }
+
+    /**
      * Verifies the connectivity and status of the Content Service.
      * It attempts a simple search operation as a heartbeat check.
      *
@@ -205,21 +252,8 @@ public class HealthActor extends BaseActor {
     private void checkCassandraHealth() {
         Map<String, Object> finalResponseMap = new HashMap<>();
         List<Map<String, Object>> responseList = new ArrayList<>();
-        boolean isHealthy = true;
 
-        try {
-            Util.DbInfo orgTypeDbInfo = Util.dbInfoMap.get(JsonKey.ROLE);
-            String keyspace = (orgTypeDbInfo != null) ? orgTypeDbInfo.getKeySpace() :
-                               ProjectUtil.getConfigValue(JsonKey.SUNBIRD_KEYSPACE);
-            String table = (orgTypeDbInfo != null) ? orgTypeDbInfo.getTableName() : "user_org";
-
-            cassandraOperation.getRecordsWithLimit(keyspace, table, null, null, 1, null);
-            responseList.add(ProjectUtil.createCheckResponse(JsonKey.CASSANDRA_SERVICE, false, null));
-        } catch (Exception e) {
-            responseList.add(ProjectUtil.createCheckResponse(JsonKey.CASSANDRA_SERVICE, true, e));
-            isHealthy = false;
-            logger.error("HealthActor:checkCassandraHealth: Cassandra health check failed", e);
-        }
+        boolean isHealthy = addCassandraHealthCheck(responseList, "HealthActor:checkCassandraHealth:");
 
         finalResponseMap.put(JsonKey.CHECKS, responseList);
         finalResponseMap.put(JsonKey.NAME, "Cassandra Health Check");
