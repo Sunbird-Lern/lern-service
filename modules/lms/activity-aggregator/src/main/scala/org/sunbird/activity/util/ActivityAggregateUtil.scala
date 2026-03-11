@@ -297,6 +297,7 @@ class ActivityAggregateUtil {
                                batchId: String,
                                progress: Int,
                                status: Int,
+                               completionPercentage: Int,
                                completedOn: Date,
                                contentStatus: Map[String, Int],
                                latestRead: util.Map[String, AnyRef]
@@ -309,6 +310,7 @@ class ActivityAggregateUtil {
     val updateMap = new util.HashMap[String, AnyRef]()
     updateMap.put("progress", progress.asInstanceOf[AnyRef])
     updateMap.put("status", status.asInstanceOf[AnyRef])
+    updateMap.put("completionpercentage", completionPercentage.asInstanceOf[AnyRef])
     updateMap.put("contentstatus", contentStatus.asJava)
     updateMap.put("datetime", System.currentTimeMillis().asInstanceOf[AnyRef])
     if (completedOn != null) {
