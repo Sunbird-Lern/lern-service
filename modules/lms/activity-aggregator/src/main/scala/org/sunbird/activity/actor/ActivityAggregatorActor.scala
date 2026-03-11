@@ -281,11 +281,13 @@ class ActivityAggregatorActor extends BaseEnrolmentActor {
       if (shouldUpdateProgress) {
         val updatedLeafNodes = leafNodes.diff(optionalNodes)
         val completionStatus = activityAggUtil.getCompletionStatus(progress.progress, updatedLeafNodes.size)
+        val completionPercentage = activityAggUtil.getCompletionPercentage(progress.progress, updatedLeafNodes.size)
 
         val progressUpdateMap = activityAggUtil.createProgressUpdateMap(
-          progress.userId, progress.courseId, progress.batchId, 
-          progress.progress, 
-          completionStatus, 
+          progress.userId, progress.courseId, progress.batchId,
+          progress.progress,
+          completionStatus,
+          completionPercentage,
           progress.completedOn,
           progress.contentStatus,
           latestRead
