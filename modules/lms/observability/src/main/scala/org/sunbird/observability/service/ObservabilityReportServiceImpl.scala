@@ -147,7 +147,10 @@ class ObservabilityReportServiceImpl(
     // For each active transform: gather unique IDs and fetch (cache-aside)
     val lookupMaps: Map[String, Map[String, Map[String, AnyRef]]] =
       activeTransforms.map { case (fieldName, entry) =>
-        val ids = rows.flatMap(r => Option(r.get(fieldName)).map(_.toString)).distinct
+        // r.get(fieldName) on a Scala Map already returns Option[Any]; wrapping it in Option()
+        // again would produce Option[Option[Any]] and .toString would yield "Some(uuid)" instead
+        // of the actual UUID. Use .get() directly and map the inner Any to String.
+        val ids = rows.flatMap(r => r.get(fieldName).map(_.toString)).distinct
         logger.info(context, s"applyTransforms: ${ids.size} unique '$fieldName' value(s) to transform")
         val details = TransformCache.fetchWithCache(
           utilKey = entry.utilKey,

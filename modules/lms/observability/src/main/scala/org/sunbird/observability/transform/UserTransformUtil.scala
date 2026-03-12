@@ -34,9 +34,13 @@ class UserTransformUtil extends TransformUtil {
     logger.info(context, s"UserTransformUtil: ES lookup for ${ids.size} user(s): ${ids.mkString(", ")}")
 
     val searchDTO = new SearchDTO()
+    // ElasticSearchHelper.getTermQueryFromList calls stringList.replaceAll(String::toLowerCase)
+    // which mutates the list in place. ids.asJava returns a read-only Scala wrapper (AbstractList
+    // with no set() support), so replaceAll throws UnsupportedOperationException.
+    // Wrapping in new ArrayList produces a fully mutable copy that ES helper can modify safely.
     searchDTO.getAdditionalProperties.put(
       JsonKey.FILTERS,
-      Map(JsonKey.ID -> ids.asJava).asJava
+      Map(JsonKey.ID -> new java.util.ArrayList[String](ids.asJava)).asJava
     )
     searchDTO.setLimit(ids.size)
 
