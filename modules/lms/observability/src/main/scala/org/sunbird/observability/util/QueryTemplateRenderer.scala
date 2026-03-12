@@ -27,20 +27,51 @@ object QueryTemplateRenderer {
   private val BLOCK_PATTERN: Regex = """(?s)\{\{#(\w+)\}\}(.*?)\{\{/\1\}\}""".r
   private val PLACEHOLDER_PATTERN: Regex = """\{\{(\w+)\}\}""".r
 
+  // Combined pattern used by renderSql to process all tokens in strict left-to-right order.
+  // Group 1 + 2 → block match ({{#key}}...{{/key}}); Group 3 → direct placeholder ({{key}}).
+  // Correct left-to-right ordering is essential for positional PreparedStatement param binding.
+  private val COMBINED_PATTERN: Regex = """(?s)\{\{#(\w+)\}\}(.*?)\{\{/\1\}\}|\{\{(\w+)\}\}""".r
+
   /** Render an Elasticsearch query template — values substituted directly. */
   def renderEs(template: String, filters: Map[String, Any]): String = {
     val afterBlocks = resolveOptionalBlocks(template, filters, useQuestionMark = false)
     resolveDirectPlaceholders(afterBlocks, filters, useQuestionMark = false)._1
   }
 
-  /** Render a SQL query template — returns the parameterized SQL and ordered bind params. */
+  /**
+   * Render a SQL (or CQL) query template — returns the parameterized query and ordered bind params.
+   *
+   * Uses a single left-to-right pass over the template so that params are collected in exactly
+   * the same order as their corresponding `?` placeholders appear in the output query.
+   * The previous two-phase approach (blocks first, then direct placeholders) caused params to be
+   * collected in block-encounter order rather than query position order, silently swapping bind
+   * values when a direct placeholder appeared before an optional block in the template.
+   */
   def renderSql(template: String, filters: Map[String, Any]): RenderedQuery = {
     val params = ListBuffer[Any]()
 
-    val afterBlocks = resolveOptionalBlocks(template, filters, useQuestionMark = true, params)
-    val (finalQuery, _) = resolveDirectPlaceholders(afterBlocks, filters, useQuestionMark = true, params)
+    val result = COMBINED_PATTERN.replaceAllIn(template, m => {
+      val blockKey  = m.group(1)  // non-null only for {{#key}}...{{/key}} matches
+      val directKey = m.group(3)  // non-null only for {{key}} matches
 
-    RenderedQuery(finalQuery.trim.replaceAll("\\s+", " "), params.toList)
+      if (blockKey != null) {
+        filters.get(blockKey) match {
+          case Some(value) =>
+            val expanded = PLACEHOLDER_PATTERN.replaceAllIn(m.group(2), pm => {
+              if (pm.group(1) == blockKey) { params += value; "?" } else pm.matched
+            })
+            Regex.quoteReplacement(expanded)
+          case None => ""
+        }
+      } else {
+        filters.get(directKey) match {
+          case Some(value) => params += value; "?"
+          case None        => ""
+        }
+      }
+    })
+
+    RenderedQuery(result.trim.replaceAll("\\s+", " "), params.toList)
   }
 
   /**

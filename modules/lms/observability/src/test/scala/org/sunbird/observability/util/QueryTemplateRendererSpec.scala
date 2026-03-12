@@ -55,5 +55,29 @@ class QueryTemplateRendererSpec extends AnyWordSpec with Matchers {
       result.query shouldBe "SELECT * FROM usr WHERE 1=1"
       result.params shouldBe List.empty
     }
+
+    "collect params in left-to-right order when direct placeholder precedes optional block" in {
+      val template = "SELECT * FROM t WHERE courseid = {{courseid}} {{#batchid}}AND batchid = {{batchid}} {{/batchid}}ALLOW FILTERING"
+      val result = QueryTemplateRenderer.renderSql(template,
+        Map("courseid" -> "do_123", "batchid" -> "batch_456"))
+      result.query  shouldBe "SELECT * FROM t WHERE courseid = ? AND batchid = ? ALLOW FILTERING"
+      result.params shouldBe List("do_123", "batch_456")
+    }
+
+    "collect params in left-to-right order when optional block precedes direct placeholder" in {
+      val template = "SELECT * FROM t WHERE {{#batchid}}batchid = {{batchid}} AND {{/batchid}}courseid = {{courseid}}"
+      val result = QueryTemplateRenderer.renderSql(template,
+        Map("courseid" -> "do_123", "batchid" -> "batch_456"))
+      result.query  shouldBe "SELECT * FROM t WHERE batchid = ? AND courseid = ?"
+      result.params shouldBe List("batch_456", "do_123")
+    }
+
+    "handle template with newlines inside optional block (DOTALL)" in {
+      val template = "SELECT * FROM t WHERE courseid = {{courseid}}\n{{#batchid}}AND batchid = {{batchid}}\n{{/batchid}}ALLOW FILTERING"
+      val result = QueryTemplateRenderer.renderSql(template,
+        Map("courseid" -> "do_123", "batchid" -> "batch_456"))
+      result.query  shouldBe "SELECT * FROM t WHERE courseid = ? AND batchid = ? ALLOW FILTERING"
+      result.params shouldBe List("do_123", "batch_456")
+    }
   }
 }
