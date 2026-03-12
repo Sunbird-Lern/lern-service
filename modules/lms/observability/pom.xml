@@ -46,6 +46,13 @@
             <version>1.0-SNAPSHOT</version>
         </dependency>
 
+        <!-- Sunbird Cassandra Utils (CassandraConnectionMngrFactory, CassandraConnectionManager) -->
+        <dependency>
+            <groupId>org.sunbird</groupId>
+            <artifactId>sunbird-cassandra-utils</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+
         <!-- Sunbird Actor Utils (BaseActor) -->
         <dependency>
             <groupId>org.sunbird</groupId>

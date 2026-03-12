@@ -22,7 +22,9 @@ object QueryTemplateRenderer {
 
   case class RenderedQuery(query: String, params: List[Any])
 
-  private val BLOCK_PATTERN: Regex = """\{\{#(\w+)\}\}(.*?)\{\{/\1\}\}""".r
+  // (?s) enables DOTALL mode so that `.` matches newlines as well.
+  // This is necessary when templates are stored in the DB with line breaks inside optional blocks.
+  private val BLOCK_PATTERN: Regex = """(?s)\{\{#(\w+)\}\}(.*?)\{\{/\1\}\}""".r
   private val PLACEHOLDER_PATTERN: Regex = """\{\{(\w+)\}\}""".r
 
   /** Render an Elasticsearch query template — values substituted directly. */
@@ -38,7 +40,7 @@ object QueryTemplateRenderer {
     val afterBlocks = resolveOptionalBlocks(template, filters, useQuestionMark = true, params)
     val (finalQuery, _) = resolveDirectPlaceholders(afterBlocks, filters, useQuestionMark = true, params)
 
-    RenderedQuery(finalQuery.trim, params.toList)
+    RenderedQuery(finalQuery.trim.replaceAll("\\s+", " "), params.toList)
   }
 
   /**

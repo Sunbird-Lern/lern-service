@@ -5,7 +5,7 @@ import org.sunbird.keys.JsonKey
 import org.sunbird.logging.LoggerUtil
 import org.sunbird.message.ResponseCode
 import org.sunbird.observability.dao.{StandardReportMetaDao, StandardReportMetaDaoImpl}
-import org.sunbird.observability.executor.{QueryExecutor, SearchServiceQueryExecutor, YugabyteQueryExecutor}
+import org.sunbird.observability.executor.{QueryExecutor, SearchServiceQueryExecutor, YugabyteCqlQueryExecutor, YugabyteQueryExecutor}
 import org.sunbird.observability.util.{FilterValidator, QueryTemplateRenderer}
 import org.sunbird.request.Request
 import org.sunbird.response.Response
@@ -15,7 +15,8 @@ import scala.collection.JavaConverters._
 class ObservabilityReportServiceImpl(
     dao: StandardReportMetaDao        = new StandardReportMetaDaoImpl(),
     esExecutor: QueryExecutor         = new SearchServiceQueryExecutor(),
-    sqlExecutor: QueryExecutor        = new YugabyteQueryExecutor()
+    sqlExecutor: QueryExecutor        = new YugabyteQueryExecutor(),
+    cqlExecutor: QueryExecutor        = new YugabyteCqlQueryExecutor()
 ) extends ObservabilityReportService {
 
   private val logger = new LoggerUtil(classOf[ObservabilityReportServiceImpl])
@@ -54,6 +55,11 @@ class ObservabilityReportServiceImpl(
         val rendered = QueryTemplateRenderer.renderSql(reportMeta.queryTemplate, filters)
         logger.info(request.getRequestContext, s"generateReport: Executing SQL report $reportId")
         sqlExecutor.execute(rendered.query, rendered.params)
+
+      case "YUGABYTE_CQL" =>
+        val rendered = QueryTemplateRenderer.renderSql(reportMeta.queryTemplate, filters)
+        logger.info(request.getRequestContext, s"generateReport: Executing CQL report $reportId")
+        cqlExecutor.execute(rendered.query, rendered.params)
 
       case unknown =>
         throw new ProjectCommonException(
