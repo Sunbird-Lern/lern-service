@@ -6,8 +6,9 @@ import org.sunbird.logging.LoggerUtil
 import org.sunbird.message.ResponseCode
 import org.sunbird.observability.dao.{StandardReportMetaDao, StandardReportMetaDaoImpl}
 import org.sunbird.observability.executor.{QueryExecutor, SearchServiceQueryExecutor, YugabyteCqlQueryExecutor, YugabyteQueryExecutor}
+import org.sunbird.observability.transform.{TransformCache, TransformRegistry}
 import org.sunbird.observability.util.{FilterValidator, QueryTemplateRenderer}
-import org.sunbird.request.Request
+import org.sunbird.request.{Request, RequestContext}
 import org.sunbird.response.Response
 
 import scala.collection.JavaConverters._
@@ -69,11 +70,21 @@ class ObservabilityReportServiceImpl(
         )
     }
 
-    val javaRows = rows.map(_.asJava.asInstanceOf[java.util.Map[String, AnyRef]]).asJava
+    // Extract optional transform field list from the request
+    val transformFields: List[String] =
+      Option(request.getRequest.get("transform"))
+        .collect { case l: java.util.List[_] => l.asScala.map(_.toString).toList }
+        .getOrElse(List.empty)
+
+    val enrichedRows: List[Map[String, Any]] =
+      if (transformFields.isEmpty) rows
+      else applyTransforms(rows, transformFields, request.getRequestContext)
+
+    val javaRows = enrichedRows.map(_.asJava.asInstanceOf[java.util.Map[String, AnyRef]]).asJava
 
     val result = new java.util.HashMap[String, AnyRef]()
     result.put("reportId", reportId)
-    result.put("count", Integer.valueOf(rows.size))
+    result.put("count", Integer.valueOf(enrichedRows.size))
     result.put("data", javaRows)
 
     val response = new Response()
@@ -103,5 +114,63 @@ class ObservabilityReportServiceImpl(
     val response = new Response()
     response.put(JsonKey.RESPONSE, result)
     response
+  }
+
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Enriches each row by appending detail maps for the requested transform fields.
+   *
+   * For each field in transformFields that has a registered TransformEntry:
+   *   1. Collect all unique values of that field across all rows.
+   *   2. Fetch details via TransformCache (in-memory cache-aside → source on miss).
+   *   3. Merge the detail map back into each row as a sibling key (entry.resultKey).
+   *
+   * Unknown transform fields are silently skipped.
+   * Rows that lack a value for the transform field are returned unchanged.
+   */
+  private def applyTransforms(
+      rows:            List[Map[String, Any]],
+      transformFields: List[String],
+      context:         RequestContext
+  ): List[Map[String, Any]] = {
+
+    // Resolve each requested field to its registered entry (unknown fields skipped)
+    val activeTransforms: List[(String, TransformRegistry.TransformEntry)] =
+      transformFields.flatMap(f => TransformRegistry.lookup(f).map(e => (f, e)))
+
+    if (activeTransforms.isEmpty) {
+      logger.info(context, s"applyTransforms: no registered entries for fields ${transformFields.mkString(", ")}")
+      return rows
+    }
+
+    // For each active transform: gather unique IDs and fetch (cache-aside)
+    val lookupMaps: Map[String, Map[String, Map[String, AnyRef]]] =
+      activeTransforms.map { case (fieldName, entry) =>
+        val ids = rows.flatMap(r => Option(r.get(fieldName)).map(_.toString)).distinct
+        logger.info(context, s"applyTransforms: ${ids.size} unique '$fieldName' value(s) to transform")
+        val details = TransformCache.fetchWithCache(
+          utilKey = entry.utilKey,
+          ids     = ids,
+          fields  = entry.fields,
+          ttl     = entry.cacheTtl,
+          maxSize = entry.cacheMaxSize,
+          fetchFn = (uncachedIds, fs) => entry.util.fetchDetails(uncachedIds, fs, context),
+          context = context
+        )
+        fieldName -> details
+      }.toMap
+
+    // Merge detail maps back into each row
+    rows.map { row =>
+      activeTransforms.foldLeft(row) { case (acc, (fieldName, entry)) =>
+        val idOpt   = acc.get(fieldName).map(_.toString)
+        val details = idOpt.flatMap(id => lookupMaps(fieldName).get(id))
+        details match {
+          case Some(d) => acc + (entry.resultKey -> d.asInstanceOf[Any])
+          case None    => acc
+        }
+      }
+    }
   }
 }

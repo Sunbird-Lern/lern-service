@@ -117,6 +117,83 @@ class ObservabilityReportServiceSpec extends AnyWordSpec with Matchers {
     }
   }
 
+  // ---- transform field tests ---------------------------------------------------
+
+  "ObservabilityReportServiceImpl.generateReport with transform" should {
+
+    "return rows unchanged when transform list is empty" in {
+      val dao         = mock(classOf[StandardReportMetaDao])
+      val esExecutor  = mock(classOf[QueryExecutor])
+      val sqlExecutor = mock(classOf[QueryExecutor])
+      val rawRow      = Map("userid" -> "u1".asInstanceOf[Any], "count" -> 5.asInstanceOf[Any])
+
+      when(dao.getById("test_report")).thenReturn(Some(esReportMeta("test_report")))
+      when(esExecutor.execute(anyString(), org.mockito.ArgumentMatchers.any()))
+        .thenReturn(List(rawRow))
+
+      val service = new ObservabilityReportServiceImpl(dao, esExecutor, sqlExecutor)
+      // transform = [] (empty list) ⇒ applyTransforms is skipped
+      val request = buildRequest(Map(
+        "reportId"  -> "test_report",
+        "transform" -> new java.util.ArrayList[String]()
+      ))
+
+      val result = service.generateReport(request)
+        .get(JsonKey.RESPONSE).asInstanceOf[java.util.Map[String, AnyRef]]
+      result.get("count").asInstanceOf[Int] shouldBe 1
+    }
+
+    "return rows unchanged when transform fields are not registered in TransformRegistry" in {
+      // TransformRegistry returns None for any field not in config; so rows should be untouched.
+      val dao         = mock(classOf[StandardReportMetaDao])
+      val esExecutor  = mock(classOf[QueryExecutor])
+      val sqlExecutor = mock(classOf[QueryExecutor])
+      val rawRow      = Map("userid" -> "u1".asInstanceOf[Any], "score" -> 42.asInstanceOf[Any])
+
+      when(dao.getById("test_report")).thenReturn(Some(esReportMeta("test_report")))
+      when(esExecutor.execute(anyString(), org.mockito.ArgumentMatchers.any()))
+        .thenReturn(List(rawRow))
+
+      val service = new ObservabilityReportServiceImpl(dao, esExecutor, sqlExecutor)
+      val transformList = new java.util.ArrayList[String]()
+      transformList.add("nonExistentField")     // definitely not in registry
+      val request = buildRequest(Map(
+        "reportId"  -> "test_report",
+        "transform" -> transformList
+      ))
+
+      val result = service.generateReport(request)
+        .get(JsonKey.RESPONSE).asInstanceOf[java.util.Map[String, AnyRef]]
+      // Row count unchanged; no enrichment, no exception
+      result.get("count").asInstanceOf[Int] shouldBe 1
+
+      val data = result.get("data").asInstanceOf[java.util.List[java.util.Map[String, AnyRef]]]
+      // No extra key injected into the row
+      data.get(0).containsKey("nonExistentField") shouldBe false
+    }
+
+    "return rows unchanged when transform is absent from request" in {
+      val dao         = mock(classOf[StandardReportMetaDao])
+      val esExecutor  = mock(classOf[QueryExecutor])
+      val sqlExecutor = mock(classOf[QueryExecutor])
+      val rawRow      = Map("userid" -> "u2".asInstanceOf[Any])
+
+      when(dao.getById("test_report")).thenReturn(Some(esReportMeta("test_report")))
+      when(esExecutor.execute(anyString(), org.mockito.ArgumentMatchers.any()))
+        .thenReturn(List(rawRow))
+
+      val service = new ObservabilityReportServiceImpl(dao, esExecutor, sqlExecutor)
+      // No "transform" key in request at all
+      val request = buildRequest(Map("reportId" -> "test_report"))
+
+      val result = service.generateReport(request)
+        .get(JsonKey.RESPONSE).asInstanceOf[java.util.Map[String, AnyRef]]
+      result.get("count").asInstanceOf[Int] shouldBe 1
+    }
+  }
+
+  // ---- listReports tests -------------------------------------------------------
+
   "ObservabilityReportServiceImpl.listReports" should {
 
     "return list of enabled reports" in {
