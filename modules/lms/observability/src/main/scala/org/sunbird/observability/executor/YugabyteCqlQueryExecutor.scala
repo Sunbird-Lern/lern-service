@@ -1,6 +1,7 @@
 package org.sunbird.observability.executor
 
-import com.datastax.driver.core.{PreparedStatement, Session}
+import com.datastax.driver.core.exceptions.InvalidQueryException
+import com.datastax.driver.core.{PreparedStatement, ResultSet, Session}
 import org.sunbird.helper.CassandraConnectionMngrFactory
 import org.sunbird.logging.LoggerUtil
 
@@ -37,19 +38,37 @@ class YugabyteCqlQueryExecutor(keyspace: String = "sunbird_courses") extends Que
     stmtCache.get(query)   // return the winner in case of a concurrent put
   }
 
+  /**
+   * Executes a prepared statement, handling the case where YugabyteDB went down and
+   * reconnected with a new Cluster instance.
+   *
+   * When a new session is created after reconnect, the old [[PreparedStatement]] objects
+   * in [[stmtCache]] are unknown to the new cluster and throw [[InvalidQueryException]]
+   * at execution time (not at prepare time). On that specific exception we evict the
+   * stale cache entry, re-prepare against the current session, and retry once.
+   */
+  private def executeWithRetry(
+      session:     Session,
+      query:       String,
+      boundParams: Array[AnyRef]
+  ): ResultSet = {
+    val prepared = getPrepared(session, query)
+    try {
+      session.execute(prepared.bind(boundParams: _*))
+    } catch {
+      case _: InvalidQueryException =>
+        logger.info(s"YugabyteCqlQueryExecutor: stale PreparedStatement detected, evicting cache and re-preparing")
+        stmtCache.remove(query)
+        val fresh = session.prepare(query)
+        stmtCache.putIfAbsent(query, fresh)
+        session.execute(fresh.bind(boundParams: _*))
+    }
+  }
+
   override def execute(renderedQuery: String, params: List[Any]): List[Map[String, Any]] = {
     val results = ListBuffer[Map[String, Any]]()
     try {
       val session: Session = CassandraConnectionMngrFactory.getInstance().getSession(keyspace)
-
-      val prepared = try {
-        getPrepared(session, renderedQuery)
-      } catch {
-        case _: Exception =>
-          // Stale cache entry (e.g. after reconnect) — evict and retry once
-          stmtCache.remove(renderedQuery)
-          session.prepare(renderedQuery)
-      }
 
       val boundParams: Array[AnyRef] = params.map {
         case v: Int     => java.lang.Integer.valueOf(v)
@@ -59,7 +78,7 @@ class YugabyteCqlQueryExecutor(keyspace: String = "sunbird_courses") extends Que
         case v          => v.asInstanceOf[AnyRef]
       }.toArray
 
-      val rs = session.execute(prepared.bind(boundParams: _*))
+      val rs = executeWithRetry(session, renderedQuery, boundParams)
       val colDefs = rs.getColumnDefinitions.asList().asScala.toList
 
       rs.all().asScala.foreach { row =>

@@ -5,7 +5,7 @@ import org.sunbird.keys.JsonKey
 import org.sunbird.logging.LoggerUtil
 import org.sunbird.message.ResponseCode
 import org.sunbird.observability.dao.{StandardReportMetaDao, StandardReportMetaDaoImpl}
-import org.sunbird.observability.executor.{QueryExecutor, SearchServiceQueryExecutor, YugabyteCqlQueryExecutor, YugabyteQueryExecutor}
+import org.sunbird.observability.executor.{AggregatingCqlQueryExecutor, QueryExecutor, SearchServiceQueryExecutor, YugabyteCqlQueryExecutor, YugabyteQueryExecutor}
 import org.sunbird.observability.transform.{TransformCache, TransformRegistry}
 import org.sunbird.observability.util.{FilterValidator, QueryTemplateRenderer}
 import org.sunbird.request.{Request, RequestContext}
@@ -13,11 +13,27 @@ import org.sunbird.response.Response
 
 import scala.collection.JavaConverters._
 
+/**
+ * Core service implementation for the Observability Reporting API.
+ *
+ * Orchestrates the full report generation pipeline:
+ *  1. Resolves report metadata (query template, data source, supported filters) from [[StandardReportMetaDao]].
+ *  2. Validates request filters against the report's `supportedFilters` allowlist.
+ *  3. Routes query execution to the correct executor based on `dataSource`:
+ *     - `ELASTICSEARCH`     → [[SearchServiceQueryExecutor]]
+ *     - `YUGABYTE_SQL`      → [[YugabyteQueryExecutor]]
+ *     - `YUGABYTE_CQL`      → [[YugabyteCqlQueryExecutor]]
+ *     - `YUGABYTE_CQL_AGG`  → [[AggregatingCqlQueryExecutor]] (in-memory grouping + aggregation)
+ *  4. Optionally enriches rows with entity details (user, collection, content) via [[TransformCache]].
+ *
+ * All constructor parameters are injectable for unit testing; production code uses the defaults.
+ */
 class ObservabilityReportServiceImpl(
-    dao: StandardReportMetaDao        = new StandardReportMetaDaoImpl(),
-    esExecutor: QueryExecutor         = new SearchServiceQueryExecutor(),
-    sqlExecutor: QueryExecutor        = new YugabyteQueryExecutor(),
-    cqlExecutor: QueryExecutor        = new YugabyteCqlQueryExecutor()
+    dao: StandardReportMetaDao              = new StandardReportMetaDaoImpl(),
+    esExecutor: QueryExecutor               = new SearchServiceQueryExecutor(),
+    sqlExecutor: QueryExecutor              = new YugabyteQueryExecutor(),
+    cqlExecutor: QueryExecutor              = new YugabyteCqlQueryExecutor(),
+    aggCqlExecutor: AggregatingCqlQueryExecutor = new AggregatingCqlQueryExecutor()
 ) extends ObservabilityReportService {
 
   private val logger = new LoggerUtil(classOf[ObservabilityReportServiceImpl])
@@ -61,6 +77,18 @@ class ObservabilityReportServiceImpl(
         val rendered = QueryTemplateRenderer.renderSql(reportMeta.queryTemplate, filters)
         logger.info(request.getRequestContext, s"generateReport: Executing CQL report $reportId")
         cqlExecutor.execute(rendered.query, rendered.params)
+
+      case "YUGABYTE_CQL_AGG" =>
+        val spec = reportMeta.aggregationSpec.getOrElse(
+          throw new ProjectCommonException(
+            ResponseCode.serverError.getErrorCode,
+            s"Report '$reportId' has dataSource=YUGABYTE_CQL_AGG but no aggregation_spec configured",
+            ResponseCode.SERVER_ERROR.getResponseCode
+          )
+        )
+        val rendered = QueryTemplateRenderer.renderSql(reportMeta.queryTemplate, filters)
+        logger.info(request.getRequestContext, s"generateReport: Executing CQL_AGG report $reportId with groupBy=${spec.groupBy.mkString(",")}")
+        aggCqlExecutor.execute(rendered.query, rendered.params, spec)
 
       case unknown =>
         throw new ProjectCommonException(
@@ -144,14 +172,16 @@ class ObservabilityReportServiceImpl(
       return rows
     }
 
-    // For each active transform: gather unique IDs and fetch (cache-aside)
+    // For each active transform: gather unique IDs and fetch (cache-aside).
+    // We try all registered aliases for the util (e.g. "userid" and "user_id") so the
+    // transform works regardless of which column name the data source uses in its output.
     val lookupMaps: Map[String, Map[String, Map[String, AnyRef]]] =
       activeTransforms.map { case (fieldName, entry) =>
-        // r.get(fieldName) on a Scala Map already returns Option[Any]; wrapping it in Option()
-        // again would produce Option[Option[Any]] and .toString would yield "Some(uuid)" instead
-        // of the actual UUID. Use .get() directly and map the inner Any to String.
-        val ids = rows.flatMap(r => r.get(fieldName).map(_.toString)).distinct
-        logger.info(context, s"applyTransforms: ${ids.size} unique '$fieldName' value(s) to transform")
+        val aliases = TransformRegistry.aliasesFor(entry.utilKey)
+        val ids = rows.flatMap { r =>
+          aliases.flatMap(f => r.get(f)).headOption.map(_.toString)
+        }.distinct
+        logger.info(context, s"applyTransforms: ${ids.size} unique '$fieldName' value(s) to transform (aliases: ${aliases.mkString(", ")})")
         val details = TransformCache.fetchWithCache(
           utilKey = entry.utilKey,
           ids     = ids,
@@ -164,10 +194,12 @@ class ObservabilityReportServiceImpl(
         fieldName -> details
       }.toMap
 
-    // Merge detail maps back into each row
+    // Merge detail maps back into each row.
+    // Same alias-aware lookup: find the ID from whichever field name is present in the row.
     rows.map { row =>
       activeTransforms.foldLeft(row) { case (acc, (fieldName, entry)) =>
-        val idOpt   = acc.get(fieldName).map(_.toString)
+        val aliases = TransformRegistry.aliasesFor(entry.utilKey)
+        val idOpt   = aliases.flatMap(f => acc.get(f)).headOption.map(_.toString)
         val details = idOpt.flatMap(id => lookupMaps(fieldName).get(id))
         details match {
           case Some(d) => acc + (entry.resultKey -> d.asInstanceOf[Any])

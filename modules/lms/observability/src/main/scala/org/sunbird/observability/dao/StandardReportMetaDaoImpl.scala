@@ -2,26 +2,39 @@ package org.sunbird.observability.dao
 
 import com.fasterxml.jackson.core.`type`.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import org.sunbird.db.PostgreSQLConnectionManager
 import org.sunbird.logging.LoggerUtil
-import org.sunbird.observability.model.ReportMeta
+import org.sunbird.observability.model.{AggregationSpec, ReportMeta}
 
 import java.sql.{Connection, PreparedStatement, ResultSet}
 import scala.collection.mutable.ListBuffer
 
+/**
+ * PostgreSQL-backed implementation of [[StandardReportMetaDao]].
+ *
+ * Reads report definitions from the `standard_reports_meta` table.
+ * Only rows with `enabled = TRUE` are returned so that draft or retired
+ * report configs are invisible to callers without any code change.
+ *
+ * `aggregation_spec` is stored as JSONB and deserialized into [[AggregationSpec]]
+ * using Jackson with [[DefaultScalaModule]] (required for Scala case class support).
+ * A parse failure is logged and treated as `None` rather than crashing the request,
+ * so mis-configured rows degrade gracefully.
+ */
 class StandardReportMetaDaoImpl extends StandardReportMetaDao {
 
   private val logger = new LoggerUtil(classOf[StandardReportMetaDaoImpl])
-  private val mapper = new ObjectMapper()
+  private val mapper = new ObjectMapper().registerModule(DefaultScalaModule)
   private val listTypeRef = new TypeReference[java.util.List[String]]() {}
 
   private val GET_BY_ID_SQL =
-    """SELECT report_id, title, description, domain, data_source, query_template, supported_filters, enabled
+    """SELECT report_id, title, description, domain, data_source, query_template, supported_filters, enabled, aggregation_spec
       |FROM standard_reports_meta
       |WHERE report_id = ? AND enabled = TRUE""".stripMargin
 
   private val LIST_ALL_SQL =
-    """SELECT report_id, title, description, domain, data_source, query_template, supported_filters, enabled
+    """SELECT report_id, title, description, domain, data_source, query_template, supported_filters, enabled, aggregation_spec
       |FROM standard_reports_meta
       |WHERE enabled = TRUE
       |ORDER BY domain, report_id""".stripMargin
@@ -73,6 +86,19 @@ class StandardReportMetaDaoImpl extends StandardReportMetaDao {
         import scala.collection.JavaConverters._
         javaList.asScala.toList
       }
+
+    val aggregationSpecJson = rs.getString("aggregation_spec")
+    val aggregationSpec: Option[AggregationSpec] =
+      if (aggregationSpecJson == null || aggregationSpecJson.isEmpty) None
+      else {
+        try Some(mapper.readValue(aggregationSpecJson, classOf[AggregationSpec]))
+        catch {
+          case ex: Exception =>
+            logger.error(s"StandardReportMetaDaoImpl.mapRow: Failed to parse aggregation_spec for report_id=${rs.getString("report_id")}", ex)
+            None
+        }
+      }
+
     ReportMeta(
       reportId         = rs.getString("report_id"),
       title            = rs.getString("title"),
@@ -81,7 +107,8 @@ class StandardReportMetaDaoImpl extends StandardReportMetaDao {
       dataSource       = rs.getString("data_source"),
       queryTemplate    = rs.getString("query_template"),
       supportedFilters = supportedFilters,
-      enabled          = rs.getBoolean("enabled")
+      enabled          = rs.getBoolean("enabled"),
+      aggregationSpec  = aggregationSpec
     )
   }
 

@@ -60,15 +60,28 @@ object TransformRegistry {
   // ---- Register new utilities here (one line per util) ----------------------
   private val utilInstances: Map[String, TransformUtil] = Map(
     "user"       -> new UserTransformUtil(),
-    "collection" -> new CollectionTransformUtil()
+    "collection" -> new CollectionTransformUtil(),
+    "content"    -> new CollectionTransformUtil()   // same fetch logic, separate result-key
   )
   // ---------------------------------------------------------------------------
 
   // Built once at class-loading time; safe to read from many threads.
   private val fieldToEntry: Map[String, TransformEntry] = buildRegistry()
 
+  // Reverse index: utilKey → all trigger field names registered for it.
+  // Used by applyTransforms to try every alias when looking up a value in a row.
+  private val utilToFields: Map[String, List[String]] =
+    fieldToEntry.groupBy(_._2.utilKey).map { case (k, entries) => k -> entries.keys.toList }
+
   /** Returns the TransformEntry for a given request field name, if configured. */
   def lookup(fieldName: String): Option[TransformEntry] = fieldToEntry.get(fieldName)
+
+  /**
+   * Returns all field names registered for the same util as the given trigger field.
+   * E.g. aliasesFor("userid") might return ["userid", "user_id", "userIdentifier"].
+   * Used to try every synonym when looking up an ID in a result row.
+   */
+  def aliasesFor(utilKey: String): List[String] = utilToFields.getOrElse(utilKey, List.empty)
 
   // ---------------------------------------------------------------------------
 
