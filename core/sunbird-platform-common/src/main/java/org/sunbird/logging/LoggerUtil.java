@@ -196,6 +196,15 @@ public class LoggerUtil {
   }
 
   /**
+   * Logs a simple ERROR message without context.
+   *
+   * @param message The error message.
+   */
+  public void error(String message) {
+    error(null, message, null, null, null);
+  }
+
+  /**
    * Logs a simple ERROR message with exception.
    *
    * @param message The error message.
@@ -258,6 +267,15 @@ public class LoggerUtil {
 
   public void warn(Map<String, Object> context, String message) {
     warn((RequestContext) null, message, null);
+  }
+
+  /**
+   * Logs a simple WARN message without context.
+   *
+   * @param message The warning message.
+   */
+  public void warn(String message) {
+    warn(null, message, null, null, null);
   }
 
   /**

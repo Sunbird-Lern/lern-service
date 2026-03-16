@@ -346,6 +346,20 @@
             </exclusions>
         </dependency>
 
+        <!-- PostgreSQL / YugabyteDB SQL JDBC driver -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>42.2.28</version>
+        </dependency>
+
+        <!-- HikariCP connection pool (Java 11 compatible) -->
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+            <version>4.0.3</version>
+        </dependency>
+
         <!-- Cassandra Driver -->
         <dependency>
             <groupId>com.datastax.cassandra</groupId>

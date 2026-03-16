@@ -91,3 +91,6 @@ local.properties
 
 # Ignore sample public key
 !modules/userorg/controller/test/resources/samplepublic.pem
+
+# Claude
+.claude/
