@@ -92,7 +92,13 @@ sealed trait AggregationDef {
 /** Count non-null values of sourceField within the group. */
 case class CountAgg(sourceField: String, outputField: String)    extends AggregationDef
 
-/** Count all rows in the group (sourceField is unused but kept for schema consistency). */
+/**
+ * Count all rows in the group.
+ * `sourceField` is semantically unused — COUNT_ALL counts rows, not field values.
+ * It is retained in the model for JSON schema consistency (all AggregationDef subtypes
+ * have sourceField) and to keep existing DB records valid without a migration.
+ * Callers should pass an empty string or any placeholder value.
+ */
 case class CountAllAgg(sourceField: String, outputField: String) extends AggregationDef
 
 /** Maximum value — sourceField must be numeric or java.util.Date. */

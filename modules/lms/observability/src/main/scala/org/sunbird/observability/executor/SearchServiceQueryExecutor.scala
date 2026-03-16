@@ -40,7 +40,8 @@ class SearchServiceQueryExecutor extends QueryExecutor {
 
     if (response == null || response.getStatusCode != 200) {
       val code = if (response != null) response.getStatusCode else -1
-      logger.error(s"SearchServiceQueryExecutor: Search Service returned HTTP $code", null)
+      val body = if (response != null && response.getBody != null) response.getBody else "(no body)"
+      logger.error(s"SearchServiceQueryExecutor: Search Service returned HTTP $code — body: $body", null)
       return List.empty
     }
 
@@ -50,8 +51,10 @@ class SearchServiceQueryExecutor extends QueryExecutor {
   private def extractResults(responseBody: String): List[Map[String, Any]] = {
     try {
       val root = mapper.readValue(responseBody, mapType)
-      val result = root.get("result").asInstanceOf[java.util.Map[String, AnyRef]]
-      if (result == null) return List.empty
+      val result = root.get("result") match {
+        case m: java.util.Map[_, _] => m.asInstanceOf[java.util.Map[String, AnyRef]]
+        case _                      => return List.empty
+      }
 
       // Try "content", "data", "response" keys in order
       val dataKey = Seq("content", "data", "response").find(k => result.containsKey(k)).getOrElse("")

@@ -30,13 +30,10 @@ class YugabyteCqlQueryExecutor(keyspace: String = "sunbird_courses") extends Que
   private val logger    = new LoggerUtil(classOf[YugabyteCqlQueryExecutor])
   private val stmtCache = new ConcurrentHashMap[String, PreparedStatement]()
 
-  private def getPrepared(session: Session, query: String): PreparedStatement = {
-    val cached = stmtCache.get(query)
-    if (cached != null) return cached
-    val prepared = session.prepare(query)
-    stmtCache.putIfAbsent(query, prepared)
-    stmtCache.get(query)   // return the winner in case of a concurrent put
-  }
+  private def getPrepared(session: Session, query: String): PreparedStatement =
+    // computeIfAbsent is atomic — eliminates the get-then-putIfAbsent race that allowed
+    // duplicate session.prepare() calls under concurrent requests for the same query.
+    stmtCache.computeIfAbsent(query, _ => session.prepare(query))
 
   /**
    * Executes a prepared statement, handling the case where YugabyteDB went down and
@@ -78,6 +75,10 @@ class YugabyteCqlQueryExecutor(keyspace: String = "sunbird_courses") extends Que
         case v          => v.asInstanceOf[AnyRef]
       }.toArray
 
+      // rs.all() materializes the entire result set into memory at once.
+      // This is acceptable for admin/reporting queries that are expected to return
+      // bounded row counts (thousands, not millions). Do not use this executor for
+      // unbounded table scans — add a LIMIT clause to the query template instead.
       val rs = executeWithRetry(session, renderedQuery, boundParams)
       val colDefs = rs.getColumnDefinitions.asList().asScala.toList
 

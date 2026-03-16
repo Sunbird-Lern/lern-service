@@ -58,7 +58,13 @@ object TransformCache {
 
     val cache = getOrCreateCache(utilKey, ttl, maxSize)
 
-    // Step 1 — Probe in-memory cache for all IDs at once (~100ns each, no I/O)
+    // Step 1 — Probe in-memory cache for all IDs at once (~100ns each, no I/O).
+    // Known TOCTOU: two concurrent requests for the same uncached ID will both call
+    // fetchFn and both populate the cache. This is an idempotent write race — the
+    // result is correct (last writer wins with the same value), just slightly wasteful.
+    // For this use case (low-frequency admin reports) the trade-off is acceptable.
+    // A per-ID lock or Guava LoadingCache would eliminate the race but would require
+    // fetching one ID at a time, losing the batching optimisation in fetchFn.
     val cached: Map[String, Map[String, AnyRef]] =
       ids.flatMap(id => Option(cache.getIfPresent(id)).map(id -> _)).toMap
 

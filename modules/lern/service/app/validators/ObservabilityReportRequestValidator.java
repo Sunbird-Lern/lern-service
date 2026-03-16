@@ -26,12 +26,31 @@ public class ObservabilityReportRequestValidator {
         }
 
         Object transform = request.getRequest().get("transform");
-        if (transform != null && !(transform instanceof List)) {
-            throw new ProjectCommonException(
-                ResponseCode.invalidRequestData.getErrorCode(),
-                "'transform' must be a JSON array of strings (e.g. [\"userid\", \"courseid\"])",
-                ResponseCode.CLIENT_ERROR.getResponseCode()
-            );
+        if (transform != null) {
+            if (!(transform instanceof List)) {
+                throw new ProjectCommonException(
+                    ResponseCode.invalidRequestData.getErrorCode(),
+                    "'transform' must be a JSON array of strings (e.g. [\"userid\", \"courseid\"])",
+                    ResponseCode.CLIENT_ERROR.getResponseCode()
+                );
+            }
+            List<?> transformList = (List<?>) transform;
+            if (transformList.size() > 10) {
+                throw new ProjectCommonException(
+                    ResponseCode.invalidRequestData.getErrorCode(),
+                    "'transform' list must not exceed 10 entries",
+                    ResponseCode.CLIENT_ERROR.getResponseCode()
+                );
+            }
+            for (Object item : transformList) {
+                if (!(item instanceof String) || StringUtils.isBlank((String) item)) {
+                    throw new ProjectCommonException(
+                        ResponseCode.invalidRequestData.getErrorCode(),
+                        "'transform' list must contain non-empty strings only",
+                        ResponseCode.CLIENT_ERROR.getResponseCode()
+                    );
+                }
+            }
         }
     }
 }

@@ -1,5 +1,7 @@
 package org.sunbird.observability.util
 
+import com.fasterxml.jackson.databind.ObjectMapper
+
 import scala.collection.mutable.ListBuffer
 import scala.util.matching.Regex
 
@@ -21,6 +23,8 @@ import scala.util.matching.Regex
 object QueryTemplateRenderer {
 
   case class RenderedQuery(query: String, params: List[Any])
+
+  private val jsonMapper = new ObjectMapper()
 
   // (?s) enables DOTALL mode so that `.` matches newlines as well.
   // This is necessary when templates are stored in the DB with line breaks inside optional blocks.
@@ -71,6 +75,8 @@ object QueryTemplateRenderer {
       }
     })
 
+    // Note: whitespace normalization is safe here because renderSql uses parameterized `?`
+    // placeholders — string values are never embedded in the query text, only in params.
     RenderedQuery(result.trim.replaceAll("\\s+", " "), params.toList)
   }
 
@@ -125,6 +131,15 @@ object QueryTemplateRenderer {
     (result, params)
   }
 
-  private def escapeForJson(value: String): String =
-    value.replace("\\", "\\\\").replace("\"", "\\\"")
+  /**
+   * Escapes a string for safe embedding inside a JSON string literal.
+   * Uses ObjectMapper to handle all control characters (\n, \t, \r, null bytes, etc.)
+   * in addition to backslash and double-quote — preventing Elasticsearch DSL injection.
+   * The surrounding quotes produced by writeValueAsString are stripped since the
+   * surrounding quotes already exist in the template.
+   */
+  private def escapeForJson(value: String): String = {
+    val withQuotes = jsonMapper.writeValueAsString(value)
+    withQuotes.substring(1, withQuotes.length - 1)
+  }
 }

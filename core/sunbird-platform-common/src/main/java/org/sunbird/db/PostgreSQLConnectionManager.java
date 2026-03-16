@@ -7,6 +7,8 @@ import org.sunbird.logging.LoggerUtil;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Singleton HikariCP connection pool for PostgreSQL / YugabyteDB SQL.
@@ -42,10 +44,28 @@ public class PostgreSQLConnectionManager {
         String password = ProjectUtil.getConfigValue("sunbird_postgres_password");
         String poolSizeStr = ProjectUtil.getConfigValue("sunbird_postgres_pool_size");
 
+        // Validate required config values early — fail fast with a clear message
+        List<String> missing = new ArrayList<>();
+        if (host     == null || host.isEmpty())     missing.add("sunbird_postgres_host");
+        if (db       == null || db.isEmpty())       missing.add("sunbird_postgres_db");
+        if (user     == null || user.isEmpty())     missing.add("sunbird_postgres_username");
+        if (password == null || password.isEmpty()) missing.add("sunbird_postgres_password");
+        if (!missing.isEmpty()) {
+            throw new IllegalStateException(
+                "PostgreSQLConnectionManager: missing required config key(s): " + String.join(", ", missing)
+            );
+        }
+
         if (port == null || port.isEmpty()) port = "5432";
+
         int poolSize = 10;
         if (poolSizeStr != null && !poolSizeStr.isEmpty()) {
-            try { poolSize = Integer.parseInt(poolSizeStr); } catch (NumberFormatException ignored) {}
+            try {
+                poolSize = Integer.parseInt(poolSizeStr);
+            } catch (NumberFormatException e) {
+                logger.warn("PostgreSQLConnectionManager: invalid pool size value '" + poolSizeStr
+                        + "' — defaulting to 10. Set sunbird_postgres_pool_size to a valid integer.");
+            }
         }
 
         HikariConfig config = new HikariConfig();

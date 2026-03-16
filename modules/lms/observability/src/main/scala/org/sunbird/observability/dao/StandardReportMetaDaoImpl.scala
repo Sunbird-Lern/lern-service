@@ -48,11 +48,9 @@ class StandardReportMetaDaoImpl extends StandardReportMetaDao {
       stmt = conn.prepareStatement(GET_BY_ID_SQL)
       stmt.setString(1, reportId)
       rs = stmt.executeQuery()
+      // Only return None for genuine "no rows" — infrastructure exceptions propagate
+      // to the actor and produce a 500, distinguishing DB-down from report-not-found.
       if (rs.next()) Some(mapRow(rs)) else None
-    } catch {
-      case ex: Exception =>
-        logger.error(s"StandardReportMetaDaoImpl.getById: Failed for reportId=$reportId", ex)
-        None
     } finally {
       closeQuietly(rs, stmt, conn)
     }
@@ -68,9 +66,6 @@ class StandardReportMetaDaoImpl extends StandardReportMetaDao {
       stmt = conn.prepareStatement(LIST_ALL_SQL)
       rs = stmt.executeQuery()
       while (rs.next()) results += mapRow(rs)
-    } catch {
-      case ex: Exception =>
-        logger.error("StandardReportMetaDaoImpl.listAll: Failed", ex)
     } finally {
       closeQuietly(rs, stmt, conn)
     }
@@ -78,6 +73,16 @@ class StandardReportMetaDaoImpl extends StandardReportMetaDao {
   }
 
   private def mapRow(rs: ResultSet): ReportMeta = {
+    val reportId = rs.getString("report_id")
+
+    // Required columns — null means a corrupt DB row; fail loudly rather than NPE downstream
+    val dataSource = Option(rs.getString("data_source")).getOrElse(
+      throw new java.sql.SQLException(s"data_source is NULL for report_id=$reportId")
+    )
+    val queryTemplate = Option(rs.getString("query_template")).getOrElse(
+      throw new java.sql.SQLException(s"query_template is NULL for report_id=$reportId")
+    )
+
     val supportedFiltersJson = rs.getString("supported_filters")
     val supportedFilters: List[String] =
       if (supportedFiltersJson == null || supportedFiltersJson.isEmpty) List.empty
@@ -100,12 +105,12 @@ class StandardReportMetaDaoImpl extends StandardReportMetaDao {
       }
 
     ReportMeta(
-      reportId         = rs.getString("report_id"),
+      reportId         = reportId,
       title            = rs.getString("title"),
       description      = Option(rs.getString("description")),
       domain           = rs.getString("domain"),
-      dataSource       = rs.getString("data_source"),
-      queryTemplate    = rs.getString("query_template"),
+      dataSource       = dataSource,
+      queryTemplate    = queryTemplate,
       supportedFilters = supportedFilters,
       enabled          = rs.getBoolean("enabled"),
       aggregationSpec  = aggregationSpec

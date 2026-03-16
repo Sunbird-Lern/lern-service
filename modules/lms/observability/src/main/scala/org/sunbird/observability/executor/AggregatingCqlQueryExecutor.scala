@@ -104,7 +104,13 @@ class AggregatingCqlQueryExecutor(
 
     sel.order.toUpperCase match {
       case "MIN" => candidates.minBy(r => toComparable(r(sel.field)))
-      case _     => candidates.maxBy(r => toComparable(r(sel.field)))
+      case "MAX" => candidates.maxBy(r => toComparable(r(sel.field)))
+      case other =>
+        throw new ProjectCommonException(
+          ResponseCode.serverError.getErrorCode,
+          s"SelectBy.order must be MAX or MIN, got: '$other'",
+          ResponseCode.SERVER_ERROR.getResponseCode
+        )
     }
   }
 
@@ -202,10 +208,19 @@ class AggregatingCqlQueryExecutor(
     case _                    => result.toDouble.asInstanceOf[Any]
   }
 
-  /** Convert to Ordered so that maxBy/minBy works across numeric + Date. */
+  /**
+   * Convert to a Double for use in maxBy/minBy comparisons.
+   * Throws rather than silently returning 0.0 for unsupported types — a silent 0.0
+   * would produce meaningless MAX/MIN results with no indication of the misconfiguration.
+   */
   private def toComparable(v: Any): Double = v match {
     case n: java.lang.Number => n.doubleValue()
     case d: java.util.Date   => d.getTime.toDouble
-    case _                   => 0.0
+    case _ =>
+      throw new ProjectCommonException(
+        ResponseCode.serverError.getErrorCode,
+        s"Cannot compare value of type ${v.getClass.getSimpleName} — expected numeric or java.util.Date",
+        ResponseCode.SERVER_ERROR.getResponseCode
+      )
   }
 }

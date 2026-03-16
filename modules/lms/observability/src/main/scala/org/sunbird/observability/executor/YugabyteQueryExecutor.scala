@@ -53,9 +53,9 @@ class YugabyteQueryExecutor extends QueryExecutor {
         logger.error("YugabyteQueryExecutor: Query execution failed", ex)
         throw ex
     } finally {
-      try { if (rs   != null) rs.close()   } catch { case _: Exception => }
-      try { if (stmt != null) stmt.close() } catch { case _: Exception => }
-      try { if (conn != null) conn.close() } catch { case _: Exception => }
+      try { if (rs   != null) rs.close()   } catch { case ex: Exception => logger.warn("YugabyteQueryExecutor: failed to close ResultSet",   ex) }
+      try { if (stmt != null) stmt.close() } catch { case ex: Exception => logger.warn("YugabyteQueryExecutor: failed to close PreparedStatement", ex) }
+      try { if (conn != null) conn.close() } catch { case ex: Exception => logger.warn("YugabyteQueryExecutor: failed to close Connection",        ex) }
     }
 
     results.toList

@@ -39,12 +39,16 @@ class ObservabilityReportServiceImpl(
   private val logger = new LoggerUtil(classOf[ObservabilityReportServiceImpl])
 
   override def generateReport(request: Request): Response = {
-    val reportId = Option(request.getRequest.get("reportId").asInstanceOf[String])
-      .getOrElse(throw new ProjectCommonException(
+    // Pattern match instead of asInstanceOf — avoids ClassCastException if caller
+    // sends a non-String type for reportId (e.g. a number or object).
+    val reportId = request.getRequest.get("reportId") match {
+      case s: String if s.nonEmpty => s
+      case _ => throw new ProjectCommonException(
         ResponseCode.mandatoryParameterMissing.getErrorCode,
         "reportId is mandatory",
         ResponseCode.CLIENT_ERROR.getResponseCode
-      ))
+      )
+    }
 
     val filtersRaw = request.getRequest.get("filters")
     val filters: Map[String, Any] = filtersRaw match {
@@ -98,10 +102,14 @@ class ObservabilityReportServiceImpl(
         )
     }
 
-    // Extract optional transform field list from the request
+    // Extract optional transform field list — collect only String elements to avoid
+    // ClassCastException if a caller sends mixed-type array; non-strings are silently dropped
+    // (validator already rejects non-string elements, so this is a safe-by-default fallback).
+    // TODO: consider caching reportMeta lookups with a short TTL to avoid one DB round-trip
+    //       per request once report volume grows — see StandardReportMetaDaoImpl.
     val transformFields: List[String] =
       Option(request.getRequest.get("transform"))
-        .collect { case l: java.util.List[_] => l.asScala.map(_.toString).toList }
+        .collect { case l: java.util.List[_] => l.asScala.collect { case s: String => s }.toList }
         .getOrElse(List.empty)
 
     val enrichedRows: List[Map[String, Any]] =

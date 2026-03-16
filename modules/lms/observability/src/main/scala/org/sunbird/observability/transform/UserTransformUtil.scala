@@ -31,7 +31,8 @@ class UserTransformUtil extends TransformUtil {
   ): Map[String, Map[String, AnyRef]] = {
     if (ids.isEmpty) return Map.empty
 
-    logger.info(context, s"UserTransformUtil: ES lookup for ${ids.size} user(s): ${ids.mkString(", ")}")
+    // Log count only — user IDs are PII and must not appear in INFO-level logs.
+    logger.info(context, s"UserTransformUtil: ES lookup for ${ids.size} user(s)")
 
     val searchDTO = new SearchDTO()
     // ElasticSearchHelper.getTermQueryFromList calls stringList.replaceAll(String::toLowerCase)
