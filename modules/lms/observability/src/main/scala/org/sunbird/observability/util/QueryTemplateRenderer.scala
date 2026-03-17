@@ -2,6 +2,7 @@ package org.sunbird.observability.util
 
 import com.fasterxml.jackson.databind.ObjectMapper
 
+import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
 import scala.util.matching.Regex
 
@@ -62,14 +63,16 @@ object QueryTemplateRenderer {
         filters.get(blockKey) match {
           case Some(value) =>
             val expanded = PLACEHOLDER_PATTERN.replaceAllIn(m.group(2), pm => {
-              if (pm.group(1) == blockKey) { params += value; "?" } else pm.matched
+              if (pm.group(1) == blockKey) {
+                Regex.quoteReplacement(bindValue(value, params))
+              } else pm.matched
             })
             Regex.quoteReplacement(expanded)
           case None => ""
         }
       } else {
         filters.get(directKey) match {
-          case Some(value) => params += value; "?"
+          case Some(value) => bindValue(value, params)
           case None        => ""
         }
       }
@@ -129,6 +132,32 @@ object QueryTemplateRenderer {
       }
     })
     (result, params)
+  }
+
+  /**
+   * Binds a filter value to params and returns the corresponding placeholder string.
+   *
+   * For scalar values (String, Int, etc.) this is a single `?`.
+   * For array values (java.util.Collection or Scala Iterable) this expands to `?, ?, ?` —
+   * one `?` per element — enabling safe IN clause binding in PreparedStatements.
+   *
+   * Template usage for IN clauses:
+   *   Template: `WHERE courseid IN ({{courseids}})`
+   *   Input:    `courseids -> List("id1", "id2", "id3")`
+   *   Output:   `WHERE courseid IN (?, ?, ?)` with params `["id1", "id2", "id3"]`
+   */
+  private def bindValue(value: Any, params: ListBuffer[Any]): String = value match {
+    case javaList: java.util.Collection[_] =>
+      val items = javaList.asScala.toList
+      items.foreach(params += _)
+      items.map(_ => "?").mkString(", ")
+    case scalaSeq: Iterable[_] =>
+      val items = scalaSeq.toList
+      items.foreach(params += _)
+      items.map(_ => "?").mkString(", ")
+    case scalar =>
+      params += scalar
+      "?"
   }
 
   /**

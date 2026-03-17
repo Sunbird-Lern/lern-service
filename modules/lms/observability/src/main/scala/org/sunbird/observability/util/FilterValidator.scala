@@ -16,6 +16,7 @@ object FilterValidator {
    * @throws ProjectCommonException if an unknown filter key is found
    */
   private val MAX_FILTER_VALUE_LENGTH = 500
+  private val MAX_ARRAY_FILTER_SIZE   = 1000
 
   def validate(requestFilters: Map[String, Any], supportedFilters: List[String]): Unit = {
     if (requestFilters == null || requestFilters.isEmpty) return
@@ -28,16 +29,36 @@ object FilterValidator {
         ResponseCode.CLIENT_ERROR.getResponseCode
       )
 
-    // Reject array/object values — filter values must be scalar (String, Number, Boolean).
-    // Passing an array would propagate to the CQL driver as a LIST bound to a TEXT column,
-    // producing a cryptic InvalidTypeException (500) instead of a clean 400.
-    val nonScalar = requestFilters.collect {
-      case (k, v) if v.isInstanceOf[java.util.Collection[_]] || v.isInstanceOf[java.util.Map[_, _]] => k
+    // Objects (Maps) are always rejected — only scalars and arrays of scalars are allowed.
+    val objectFilters = requestFilters.collect {
+      case (k, v) if v.isInstanceOf[java.util.Map[_, _]] => k
     }
-    if (nonScalar.nonEmpty)
+    if (objectFilters.nonEmpty)
       throw new ProjectCommonException(
         ResponseCode.invalidRequestData.getErrorCode,
-        s"Filter(s) [${nonScalar.mkString(", ")}] must be a scalar value (string/number), not an array or object",
+        s"Filter(s) [${objectFilters.mkString(", ")}] must be a scalar or array value, not an object",
+        ResponseCode.CLIENT_ERROR.getResponseCode
+      )
+
+    // Array (Collection) values are allowed for IN clause queries but must be non-empty and bounded.
+    // An empty array would expand to WHERE x IN () which is invalid SQL/CQL.
+    val emptyArrays = requestFilters.collect {
+      case (k, v: java.util.Collection[_]) if v.isEmpty => k
+    }
+    if (emptyArrays.nonEmpty)
+      throw new ProjectCommonException(
+        ResponseCode.invalidRequestData.getErrorCode,
+        s"Filter array(s) [${emptyArrays.mkString(", ")}] must not be empty",
+        ResponseCode.CLIENT_ERROR.getResponseCode
+      )
+
+    val oversizedArrays = requestFilters.collect {
+      case (k, v: java.util.Collection[_]) if v.size() > MAX_ARRAY_FILTER_SIZE => k
+    }
+    if (oversizedArrays.nonEmpty)
+      throw new ProjectCommonException(
+        ResponseCode.invalidRequestData.getErrorCode,
+        s"Filter array(s) [${oversizedArrays.mkString(", ")}] exceed maximum size of $MAX_ARRAY_FILTER_SIZE elements",
         ResponseCode.CLIENT_ERROR.getResponseCode
       )
 

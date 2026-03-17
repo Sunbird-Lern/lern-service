@@ -56,6 +56,27 @@ class SearchServiceQueryExecutor extends QueryExecutor {
         case _                      => return List.empty
       }
 
+      // Facets response: flatten each facet bucket into {facet, <facetName>, count} rows.
+      // The value is keyed by the facet name itself (e.g. "createdBy", "status") so that
+      // the standard transform mechanism can resolve IDs to details using transform: ["createdBy"].
+      if (result.containsKey("facets")) {
+        val facets = result.get("facets").asInstanceOf[java.util.List[java.util.Map[String, AnyRef]]]
+        return facets.asScala.flatMap { facet =>
+          val facetName = facet.get("name").toString
+          Option(facet.get("values")) match {
+            case Some(list: java.util.List[_]) =>
+              list.asInstanceOf[java.util.List[java.util.Map[String, AnyRef]]].asScala.map { v =>
+                Map(
+                  "facet"   -> facetName.asInstanceOf[Any],
+                  facetName -> v.get("name").asInstanceOf[Any],
+                  "count"   -> v.get("count").asInstanceOf[Any]
+                )
+              }
+            case _ => List.empty
+          }
+        }.toList
+      }
+
       // Try "content", "data", "response" keys in order
       val dataKey = Seq("content", "data", "response").find(k => result.containsKey(k)).getOrElse("")
       val rawList = result.get(dataKey)

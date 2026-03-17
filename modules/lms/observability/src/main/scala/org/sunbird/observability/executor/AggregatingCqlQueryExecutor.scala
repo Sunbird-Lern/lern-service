@@ -126,6 +126,17 @@ class AggregatingCqlQueryExecutor(
     case a: CountAllAgg =>
       rows.size.toLong
 
+    case a: CountIfAgg =>
+      rows.count { row =>
+        val value = row.get(a.sourceField).orNull
+        if (a.eq.isDefined)
+          a.eq.exists(expected => value != null && value.toString == expected.toString)
+        else if (a.nonEmpty.contains(true))
+          isNonEmpty(value)
+        else
+          false
+      }.toLong
+
     case a: MaxAgg =>
       val values = nonNullValues(a.sourceField, rows)
       if (values.isEmpty) null
@@ -173,6 +184,20 @@ class AggregatingCqlQueryExecutor(
 
   private def nonNullValues(field: String, rows: List[Map[String, Any]]): List[Any] =
     rows.flatMap(row => row.get(field).filter(_ != null))
+
+  /**
+   * Returns true when value is non-null and non-empty.
+   * Handles strings, java.util.Collection (e.g. Cassandra SET/LIST), java.util.Map,
+   * and falls back to "true" for any other non-null type (e.g. numeric).
+   * Used by [[CountIfAgg]] with nonEmpty=true.
+   */
+  private def isNonEmpty(v: Any): Boolean = v match {
+    case null                      => false
+    case s: String                 => s.nonEmpty
+    case c: java.util.Collection[_] => !c.isEmpty
+    case m: java.util.Map[_, _]    => !m.isEmpty
+    case _                         => true  // non-null scalar value is considered non-empty
+  }
 
   private def requireOrderable(field: String, sample: Any, aggType: String): Unit =
     if (!isOrderable(sample))

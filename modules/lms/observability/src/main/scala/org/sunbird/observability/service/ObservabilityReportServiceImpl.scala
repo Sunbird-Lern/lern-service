@@ -116,12 +116,28 @@ class ObservabilityReportServiceImpl(
       if (transformFields.isEmpty) rows
       else applyTransforms(rows, transformFields, request.getRequestContext)
 
-    val javaRows = enrichedRows.map(_.asJava.asInstanceOf[java.util.Map[String, AnyRef]]).asJava
+    // If rows are facet rows (each has a "facet" key), group them by facet name so all
+    // values for the same facet are nested under one entry in the response array.
+    val isFacetResponse = enrichedRows.nonEmpty && enrichedRows.head.contains("facet")
+
+    val data: java.util.List[java.util.Map[String, AnyRef]] = if (isFacetResponse) {
+      enrichedRows
+        .groupBy(row => row("facet").toString)
+        .map { case (facetName, rows) =>
+          val values = rows.map(row => (row - "facet").asJava.asInstanceOf[java.util.Map[String, AnyRef]]).asJava
+          val facetMap = new java.util.HashMap[String, AnyRef]()
+          facetMap.put("facet", facetName)
+          facetMap.put("values", values)
+          facetMap.asInstanceOf[java.util.Map[String, AnyRef]]
+        }.toList.asJava
+    } else {
+      enrichedRows.map(_.asJava.asInstanceOf[java.util.Map[String, AnyRef]]).asJava
+    }
 
     val result = new java.util.HashMap[String, AnyRef]()
     result.put("reportId", reportId)
     result.put("count", Integer.valueOf(enrichedRows.size))
-    result.put("data", javaRows)
+    result.put("data", data)
 
     val response = new Response()
     response.put(JsonKey.RESPONSE, result)

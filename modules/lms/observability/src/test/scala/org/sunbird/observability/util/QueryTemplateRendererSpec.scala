@@ -79,5 +79,51 @@ class QueryTemplateRendererSpec extends AnyWordSpec with Matchers {
       result.query  shouldBe "SELECT * FROM tbl WHERE p1 = ? AND p2 = ? ALLOW FILTERING"
       result.params shouldBe List("v1", "v2")
     }
+
+    "expand a java.util.List value to IN clause placeholders" in {
+      val template = "SELECT * FROM tbl WHERE id IN ({{ids}})"
+      val ids = new java.util.ArrayList[String](java.util.Arrays.asList("v1", "v2", "v3"))
+      val result = QueryTemplateRenderer.renderSql(template, Map("ids" -> ids))
+      result.query  shouldBe "SELECT * FROM tbl WHERE id IN (?, ?, ?)"
+      result.params shouldBe List("v1", "v2", "v3")
+    }
+
+    "expand a Scala List value to IN clause placeholders" in {
+      val template = "SELECT * FROM tbl WHERE id IN ({{ids}})"
+      val result = QueryTemplateRenderer.renderSql(template, Map("ids" -> List("v1", "v2")))
+      result.query  shouldBe "SELECT * FROM tbl WHERE id IN (?, ?)"
+      result.params shouldBe List("v1", "v2")
+    }
+
+    "expand a single-element collection to a single IN clause placeholder" in {
+      val template = "SELECT * FROM tbl WHERE id IN ({{ids}})"
+      val ids = new java.util.ArrayList[String](java.util.Arrays.asList("v1"))
+      val result = QueryTemplateRenderer.renderSql(template, Map("ids" -> ids))
+      result.query  shouldBe "SELECT * FROM tbl WHERE id IN (?)"
+      result.params shouldBe List("v1")
+    }
+
+    "preserve correct param order when IN clause placeholder is mixed with scalar filters" in {
+      val template = "SELECT * FROM tbl WHERE p1 = {{p1}} AND id IN ({{ids}}) ALLOW FILTERING"
+      val ids = new java.util.ArrayList[String](java.util.Arrays.asList("v1", "v2"))
+      val result = QueryTemplateRenderer.renderSql(template, Map("p1" -> "a", "ids" -> ids))
+      result.query  shouldBe "SELECT * FROM tbl WHERE p1 = ? AND id IN (?, ?) ALLOW FILTERING"
+      result.params shouldBe List("a", "v1", "v2")
+    }
+
+    "expand collection value inside an optional block" in {
+      val template = "SELECT * FROM tbl WHERE 1=1{{#ids}} AND id IN ({{ids}}){{/ids}}"
+      val ids = new java.util.ArrayList[String](java.util.Arrays.asList("v1", "v2"))
+      val result = QueryTemplateRenderer.renderSql(template, Map("ids" -> ids))
+      result.query  shouldBe "SELECT * FROM tbl WHERE 1=1 AND id IN (?, ?)"
+      result.params shouldBe List("v1", "v2")
+    }
+
+    "omit optional block when collection filter is absent" in {
+      val template = "SELECT * FROM tbl WHERE 1=1{{#ids}} AND id IN ({{ids}}){{/ids}}"
+      val result = QueryTemplateRenderer.renderSql(template, Map.empty)
+      result.query  shouldBe "SELECT * FROM tbl WHERE 1=1"
+      result.params shouldBe List.empty
+    }
   }
 }

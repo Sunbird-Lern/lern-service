@@ -34,6 +34,7 @@ import com.fasterxml.jackson.annotation.{JsonSubTypes, JsonTypeInfo}
  * Aggregation type semantics:
  *  COUNT       — count of non-null values for sourceField in the group
  *  COUNT_ALL   — count of all rows in the group (sourceField is ignored)
+ *  COUNT_IF    — count rows satisfying a condition (eq or nonEmpty)
  *  MAX / MIN   — maximum / minimum value; sourceField must be numeric or java.util.Date
  *  SUM / AVG   — sum / average; sourceField must be numeric (java.lang.Number subtypes)
  *  FIRST       — first non-null value encountered in the group (insertion order)
@@ -77,6 +78,7 @@ case class PreAggregationSpec(
 @JsonSubTypes(Array(
   new JsonSubTypes.Type(value = classOf[CountAgg],        name = "COUNT"),
   new JsonSubTypes.Type(value = classOf[CountAllAgg],     name = "COUNT_ALL"),
+  new JsonSubTypes.Type(value = classOf[CountIfAgg],      name = "COUNT_IF"),
   new JsonSubTypes.Type(value = classOf[MaxAgg],          name = "MAX"),
   new JsonSubTypes.Type(value = classOf[MinAgg],          name = "MIN"),
   new JsonSubTypes.Type(value = classOf[SumAgg],          name = "SUM"),
@@ -100,6 +102,25 @@ case class CountAgg(sourceField: String, outputField: String)    extends Aggrega
  * Callers should pass an empty string or any placeholder value.
  */
 case class CountAllAgg(sourceField: String, outputField: String) extends AggregationDef
+
+/**
+ * Count rows in the group where `sourceField` satisfies a condition.
+ * Exactly one of `eq` or `nonEmpty` should be configured per aggregation.
+ *
+ * @param sourceField  Column to evaluate in each group row.
+ * @param outputField  Output column name for the resulting count.
+ * @param eq           Count rows where `sourceField` equals this value (string comparison).
+ *                     Use for discrete values such as `{"eq": 2}` for status=completed.
+ * @param nonEmpty     When `true`, count rows where `sourceField` is non-null and non-empty.
+ *                     Handles strings, java.util.Collection, and java.util.Map gracefully.
+ *                     Use for presence checks such as `issued_certificates` nonEmpty.
+ */
+case class CountIfAgg(
+    sourceField: String,
+    outputField: String,
+    eq:          Option[AnyRef]  = None,
+    nonEmpty:    Option[Boolean] = None
+) extends AggregationDef
 
 /** Maximum value — sourceField must be numeric or java.util.Date. */
 case class MaxAgg(sourceField: String, outputField: String)      extends AggregationDef
