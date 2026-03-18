@@ -22,11 +22,13 @@ import scala.collection.JavaConverters._
  *    from the start of the month 11 months ago through to the end of the current month.
  *    Runs 12 sequential range queries — one per calendar month.
  *
- * The `createdAt` field in the `user` index must be mapped as `"type": "date", "format": "yyyy-MM-dd"`.
+ * The `createdAt` field in the `user` index must be mapped as `keyword` with a `.raw`
+ * sub-field — consistent with all other filterable fields in the index.
+ * ElasticSearchHelper.createRangeQuery appends `.raw` to the field name, so the range
+ * query hits `createdAt.raw` (keyword), which sorts correctly for `yyyy-MM-dd` strings.
+ *
  * The Cassandra `sunbird.user` table must have a `createdat date` column.
  * Both are populated by `UserUtil.setUserDefaultValue()`.
- *
- * Uses [[EsClientFactory]] and [[SearchDTO]] following the same pattern as [[UserTransformUtil]].
  */
 class EsExecutor extends QueryExecutor {
 
@@ -55,8 +57,8 @@ class EsExecutor extends QueryExecutor {
    */
   private def rangeCount(fromDate: String, toDate: String): List[Map[String, Any]] = {
     val rangeFilter = Map(
-      "greaterThanEquals" -> fromDate.asInstanceOf[AnyRef],
-      "lessThan"          -> toDate.asInstanceOf[AnyRef]
+      ">=" -> fromDate.asInstanceOf[AnyRef],
+      "<"  -> toDate.asInstanceOf[AnyRef]
     ).asJava
 
     val searchDTO = new SearchDTO()
