@@ -34,7 +34,7 @@ import com.fasterxml.jackson.annotation.{JsonSubTypes, JsonTypeInfo}
  * Aggregation type semantics:
  *  COUNT       — count of non-null values for sourceField in the group
  *  COUNT_ALL   — count of all rows in the group (sourceField is ignored)
- *  COUNT_IF    — count rows satisfying a condition (eq or nonEmpty)
+ *  COUNT_IF    — count rows satisfying a condition (matchValue or nonEmpty)
  *  MAX / MIN   — maximum / minimum value; sourceField must be numeric or java.util.Date
  *  SUM / AVG   — sum / average; sourceField must be numeric (java.lang.Number subtypes)
  *  FIRST       — first non-null value encountered in the group (insertion order)
@@ -105,12 +105,12 @@ case class CountAllAgg(sourceField: String, outputField: String) extends Aggrega
 
 /**
  * Count rows in the group where `sourceField` satisfies a condition.
- * Exactly one of `eq` or `nonEmpty` should be configured per aggregation.
+ * Exactly one of `matchValue` or `nonEmpty` should be configured per aggregation.
  *
  * @param sourceField  Column to evaluate in each group row.
  * @param outputField  Output column name for the resulting count.
- * @param eq           Count rows where `sourceField` equals this value (string comparison).
- *                     Use for discrete values such as `{"eq": 2}` for status=completed.
+ * @param matchValue   Count rows where `sourceField` equals this value (string comparison).
+ *                     Use for discrete values such as `{"matchValue": 2}` for status=completed.
  * @param nonEmpty     When `true`, count rows where `sourceField` is non-null and non-empty.
  *                     Handles strings, java.util.Collection, and java.util.Map gracefully.
  *                     Use for presence checks such as `issued_certificates` nonEmpty.
@@ -118,7 +118,7 @@ case class CountAllAgg(sourceField: String, outputField: String) extends Aggrega
 case class CountIfAgg(
     sourceField: String,
     outputField: String,
-    eq:          Option[AnyRef]  = None,
+    matchValue:  Option[AnyRef]  = None,
     nonEmpty:    Option[Boolean] = None
 ) extends AggregationDef
 

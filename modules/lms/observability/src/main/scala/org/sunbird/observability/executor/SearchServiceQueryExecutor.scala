@@ -59,22 +59,32 @@ class SearchServiceQueryExecutor extends QueryExecutor {
       // Facets response: flatten each facet bucket into {facet, <facetName>, count} rows.
       // The value is keyed by the facet name itself (e.g. "createdBy", "status") so that
       // the standard transform mechanism can resolve IDs to details using transform: ["createdBy"].
-      if (result.containsKey("facets")) {
-        val facets = result.get("facets").asInstanceOf[java.util.List[java.util.Map[String, AnyRef]]]
-        return facets.asScala.flatMap { facet =>
-          val facetName = facet.get("name").toString
-          Option(facet.get("values")) match {
-            case Some(list: java.util.List[_]) =>
-              list.asInstanceOf[java.util.List[java.util.Map[String, AnyRef]]].asScala.map { v =>
-                Map(
-                  "facet"   -> facetName.asInstanceOf[Any],
-                  facetName -> v.get("name").asInstanceOf[Any],
-                  "count"   -> v.get("count").asInstanceOf[Any]
-                )
-              }
-            case _ => List.empty
-          }
-        }.toList
+      Option(result.get("facets")).collect { case list: java.util.List[_] => list } match {
+        case Some(facetList) =>
+          return facetList.asInstanceOf[java.util.List[java.util.Map[String, AnyRef]]].asScala.flatMap { facet =>
+            // Skip facets with missing name key (safe NPE guard)
+            Option(facet.get("name")).map(_.toString) match {
+              case Some(facetName) =>
+                Option(facet.get("values")).collect { case list: java.util.List[_] => list } match {
+                  case Some(valueList) =>
+                    valueList.asInstanceOf[java.util.List[java.util.Map[String, AnyRef]]].asScala.flatMap { v =>
+                      // Skip values with missing name or count key (safe NPE guard)
+                      (Option(v.get("name")), Option(v.get("count"))) match {
+                        case (Some(name), Some(count)) =>
+                          List(Map(
+                            "facet"   -> facetName.asInstanceOf[Any],
+                            facetName -> name.asInstanceOf[Any],
+                            "count"   -> count.asInstanceOf[Any]
+                          ))
+                        case _ => List.empty
+                      }
+                    }
+                  case None => List.empty
+                }
+              case None => List.empty
+            }
+          }.toList
+        case None => // fall through to content/data/response extraction
       }
 
       // Try "content", "data", "response" keys in order

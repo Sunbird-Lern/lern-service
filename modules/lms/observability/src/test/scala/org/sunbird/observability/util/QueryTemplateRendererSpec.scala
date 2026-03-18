@@ -125,5 +125,20 @@ class QueryTemplateRendererSpec extends AnyWordSpec with Matchers {
       result.query  shouldBe "SELECT * FROM tbl WHERE 1=1"
       result.params shouldBe List.empty
     }
+
+    "throw IllegalArgumentException when empty java.util.Collection is passed" in {
+      val template = "SELECT * FROM tbl WHERE id IN ({{ids}})"
+      val ids = new java.util.ArrayList[String]()  // empty
+      assertThrows[IllegalArgumentException] {
+        QueryTemplateRenderer.renderSql(template, Map("ids" -> ids))
+      }
+    }
+
+    "throw IllegalArgumentException when empty Scala collection is passed" in {
+      val template = "SELECT * FROM tbl WHERE id IN ({{ids}})"
+      assertThrows[IllegalArgumentException] {
+        QueryTemplateRenderer.renderSql(template, Map("ids" -> List[String]()))
+      }
+    }
   }
 }

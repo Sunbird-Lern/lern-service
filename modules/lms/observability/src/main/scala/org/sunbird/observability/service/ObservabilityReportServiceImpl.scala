@@ -116,6 +116,9 @@ class ObservabilityReportServiceImpl(
       if (transformFields.isEmpty) rows
       else applyTransforms(rows, transformFields, request.getRequestContext)
 
+    // TODO: Facet detection should use an explicit flag on StandardReportMeta (e.g. isFacetResponse: Boolean)
+    // rather than inspecting the first row for a "facet" key. Current heuristic is fragile and can cause
+    // silent data corruption if a standard CQL report legitimately has a column named "facet".
     // If rows are facet rows (each has a "facet" key), group them by facet name so all
     // values for the same facet are nested under one entry in the response array.
     val isFacetResponse = enrichedRows.nonEmpty && enrichedRows.head.contains("facet")
@@ -123,6 +126,8 @@ class ObservabilityReportServiceImpl(
     val data: java.util.List[java.util.Map[String, AnyRef]] = if (isFacetResponse) {
       enrichedRows
         .groupBy(row => row("facet").toString)
+        .toSeq
+        .sortBy(_._1)  // Sort by facet name for deterministic, stable ordering
         .map { case (facetName, rows) =>
           val values = rows.map(row => (row - "facet").asJava.asInstanceOf[java.util.Map[String, AnyRef]]).asJava
           val facetMap = new java.util.HashMap[String, AnyRef]()

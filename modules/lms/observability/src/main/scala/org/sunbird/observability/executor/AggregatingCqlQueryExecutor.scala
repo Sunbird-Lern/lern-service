@@ -127,10 +127,18 @@ class AggregatingCqlQueryExecutor(
       rows.size.toLong
 
     case a: CountIfAgg =>
+      // Validate that at least one condition is configured
+      if (a.matchValue.isEmpty && !a.nonEmpty.contains(true)) {
+        throw new ProjectCommonException(
+          ResponseCode.serverError.getErrorCode,
+          s"COUNT_IF aggregation '${a.outputField}' must specify either 'matchValue' or 'nonEmpty: true'",
+          ResponseCode.SERVER_ERROR.getResponseCode
+        )
+      }
       rows.count { row =>
         val value = row.get(a.sourceField).orNull
-        if (a.eq.isDefined)
-          a.eq.exists(expected => value != null && value.toString == expected.toString)
+        if (a.matchValue.isDefined)
+          a.matchValue.exists(expected => value != null && value.toString == expected.toString)
         else if (a.nonEmpty.contains(true))
           isNonEmpty(value)
         else

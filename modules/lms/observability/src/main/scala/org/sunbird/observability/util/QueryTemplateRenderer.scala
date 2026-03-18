@@ -145,14 +145,20 @@ object QueryTemplateRenderer {
    *   Template: `WHERE courseid IN ({{courseids}})`
    *   Input:    `courseids -> List("id1", "id2", "id3")`
    *   Output:   `WHERE courseid IN (?, ?, ?)` with params `["id1", "id2", "id3"]`
+   *
+   * @throws IllegalArgumentException if an empty collection is passed (would produce invalid IN () clause).
    */
   private def bindValue(value: Any, params: ListBuffer[Any]): String = value match {
     case javaList: java.util.Collection[_] =>
+      if (javaList.isEmpty)
+        throw new IllegalArgumentException("bindValue: empty collection would produce invalid IN () clause")
       val items = javaList.asScala.toList
       items.foreach(params += _)
       items.map(_ => "?").mkString(", ")
     case scalaSeq: Iterable[_] =>
       val items = scalaSeq.toList
+      if (items.isEmpty)
+        throw new IllegalArgumentException("bindValue: empty collection would produce invalid IN () clause")
       items.foreach(params += _)
       items.map(_ => "?").mkString(", ")
     case scalar =>
