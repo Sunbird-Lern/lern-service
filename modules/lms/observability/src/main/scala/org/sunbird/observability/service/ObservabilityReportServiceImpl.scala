@@ -5,7 +5,7 @@ import org.sunbird.keys.JsonKey
 import org.sunbird.logging.LoggerUtil
 import org.sunbird.message.ResponseCode
 import org.sunbird.observability.dao.{StandardReportMetaDao, StandardReportMetaDaoImpl}
-import org.sunbird.observability.executor.{AggregatingCqlQueryExecutor, QueryExecutor, SearchServiceQueryExecutor, YugabyteCqlQueryExecutor, YugabyteQueryExecutor}
+import org.sunbird.observability.executor.{AggregatingCqlQueryExecutor, EsExecutor, QueryExecutor, SearchServiceQueryExecutor, YugabyteCqlQueryExecutor, YugabyteQueryExecutor}
 import org.sunbird.observability.transform.{TransformCache, TransformRegistry}
 import org.sunbird.observability.util.{FilterValidator, QueryTemplateRenderer}
 import org.sunbird.request.{Request, RequestContext}
@@ -20,7 +20,8 @@ import scala.collection.JavaConverters._
  *  1. Resolves report metadata (query template, data source, supported filters) from [[StandardReportMetaDao]].
  *  2. Validates request filters against the report's `supportedFilters` allowlist.
  *  3. Routes query execution to the correct executor based on `dataSource`:
- *     - `ELASTICSEARCH`     → [[SearchServiceQueryExecutor]]
+ *     - `SEARCHSERVICE`          → [[SearchServiceQueryExecutor]]
+ *     - `ELASTICSEARCH`          → [[EsExecutor]] (user creation count)
  *     - `YUGABYTE_SQL`      → [[YugabyteQueryExecutor]]
  *     - `YUGABYTE_CQL`      → [[YugabyteCqlQueryExecutor]]
  *     - `YUGABYTE_CQL_AGG`  → [[AggregatingCqlQueryExecutor]] (in-memory grouping + aggregation)
@@ -33,7 +34,8 @@ class ObservabilityReportServiceImpl(
     esExecutor: QueryExecutor               = new SearchServiceQueryExecutor(),
     sqlExecutor: QueryExecutor              = new YugabyteQueryExecutor(),
     cqlExecutor: QueryExecutor              = new YugabyteCqlQueryExecutor(),
-    aggCqlExecutor: AggregatingCqlQueryExecutor = new AggregatingCqlQueryExecutor()
+    aggCqlExecutor: AggregatingCqlQueryExecutor = new AggregatingCqlQueryExecutor(),
+    esCountExecutor: QueryExecutor          = new EsExecutor()
 ) extends ObservabilityReportService {
 
   private val logger = new LoggerUtil(classOf[ObservabilityReportServiceImpl])
@@ -67,9 +69,9 @@ class ObservabilityReportServiceImpl(
     FilterValidator.validate(filters, reportMeta.supportedFilters)
 
     val rows: List[Map[String, Any]] = reportMeta.dataSource.toUpperCase match {
-      case "ELASTICSEARCH" =>
+      case "SEARCHSERVICE" =>
         val renderedQuery = QueryTemplateRenderer.renderEs(reportMeta.queryTemplate, filters)
-        logger.info(request.getRequestContext, s"generateReport: Executing ES report $reportId")
+        logger.info(request.getRequestContext, s"generateReport: Executing Search Service report $reportId")
         esExecutor.execute(renderedQuery, List.empty)
 
       case "YUGABYTE_SQL" =>
@@ -81,6 +83,11 @@ class ObservabilityReportServiceImpl(
         val rendered = QueryTemplateRenderer.renderSql(reportMeta.queryTemplate, filters)
         logger.info(request.getRequestContext, s"generateReport: Executing CQL report $reportId")
         cqlExecutor.execute(rendered.query, rendered.params)
+
+      case "ELASTICSEARCH" =>
+        val renderedQuery = QueryTemplateRenderer.renderEs(reportMeta.queryTemplate, filters)
+        logger.info(request.getRequestContext, s"generateReport: Executing ES report $reportId")
+        esCountExecutor.execute(renderedQuery, List.empty)
 
       case "YUGABYTE_CQL_AGG" =>
         val spec = reportMeta.aggregationSpec.getOrElse(

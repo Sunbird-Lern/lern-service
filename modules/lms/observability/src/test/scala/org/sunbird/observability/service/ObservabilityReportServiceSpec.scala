@@ -27,7 +27,7 @@ class ObservabilityReportServiceSpec extends AnyWordSpec with Matchers {
       title            = "Active Users Weekly",
       description      = None,
       domain           = "generic",
-      dataSource       = "ELASTICSEARCH",
+      dataSource       = "SEARCHSERVICE",
       queryTemplate    = """{"request":{"filters":{"objectType":"User"{{#channel}},"channel":"{{channel}}"{{/channel}}}}}""",
       supportedFilters = List("channel", "startDate", "endDate"),
       enabled          = true
