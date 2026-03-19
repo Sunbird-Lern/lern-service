@@ -343,7 +343,7 @@ public class UserUtil {
     userMap.put(JsonKey.IS_DELETED, false);
     userMap.put(JsonKey.CREATED_DATE, ProjectUtil.getFormattedDate());
     userMap.put(JsonKey.STATUS, ProjectUtil.Status.ACTIVE.getValue());
-    userMap.put("createdAt", LocalDate.now().toString());
+    userMap.put(JsonKey.CREATED_AT, LocalDate.now().toString());
 
     if (StringUtils.isBlank((String) userMap.get(JsonKey.USERNAME))) {
       String firstName = (String) userMap.get(JsonKey.FIRST_NAME);
