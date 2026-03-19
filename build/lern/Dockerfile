@@ -10,7 +10,7 @@ RUN unzip lern-service-impl-1.0-SNAPSHOT-dist.zip
 FROM eclipse-temurin:11-jre-alpine
 
 RUN apk upgrade --no-cache \
-    && apk add --no-cache curl \
+    && apk add --no-cache curl "zlib>=1.3.2-r0" \
     && adduser -u 1001 -h /home/sunbird/ -D sunbird \
     && mkdir -p /home/sunbird/
 

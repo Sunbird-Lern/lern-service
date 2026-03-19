@@ -28,7 +28,9 @@
         <scala.major.version>2.13</scala.major.version>
         <scala.version>2.13.12</scala.version>
         <pekko.version>1.0.3</pekko.version>
-        <jackson.version>2.17.0</jackson.version>
+        <jackson.version>2.18.6</jackson.version>
+        <c3p0.version>0.12.0</c3p0.version>
+        <mchange-commons-java.version>0.4.0</mchange-commons-java.version>
         <netty.version>4.1.118.Final</netty.version>
         <junit.version>4.13.1</junit.version>
         <powermock.version>2.0.9</powermock.version>
@@ -354,6 +356,18 @@
                 <groupId>commons-io</groupId>
                 <artifactId>commons-io</artifactId>
                 <version>2.14.0</version>
+            </dependency>
+
+            <!-- Security: Force secure versions of transitive c3p0 and mchange-commons-java -->
+            <dependency>
+                <groupId>com.mchange</groupId>
+                <artifactId>c3p0</artifactId>
+                <version>${c3p0.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.mchange</groupId>
+                <artifactId>mchange-commons-java</artifactId>
+                <version>${mchange-commons-java.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
