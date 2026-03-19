@@ -69,10 +69,11 @@ class EsExecutor extends QueryExecutor {
     searchDTO.setLimit(0) // no documents needed — only the count
 
     val resultF  = esService.search(searchDTO, ProjectUtil.EsType.user.getTypeName(), null)
-    val esResult = ElasticSearchHelper.getResponseFromFuture(resultF)
-      .asInstanceOf[java.util.Map[String, AnyRef]]
+    val esResult = Option(ElasticSearchHelper.getResponseFromFuture(resultF))
+      .map(_.asInstanceOf[java.util.Map[String, AnyRef]])
+      .orNull
 
-    val count = Option(esResult.get(JsonKey.COUNT)).map(_.toString.toLong).getOrElse(0L)
+    val count = Option(esResult).flatMap(r => Option(r.get(JsonKey.COUNT))).map(_.toString.toLong).getOrElse(0L)
     List(Map("userCount" -> count.asInstanceOf[Any]))
   }
 
