@@ -11,7 +11,8 @@ FROM adoptopenjdk/openjdk11:alpine-slim
 
 RUN adduser -u 1001 -h /home/sunbird/ -D sunbird \
     && mkdir -p /home/sunbird/ \
-    && apk add --no-cache curl
+    && apk upgrade --no-cache \
+    && apk add --no-cache curl "zlib>=1.3.2-r0"
 
 WORKDIR /home/sunbird/
 COPY --from=builder --chown=sunbird:sunbird /app/notification-service-1.0-SNAPSHOT /home/sunbird/notification-service-1.0-SNAPSHOT
