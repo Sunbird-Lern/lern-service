@@ -27,6 +27,10 @@ import javax.ws.rs.core.MediaType
 import scala.collection.JavaConverters._
 
 class CollectionSummaryAggregate @Inject()(implicit val cacheUtil: RedisCacheUtil) extends BaseActor {
+  private val redisEnabled: Boolean = ProjectUtil.getConfigValue("redis.enabled") match {
+    case v if v != null => v.toBoolean
+    case _ => false
+  }
   val ttl: Int = if (StringUtils.isNotBlank(ProjectUtil.getConfigValue("collection_summary_agg_cache_ttl"))) ProjectUtil.getConfigValue("collection_summary_agg_cache_ttl").toInt else 60
   val dataSource: String = if (StringUtils.isNotBlank(ProjectUtil.getConfigValue("collection_summary_agg_data_source"))) ProjectUtil.getConfigValue("collection_summary_agg_data_source") else "telemetry-events-syncts"
   val stateLookUpQuery = "{\"type\":\"extraction\",\"dimension\":\"derived_loc_state\",\"outputName\":\"state\",\"extractionFn\":{\"type\":\"registeredLookup\",\"lookup\":\"stateLookup\",\"retainMissingValue\":true}}"
@@ -46,13 +50,13 @@ class CollectionSummaryAggregate @Inject()(implicit val cacheUtil: RedisCacheUti
     val key = getCacheKey(batchId = batchId, granularity, groupByKeys)
     println(s"Druid granularity: $granularity & Cache Key: $key")
     try {
-      val redisData = cacheUtil.get(key)
+      val redisData = if (redisEnabled) cacheUtil.get(key) else null
       val result: util.Map[String, AnyRef] = if (null != redisData && !redisData.isEmpty) {
         JsonUtil.deserialize(redisData, new util.HashMap[String, AnyRef]().getClass)
       } else {
         val druidResponse = getResponseFromDruid(batchId = batchId, courseId = collectionId, granularity, groupByKeys = groupByKeys)
         val transformedResult = transform(druidResponse, groupByKeys)
-        if (!transformedResult.isEmpty) cacheUtil.set(key, JsonUtil.serialize(transformedResult), ttl)
+        if (redisEnabled && !transformedResult.isEmpty) cacheUtil.set(key, JsonUtil.serialize(transformedResult), ttl)
         transformedResult
       }
       response.put("metrics", result.get("metrics"))

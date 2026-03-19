@@ -44,8 +44,12 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
     var courseBatchDao: CourseBatchDao = new CourseBatchDaoImpl()
     var userCoursesDao: UserCoursesDao = new UserCoursesDaoImpl()
     var groupDao: GroupDaoImpl = new GroupDaoImpl()
-    val isCacheEnabled = if (StringUtils.isNotBlank(ProjectUtil.getConfigValue("user_enrolments_response_cache_enable")))
-        (ProjectUtil.getConfigValue("user_enrolments_response_cache_enable")).toBoolean else true
+    private val redisEnabled: Boolean = ProjectUtil.getConfigValue("redis.enabled") match {
+        case v if v != null => v.toBoolean
+        case _ => false
+    }
+    val isCacheEnabled = redisEnabled && (if (StringUtils.isNotBlank(ProjectUtil.getConfigValue("user_enrolments_response_cache_enable")))
+        (ProjectUtil.getConfigValue("user_enrolments_response_cache_enable")).toBoolean else true)
     val ttl: Int = if (StringUtils.isNotBlank(ProjectUtil.getConfigValue("user_enrolments_response_cache_ttl")))
         (ProjectUtil.getConfigValue("user_enrolments_response_cache_ttl")).toInt else 60
     private val DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd")
@@ -85,8 +89,10 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
         validateEnrolment(batchData, enrolmentData, true)
         val data: java.util.Map[String, AnyRef] = createUserEnrolmentMap(userId, courseId, batchId, enrolmentData, request.getContext.getOrDefault(JsonKey.REQUEST_ID, "").asInstanceOf[String])
         upsertEnrollment(userId, courseId, batchId, data, (null == enrolmentData), request.getRequestContext)
-        logger.info(request.getRequestContext, "CourseEnrolmentActor :: enroll :: Deleting redis for key " + getCacheKey(userId))
-        cacheUtil.delete(getCacheKey(userId))
+        if (isCacheEnabled) {
+            logger.info(request.getRequestContext, "CourseEnrolmentActor :: enroll :: Deleting redis for key " + getCacheKey(userId))
+            cacheUtil.delete(getCacheKey(userId))
+        }
         sender().tell(successResponse(), self)
         generateTelemetryAudit(userId, courseId, batchId, data, "enrol", JsonKey.CREATE, request.getContext)
         notifyUser(userId, batchData, JsonKey.ADD)
@@ -103,8 +109,10 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
         validateEnrolment(batchData, enrolmentData, false)
         val data: java.util.Map[String, AnyRef] = new java.util.HashMap[String, AnyRef]() {{ put(JsonKey.ACTIVE, ProjectUtil.ActiveStatus.INACTIVE.getValue.asInstanceOf[AnyRef]) }}
         upsertEnrollment(userId,courseId, batchId, data, false, request.getRequestContext)
-        logger.info(request.getRequestContext, "CourseEnrolmentActor :: unEnroll :: Deleting redis for key " + getCacheKey(userId))
-        cacheUtil.delete(getCacheKey(userId))
+        if (isCacheEnabled) {
+            logger.info(request.getRequestContext, "CourseEnrolmentActor :: unEnroll :: Deleting redis for key " + getCacheKey(userId))
+            cacheUtil.delete(getCacheKey(userId))
+        }
         sender().tell(successResponse(), self)
         generateTelemetryAudit(userId, courseId, batchId, data, "unenrol", JsonKey.UPDATE, request.getContext)
         notifyUser(userId, batchData, JsonKey.REMOVE)

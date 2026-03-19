@@ -19,11 +19,11 @@ import java.util.Set;
 
 public class PageCacheLoaderService implements Runnable {
   private CassandraOperation cassandraOperation = ServiceFactory.getInstance();
-  private static boolean isCacheEnabled = false;
+  private static final boolean isCacheEnabled =
+      Boolean.parseBoolean(ProjectUtil.getConfigValue("redis.enabled"));
   private static LoggerUtil logger = new LoggerUtil(PageCacheLoaderService.class);
-  //      Boolean.parseBoolean(ProjectUtil.getConfigValue(JsonKey.SUNBIRD_CACHE_ENABLE));
 
-  private static Cache cache = CacheFactory.getInstance();
+  private static final Cache cache = isCacheEnabled ? CacheFactory.getInstance() : null;
 
   @SuppressWarnings("unchecked")
   public Map<String, Map<String, Object>> cacheLoader(String tableName) {

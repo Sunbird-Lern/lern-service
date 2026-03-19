@@ -4,6 +4,7 @@ import org.sunbird.actor.base.BaseActor;
 import org.sunbird.cache.CacheFactory;
 import org.sunbird.cache.interfaces.Cache;
 import org.sunbird.response.Response;
+import org.sunbird.common.ProjectUtil;
 import org.sunbird.operations.lms.ActorOperations;
 import org.sunbird.keys.JsonKey;
 import org.sunbird.logging.LoggerEnum;
@@ -13,7 +14,8 @@ import org.sunbird.request.Request;
 import org.sunbird.response.ResponseCode;
 
 public class CacheManagementActor extends BaseActor {
-  private Cache cache = CacheFactory.getInstance();
+  private final boolean redisEnabled = Boolean.parseBoolean(ProjectUtil.getConfigValue("redis.enabled"));
+  private Cache cache = redisEnabled ? CacheFactory.getInstance() : null;
 
   @Override
   public void onReceive(Request request) throws Throwable {
@@ -30,7 +32,9 @@ public class CacheManagementActor extends BaseActor {
     String mapName = (String) request.getContext().get(JsonKey.MAP_NAME);
     logger.info(request.getRequestContext(), "CacheManagementActor:clearCache: mapName = " + mapName);
     try {
-      if (!JsonKey.ALL.equals(mapName)) {
+      if (cache == null) {
+        logger.info(request.getRequestContext(), "CacheManagementActor:clearCache: Redis disabled, skipping cache clear for mapName = " + mapName);
+      } else if (!JsonKey.ALL.equals(mapName)) {
         cache.clear(mapName);
       } else {
         cache.clearAll();

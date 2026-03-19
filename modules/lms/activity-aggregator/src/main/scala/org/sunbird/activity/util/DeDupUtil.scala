@@ -25,13 +25,18 @@ class DeDupUtil {
     case _ => false
   }
 
+  private lazy val redisEnabled = ProjectUtil.getConfigValue("redis.enabled") match {
+    case value if value != null => value.toBoolean
+    case _ => false
+  }
+
   def getMessageId(courseId: String, batchId: String, userId: String, contentId: String, status: Int): String = {
     val key = Array(courseId, batchId, userId, contentId, status).mkString("|")
     MessageDigest.getInstance("MD5").digest(key.getBytes).map("%02X".format(_)).mkString
   }
 
   def isUniqueEvent(checksum: String, requestContext: RequestContext): Boolean = {
-    if (!dedupEnabled) return true
+    if (!dedupEnabled || !redisEnabled) return true
     val jedis = cacheUtil.getConnection(deDupRedisIndex)
     try {
       !jedis.exists(checksum)
@@ -41,7 +46,7 @@ class DeDupUtil {
   }
 
   def storeChecksum(checksum: String, requestContext: RequestContext): Unit = {
-    if (!dedupEnabled) return
+    if (!dedupEnabled || !redisEnabled) return
     val jedis = cacheUtil.getConnection(deDupRedisIndex)
     try {
       jedis.setex(checksum, deDupExpirySec, "1")
