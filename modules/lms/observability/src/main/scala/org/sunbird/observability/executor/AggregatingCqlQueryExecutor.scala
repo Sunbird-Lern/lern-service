@@ -118,13 +118,32 @@ class AggregatingCqlQueryExecutor(
   // Aggregation logic
   // ---------------------------------------------------------------------------
 
-  private def applyAgg(agg: AggregationDef, rows: List[Map[String, Any]]): Any = agg match {
+  private[executor] def applyAgg(agg: AggregationDef, rows: List[Map[String, Any]]): Any = agg match {
 
     case a: CountAgg =>
       rows.count(row => row.get(a.sourceField).exists(_ != null)).toLong
 
     case a: CountAllAgg =>
       rows.size.toLong
+
+    case a: CountIfAgg =>
+      // Validate that at least one condition is configured
+      if (a.matchValue.isEmpty && !a.nonEmpty.contains(true)) {
+        throw new ProjectCommonException(
+          ResponseCode.serverError.getErrorCode,
+          s"COUNT_IF aggregation '${a.outputField}' must specify either 'matchValue' or 'nonEmpty: true'",
+          ResponseCode.SERVER_ERROR.getResponseCode
+        )
+      }
+      rows.count { row =>
+        val value = row.get(a.sourceField).orNull
+        if (a.matchValue.isDefined)
+          a.matchValue.exists(expected => value != null && value.toString == expected.toString)
+        else if (a.nonEmpty.contains(true))
+          isNonEmpty(value)
+        else
+          false
+      }.toLong
 
     case a: MaxAgg =>
       val values = nonNullValues(a.sourceField, rows)
@@ -173,6 +192,20 @@ class AggregatingCqlQueryExecutor(
 
   private def nonNullValues(field: String, rows: List[Map[String, Any]]): List[Any] =
     rows.flatMap(row => row.get(field).filter(_ != null))
+
+  /**
+   * Returns true when value is non-null and non-empty.
+   * Handles strings, java.util.Collection (e.g. Cassandra SET/LIST), java.util.Map,
+   * and falls back to "true" for any other non-null type (e.g. numeric).
+   * Used by [[CountIfAgg]] with nonEmpty=true.
+   */
+  private def isNonEmpty(v: Any): Boolean = v match {
+    case null                      => false
+    case s: String                 => s.nonEmpty
+    case c: java.util.Collection[_] => !c.isEmpty
+    case m: java.util.Map[_, _]    => !m.isEmpty
+    case _                         => true  // non-null scalar value is considered non-empty
+  }
 
   private def requireOrderable(field: String, sample: Any, aggType: String): Unit =
     if (!isOrderable(sample))
