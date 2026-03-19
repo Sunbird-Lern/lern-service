@@ -31,7 +31,7 @@ class SearchServiceQueryExecutorSpec extends AnyWordSpec with Matchers {
       }"""
 
       val executor = new SearchServiceQueryExecutor()
-      val result = executor.execute(responseJson, List.empty)
+      val result = executor.extractResults(responseJson)
 
       result should have length 4  // 2 status + 2 createdBy values
       result.head.keySet should contain("facet")
@@ -58,7 +58,7 @@ class SearchServiceQueryExecutorSpec extends AnyWordSpec with Matchers {
       }"""
 
       val executor = new SearchServiceQueryExecutor()
-      val result = executor.execute(responseJson, List.empty)
+      val result = executor.extractResults(responseJson)
 
       result should have length 0  // facet with missing "name" is skipped
     }
@@ -79,7 +79,7 @@ class SearchServiceQueryExecutorSpec extends AnyWordSpec with Matchers {
       }"""
 
       val executor = new SearchServiceQueryExecutor()
-      val result = executor.execute(responseJson, List.empty)
+      val result = executor.extractResults(responseJson)
 
       result should have length 1  // only value with name is included
       result.head("status") shouldBe "Valid"
@@ -101,7 +101,7 @@ class SearchServiceQueryExecutorSpec extends AnyWordSpec with Matchers {
       }"""
 
       val executor = new SearchServiceQueryExecutor()
-      val result = executor.execute(responseJson, List.empty)
+      val result = executor.extractResults(responseJson)
 
       result should have length 1
       result.head("count") shouldBe 3
@@ -118,7 +118,7 @@ class SearchServiceQueryExecutorSpec extends AnyWordSpec with Matchers {
       }"""
 
       val executor = new SearchServiceQueryExecutor()
-      val result = executor.execute(responseJson, List.empty)
+      val result = executor.extractResults(responseJson)
 
       result should have length 1
       result.head("id") shouldBe "1"
@@ -135,7 +135,7 @@ class SearchServiceQueryExecutorSpec extends AnyWordSpec with Matchers {
       }"""
 
       val executor = new SearchServiceQueryExecutor()
-      val result = executor.execute(responseJson, List.empty)
+      val result = executor.extractResults(responseJson)
 
       result should have length 1
       result.head("id") shouldBe "1"
@@ -152,7 +152,7 @@ class SearchServiceQueryExecutorSpec extends AnyWordSpec with Matchers {
       }"""
 
       val executor = new SearchServiceQueryExecutor()
-      val result = executor.execute(responseJson, List.empty)
+      val result = executor.extractResults(responseJson)
 
       // Should fall through to content extraction
       result should have length 1
@@ -178,7 +178,7 @@ class SearchServiceQueryExecutorSpec extends AnyWordSpec with Matchers {
       }"""
 
       val executor = new SearchServiceQueryExecutor()
-      val result = executor.execute(responseJson, List.empty)
+      val result = executor.extractResults(responseJson)
 
       result should have length 1  // only category facet with valid values
       result.head("category") shouldBe "cat1"
@@ -188,7 +188,7 @@ class SearchServiceQueryExecutorSpec extends AnyWordSpec with Matchers {
       val malformedJson = "{broken json"
 
       val executor = new SearchServiceQueryExecutor()
-      val result = executor.execute(malformedJson, List.empty)
+      val result = executor.extractResults(malformedJson)
 
       result should have length 0
     }
@@ -199,7 +199,7 @@ class SearchServiceQueryExecutorSpec extends AnyWordSpec with Matchers {
       }"""
 
       val executor = new SearchServiceQueryExecutor()
-      val result = executor.execute(responseJson, List.empty)
+      val result = executor.extractResults(responseJson)
 
       result should have length 0
     }

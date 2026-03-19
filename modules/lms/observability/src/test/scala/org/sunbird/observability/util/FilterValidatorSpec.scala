@@ -35,18 +35,18 @@ class FilterValidatorSpec extends AnyWordSpec with Matchers {
       ex.getMessage should include("must not be empty")
     }
 
-    "reject oversized array filters (> 100 elements)" in {
+    "reject oversized array filters (> 1000 elements)" in {
       val ids = new java.util.ArrayList[String]()
-      (1 to 101).foreach(_ => ids.add("id"))
+      (1 to 1001).foreach(_ => ids.add("id"))
       val ex = intercept[ProjectCommonException] {
         FilterValidator.validate(Map("courseids" -> ids), List("courseids"))
       }
-      ex.getMessage should include("exceed maximum size of 100")
+      ex.getMessage should include("exceed maximum size of 1000")
     }
 
-    "accept array filters with exactly 100 elements" in {
+    "accept array filters with exactly 1000 elements" in {
       val ids = new java.util.ArrayList[String]()
-      (1 to 100).foreach(_ => ids.add("id"))
+      (1 to 1000).foreach(_ => ids.add("id"))
       FilterValidator.validate(Map("courseids" -> ids), List("courseids"))
       // passes without exception
     }

@@ -48,7 +48,7 @@ class SearchServiceQueryExecutor extends QueryExecutor {
     extractResults(response.getBody)
   }
 
-  private def extractResults(responseBody: String): List[Map[String, Any]] = {
+  private[executor] def extractResults(responseBody: String): List[Map[String, Any]] = {
     try {
       val root = mapper.readValue(responseBody, mapType)
       val result = root.get("result") match {
