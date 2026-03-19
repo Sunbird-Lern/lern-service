@@ -1,6 +1,6 @@
 package org.sunbird.observability.model
 
-import com.fasterxml.jackson.annotation.{JsonSubTypes, JsonTypeInfo}
+import com.fasterxml.jackson.annotation.{JsonAlias, JsonSubTypes, JsonTypeInfo}
 
 /**
  * Describes how raw YCQL rows should be grouped and aggregated in memory.
@@ -118,7 +118,7 @@ case class CountAllAgg(sourceField: String, outputField: String) extends Aggrega
 case class CountIfAgg(
     sourceField: String,
     outputField: String,
-    matchValue:  Option[Any]     = None,
+    @JsonAlias(Array("eq")) matchValue: Option[Any]     = None,
     nonEmpty:    Option[Boolean] = None
 ) extends AggregationDef
 
