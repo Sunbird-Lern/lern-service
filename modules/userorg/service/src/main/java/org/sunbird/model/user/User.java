@@ -455,7 +455,6 @@ public class User implements Serializable {
     }
   }
 
-  @JsonProperty(value = "createdat")
   public String getCreatedAt() {
     return createdAt;
   }
