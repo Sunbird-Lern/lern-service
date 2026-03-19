@@ -118,7 +118,7 @@ class AggregatingCqlQueryExecutor(
   // Aggregation logic
   // ---------------------------------------------------------------------------
 
-  private def applyAgg(agg: AggregationDef, rows: List[Map[String, Any]]): Any = agg match {
+  private[executor] def applyAgg(agg: AggregationDef, rows: List[Map[String, Any]]): Any = agg match {
 
     case a: CountAgg =>
       rows.count(row => row.get(a.sourceField).exists(_ != null)).toLong

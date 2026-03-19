@@ -2,7 +2,7 @@ package org.sunbird.observability.util
 
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
-import org.sunbird.common.ProjectCommonException
+import org.sunbird.exception.ProjectCommonException
 
 class FilterValidatorSpec extends AnyWordSpec with Matchers {
 
@@ -29,7 +29,7 @@ class FilterValidatorSpec extends AnyWordSpec with Matchers {
 
     "reject empty array filters" in {
       val ids = new java.util.ArrayList[String]()
-      val ex = assertThrows[ProjectCommonException] {
+      val ex = intercept[ProjectCommonException] {
         FilterValidator.validate(Map("courseids" -> ids), List("courseids"))
       }
       ex.getMessage should include("must not be empty")
@@ -38,7 +38,7 @@ class FilterValidatorSpec extends AnyWordSpec with Matchers {
     "reject oversized array filters (> 100 elements)" in {
       val ids = new java.util.ArrayList[String]()
       (1 to 101).foreach(_ => ids.add("id"))
-      val ex = assertThrows[ProjectCommonException] {
+      val ex = intercept[ProjectCommonException] {
         FilterValidator.validate(Map("courseids" -> ids), List("courseids"))
       }
       ex.getMessage should include("exceed maximum size of 100")
@@ -54,7 +54,7 @@ class FilterValidatorSpec extends AnyWordSpec with Matchers {
     "reject object/Map filters" in {
       val obj = new java.util.HashMap[String, String]()
       obj.put("key", "value")
-      val ex = assertThrows[ProjectCommonException] {
+      val ex = intercept[ProjectCommonException] {
         FilterValidator.validate(Map("filter" -> obj), List("filter"))
       }
       ex.getMessage should include("must be a scalar or array value, not an object")

@@ -118,7 +118,7 @@ case class CountAllAgg(sourceField: String, outputField: String) extends Aggrega
 case class CountIfAgg(
     sourceField: String,
     outputField: String,
-    matchValue:  Option[AnyRef]  = None,
+    matchValue:  Option[Any]     = None,
     nonEmpty:    Option[Boolean] = None
 ) extends AggregationDef
 

@@ -2,7 +2,7 @@ package org.sunbird.observability.executor
 
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
-import org.sunbird.common.ProjectCommonException
+import org.sunbird.exception.ProjectCommonException
 import org.sunbird.observability.model._
 
 class AggregatingCqlQueryExecutorSpec extends AnyWordSpec with Matchers {
@@ -10,7 +10,7 @@ class AggregatingCqlQueryExecutorSpec extends AnyWordSpec with Matchers {
   "AggregatingCqlQueryExecutor.applyAgg" should {
 
     "COUNT_IF with matchValue should count rows where value matches exactly" in {
-      val executor = new AggregatingCqlQueryExecutor(null, null, null, null)
+      val executor = new AggregatingCqlQueryExecutor()
       val rows = List(
         Map("status" -> 2L),
         Map("status" -> 1L),
@@ -25,7 +25,7 @@ class AggregatingCqlQueryExecutorSpec extends AnyWordSpec with Matchers {
     }
 
     "COUNT_IF with matchValue should return 0 when no rows match" in {
-      val executor = new AggregatingCqlQueryExecutor(null, null, null, null)
+      val executor = new AggregatingCqlQueryExecutor()
       val rows = List(
         Map("status" -> 1L),
         Map("status" -> 0L)
@@ -37,7 +37,7 @@ class AggregatingCqlQueryExecutorSpec extends AnyWordSpec with Matchers {
     }
 
     "COUNT_IF with nonEmpty should count non-empty strings" in {
-      val executor = new AggregatingCqlQueryExecutor(null, null, null, null)
+      val executor = new AggregatingCqlQueryExecutor()
       val rows = List(
         Map("issued_certificates" -> "cert1"),
         Map("issued_certificates" -> null),
@@ -51,7 +51,7 @@ class AggregatingCqlQueryExecutorSpec extends AnyWordSpec with Matchers {
     }
 
     "COUNT_IF with nonEmpty should count non-empty collections" in {
-      val executor = new AggregatingCqlQueryExecutor(null, null, null, null)
+      val executor = new AggregatingCqlQueryExecutor()
       val list1 = new java.util.ArrayList[String]()
       list1.add("item1")
       val list2 = new java.util.ArrayList[String]()
@@ -68,7 +68,7 @@ class AggregatingCqlQueryExecutorSpec extends AnyWordSpec with Matchers {
     }
 
     "COUNT_IF with both matchValue and nonEmpty unset should throw exception" in {
-      val executor = new AggregatingCqlQueryExecutor(null, null, null, null)
+      val executor = new AggregatingCqlQueryExecutor()
       val rows = List(Map("status" -> 2L))
       val agg = CountIfAgg("status", "bad_count", matchValue = None, nonEmpty = None)
 
@@ -78,7 +78,7 @@ class AggregatingCqlQueryExecutorSpec extends AnyWordSpec with Matchers {
     }
 
     "COUNT_IF with matchValue should handle numeric toString comparison (integer)" in {
-      val executor = new AggregatingCqlQueryExecutor(null, null, null, null)
+      val executor = new AggregatingCqlQueryExecutor()
       val rows = List(
         Map("status" -> 2),      // Int
         Map("status" -> 2L),     // Long
@@ -91,7 +91,7 @@ class AggregatingCqlQueryExecutorSpec extends AnyWordSpec with Matchers {
     }
 
     "COUNT_IF with matchValue should handle numeric toString comparison (floating point limitation)" in {
-      val executor = new AggregatingCqlQueryExecutor(null, null, null, null)
+      val executor = new AggregatingCqlQueryExecutor()
       val rows = List(
         Map("score" -> 2.0d),
         Map("score" -> 2),
