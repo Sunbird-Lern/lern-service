@@ -48,7 +48,7 @@ class AggregatingCqlQueryExecutor(
       spec:   AggregationSpec
   ): List[Map[String, Any]] = {
 
-    val rawRows = rawExecutor.execute(query, params)
+    val rawRows = rawExecutor.execute(query, params, null)
     logger.info(s"AggregatingCqlQueryExecutor: fetched ${rawRows.size} raw rows, groupBy=${spec.groupBy.mkString(",")}")
 
     if (rawRows.isEmpty) return List.empty
