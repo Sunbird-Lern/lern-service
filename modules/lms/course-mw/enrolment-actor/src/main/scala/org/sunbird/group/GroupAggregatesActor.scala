@@ -22,10 +22,7 @@ class GroupAggregatesActor extends BaseActor {
   private val GROUP_MEMBERS_METADATA: java.util.List[String] = java.util.Arrays.asList("name", "userId", "role", "status", "createdBy")
   var groupDao: GroupDaoImpl = new GroupDaoImpl()
   var groupAggregatesUtil: GroupAggregatesUtil = new GroupAggregatesUtil()
-  private val redisEnabled: Boolean = ProjectUtil.getConfigValue("redis.enabled") match {
-    case value if value != null => value.toBoolean
-    case _ => false
-  }
+  private val redisEnabled: Boolean = RedisCacheUtil.isRedisEnabled
   private lazy val cacheUtil: RedisCacheUtil = new RedisCacheUtil()
   val ttl: Int = if(StringUtils.isNotBlank(ProjectUtil.getConfigValue("group_activity_agg_cache_ttl"))) (ProjectUtil.getConfigValue("group_activity_agg_cache_ttl")).toInt else 60
   val isCacheEnabled = redisEnabled && (if(StringUtils.isNotBlank(ProjectUtil.getConfigValue("group_activity_agg_cache_enable"))) (ProjectUtil.getConfigValue("group_activity_agg_cache_enable")).toBoolean else false)

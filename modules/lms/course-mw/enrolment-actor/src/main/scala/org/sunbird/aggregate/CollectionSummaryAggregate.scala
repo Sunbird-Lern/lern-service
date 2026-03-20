@@ -27,10 +27,7 @@ import javax.ws.rs.core.MediaType
 import scala.collection.JavaConverters._
 
 class CollectionSummaryAggregate @Inject()(implicit val cacheUtil: RedisCacheUtil) extends BaseActor {
-  private val redisEnabled: Boolean = ProjectUtil.getConfigValue("redis.enabled") match {
-    case v if v != null => v.toBoolean
-    case _ => false
-  }
+  val redisEnabled: Boolean = RedisCacheUtil.isRedisEnabled
   val ttl: Int = if (StringUtils.isNotBlank(ProjectUtil.getConfigValue("collection_summary_agg_cache_ttl"))) ProjectUtil.getConfigValue("collection_summary_agg_cache_ttl").toInt else 60
   val dataSource: String = if (StringUtils.isNotBlank(ProjectUtil.getConfigValue("collection_summary_agg_data_source"))) ProjectUtil.getConfigValue("collection_summary_agg_data_source") else "telemetry-events-syncts"
   val stateLookUpQuery = "{\"type\":\"extraction\",\"dimension\":\"derived_loc_state\",\"outputName\":\"state\",\"extractionFn\":{\"type\":\"registeredLookup\",\"lookup\":\"stateLookup\",\"retainMissingValue\":true}}"

@@ -3,6 +3,7 @@ package org.sunbird.cache.util
 import java.time.Duration
 import org.apache.commons.lang3.StringUtils
 import org.sunbird.cache.platform.Platform
+import org.sunbird.common.ProjectUtil
 import org.sunbird.keys.JsonKey
 import org.sunbird.logging.LoggerUtil
 import redis.clients.jedis.{Jedis, JedisPool, JedisPoolConfig}
@@ -41,7 +42,8 @@ class RedisCacheUtil {
 
   // Lazy-init: defer TCP connection until first use so that constructing RedisCacheUtil
   // (e.g. via Guice injection) does not open a socket when redis.enabled=false.
-  @volatile private var _jedisPool: JedisPool = null
+  // IMPORTANT: must stay @volatile — required for double-checked locking correctness.
+  @volatile private var _jedisPool: JedisPool = _
 
   protected def jedisPool: JedisPool = {
     if (_jedisPool == null) synchronized {
@@ -364,4 +366,8 @@ class RedisCacheUtil {
 
   private def defaultListHandler(objKey: String): List[String] = List()
 
+}
+
+object RedisCacheUtil {
+  def isRedisEnabled: Boolean = Option(ProjectUtil.getConfigValue("redis.enabled")).exists(_.toBoolean)
 }

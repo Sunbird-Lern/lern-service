@@ -2,7 +2,6 @@ package org.sunbird.aggregate
 
 import org.apache.pekko.actor.{ActorSystem, Props}
 import org.apache.pekko.testkit.TestKit
-import com.datastax.driver.core.Cluster
 import com.google.gson.Gson
 import com.mashape.unirest.http.Unirest
 import okhttp3.mockwebserver.{MockResponse, MockWebServer}
@@ -18,7 +17,6 @@ import org.sunbird.exception.ProjectCommonException
 import org.sunbird.response.Response
 import org.sunbird.request.Request
 import org.sunbird.response.ResponseCode
-import redis.clients.jedis.Jedis
 
 import java.io.IOException
 import java.util
@@ -35,8 +33,6 @@ class CollectionSummaryAggregateTest extends FlatSpec with Matchers with BeforeA
   EmbeddedCassandraServerHelper.startEmbeddedCassandra("cassandra-test.yaml", 80000L)
   var server = new MockWebServer()
   server.start(8082)
-  var jedis: Jedis = _
-  val redisConnect = new RedisCacheUtil()
 
   override def afterAll() {
     super.afterAll()
@@ -87,10 +83,12 @@ class CollectionSummaryAggregateTest extends FlatSpec with Matchers with BeforeA
 
 
   "CollectionSummaryActivityAgg" should "return success response from redis" in {
-    redisConnect.set(getCacheKey("0130929928739635202", getDate("LAST_30DAYS"), List("state")), "{\"metrics\":[{\"type\":\"complete\",\"count\":10},{\"type\":\"enrolment\",\"count\":5}],\"groupBy\":[{\"district\":\"PUNE\",\"values\":[{\"count\":1,\"type\":\"enrolment\"},{\"count\":1,\"type\":\"complete\"}],\"state\":\"Maharashtra\"},{\"district\":\"DADRA AND NAGAR HAVELI(UT)\",\"values\":[{\"count\":1,\"type\":\"enrolment\"},{\"count\":1,\"type\":\"complete\"}],\"state\":\"Dadra & Nagar Haveli\"}]}")
+    val mockRedis = mock[RedisCacheUtil]
+    val redisData = "{\"metrics\":[{\"type\":\"complete\",\"count\":10},{\"type\":\"enrolment\",\"count\":5}],\"groupBy\":[{\"district\":\"PUNE\",\"values\":[{\"count\":1,\"type\":\"enrolment\"},{\"count\":1,\"type\":\"complete\"}],\"state\":\"Maharashtra\"},{\"district\":\"DADRA AND NAGAR HAVELI(UT)\",\"values\":[{\"count\":1,\"type\":\"enrolment\"},{\"count\":1,\"type\":\"complete\"}],\"state\":\"Dadra & Nagar Haveli\"}]}"
+    (mockRedis.get(_: String, _: String => String, _: Int)).expects(*, *, *).returns(redisData).anyNumberOfTimes()
     val groupByKeys = new util.ArrayList[String]
     groupByKeys.add("state")
-    val response = callActor(getRequest("0130929928739635202", "do_31309287232935526411138", "LAST_30DAYS", groupByKeys), Props(new CollectionSummaryAggregate()(new RedisCacheUtil())))
+    val response = callActor(getRequest("0130929928739635202", "do_31309287232935526411138", "LAST_30DAYS", groupByKeys), Props(new TestCollectionSummaryAggregate()(mockRedis)))
     assert(response.getResponseCode == ResponseCode.OK)
     assert(response.getResult != null)
     val result = response.getResult
@@ -109,13 +107,16 @@ class CollectionSummaryAggregateTest extends FlatSpec with Matchers with BeforeA
   }
 
   "CollectionSummaryActivityAgg" should "return success response from druid" in {
+    val mockRedis = mock[RedisCacheUtil]
+    (mockRedis.get(_: String, _: String => String, _: Int)).expects(*, *, *).returns(null).anyNumberOfTimes()
+    (mockRedis.set(_: String, _: String, _: Int)).expects(*, *, *).anyNumberOfTimes()
     val groupByKeys = new util.ArrayList[String]
     groupByKeys.add("dist")
     groupByKeys.add("state")
     mockDruid("[{\"version\":\"v1\",\"timestamp\":\"1901-01-01T00:00:00.000Z\",\"event\":{\"district\":null,\"userCount\":2.000977198748901,\"edata_type\":\"enrol\",\"state\":null}},{\"version\":\"v1\",\"timestamp\":\"1901-01-01T00:00:00.000Z\",\"event\":{\"district\":null,\"userCount\":1.0002442201269182,\"edata_type\":\"complete\",\"state\":null}},{\"version\":\"v1\",\"timestamp\":\"1901-01-01T00:00:00.000Z\",\"event\":{\"district\":\"PUNE\",\"userCount\":1.0002442201269182,\"edata_type\":\"enrol\",\"state\":\"Maharashtra\"}},{\"version\":\"v1\",\"timestamp\":\"1901-01-01T00:00:00.000Z\",\"event\":{\"district\":\"Tumkur\",\"userCount\":1.0002442201269182,\"edata_type\":\"enrol\",\"state\":\"Karnataka\"}},{\"version\":\"v1\",\"timestamp\":\"1901-01-01T00:00:00.000Z\",\"event\":{\"district\":\"DADRA AND NAGAR HAVELI(UT)\",\"userCount\":1.0002442201269182,\"edata_type\":\"enrol\",\"state\":\"Dadra & Nagar Haveli\"}},{\"version\":\"v1\",\"timestamp\":\"1901-01-01T00:00:00.000Z\",\"event\":{\"district\":\"PUNE\",\"userCount\":1.0002442201269182,\"edata_type\":\"complete\",\"state\":\"Maharashtra\"}},{\"version\":\"v1\",\"timestamp\":\"1901-01-01T00:00:00.000Z\",\"event\":{\"district\":\"DADRA AND NAGAR HAVELI(UT)\",\"userCount\":1.0002442201269182,\"edata_type\":\"complete\",\"state\":\"Dadra & Nagar Haveli\"}}]")
     val query = "{\"request\":{\"filters\":{\"collectionId\":\"do_31309287232935526411138\",\"batchId\":\"0130929928739635201\"},\"groupBy\":[],\"intervals\":\"20120-01-23/2020-09-24\"}}"
     Unirest.post(s"http://localhost:8082/druid/v2/").headers(getUpdatedHeaders(new util.HashMap[String, String]())).body(query)
-    val response = callActor(getRequest("0130929928739635201", "do_31309287232935526411138", "LAST_7DAYS", groupByKeys), Props(new CollectionSummaryAggregate()(new RedisCacheUtil())))
+    val response = callActor(getRequest("0130929928739635201", "do_31309287232935526411138", "LAST_7DAYS", groupByKeys), Props(new TestCollectionSummaryAggregate()(mockRedis)))
     assert(response.getResponseCode == ResponseCode.OK)
     val result = response.getResult
     assert(result != null)
@@ -129,10 +130,6 @@ class CollectionSummaryAggregateTest extends FlatSpec with Matchers with BeforeA
     groupByResult.isEmpty should be(false)
     groupByResult.size() should be(4)
     metricsResult.size() should be(2)
-  }
-  def blankRestResponse(): Response = {
-    val response = new Response()
-    response
   }
 
   def callActor(request: Request, props: Props): Response = {
@@ -176,4 +173,8 @@ class CollectionSummaryAggregateTest extends FlatSpec with Matchers with BeforeA
     headers.put("Authorization", "")
   }
 
+}
+
+class TestCollectionSummaryAggregate(implicit cacheUtil: RedisCacheUtil) extends CollectionSummaryAggregate()(cacheUtil) {
+  override val redisEnabled: Boolean = true
 }

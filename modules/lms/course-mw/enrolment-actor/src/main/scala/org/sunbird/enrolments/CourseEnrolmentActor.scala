@@ -44,10 +44,7 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
     var courseBatchDao: CourseBatchDao = new CourseBatchDaoImpl()
     var userCoursesDao: UserCoursesDao = new UserCoursesDaoImpl()
     var groupDao: GroupDaoImpl = new GroupDaoImpl()
-    private val redisEnabled: Boolean = ProjectUtil.getConfigValue("redis.enabled") match {
-        case v if v != null => v.toBoolean
-        case _ => false
-    }
+    private val redisEnabled: Boolean = RedisCacheUtil.isRedisEnabled
     val isCacheEnabled = redisEnabled && (if (StringUtils.isNotBlank(ProjectUtil.getConfigValue("user_enrolments_response_cache_enable")))
         (ProjectUtil.getConfigValue("user_enrolments_response_cache_enable")).toBoolean else true)
     val ttl: Int = if (StringUtils.isNotBlank(ProjectUtil.getConfigValue("user_enrolments_response_cache_ttl")))
