@@ -47,6 +47,7 @@ public class HealthActor extends BaseActor {
     private final LoggerUtil logger = new LoggerUtil(HealthActor.class);
     private final CassandraOperation cassandraOperation = ServiceFactory.getInstance();
     private final ElasticSearchService esUtil = EsClientFactory.getInstance(JsonKey.REST);
+    private final boolean redisEnabled = Boolean.parseBoolean(ProjectUtil.getConfigValue("redis.enabled"));
     private final RedisCacheUtil redisCacheUtil;
 
     private static final ExecutorService reconnectExecutor = Executors.newSingleThreadExecutor(r -> {
@@ -57,10 +58,10 @@ public class HealthActor extends BaseActor {
 
     /**
      * Default constructor for HealthActor.
-     * Initializes RedisCacheUtil for connectivity checks.
+     * Initializes RedisCacheUtil only when Redis is enabled.
      */
     public HealthActor() {
-        this.redisCacheUtil = new RedisCacheUtil();
+        this.redisCacheUtil = redisEnabled ? new RedisCacheUtil() : null;
     }
 
     /**
@@ -120,17 +121,19 @@ public class HealthActor extends BaseActor {
             logger.error("HealthActor: Elasticsearch health check failed", e);
         }
 
-        // 3. Redis Health Check
-        try {
-            boolean redisHealth = redisCacheUtil.checkConnection();
-            responseList.add(ProjectUtil.createCheckResponse(JsonKey.REDIS_SERVICE, !redisHealth, null));
-            if (!redisHealth) {
+        // 3. Redis Health Check (only when Redis is enabled)
+        if (redisEnabled && redisCacheUtil != null) {
+            try {
+                boolean redisHealth = redisCacheUtil.checkConnection();
+                responseList.add(ProjectUtil.createCheckResponse(JsonKey.REDIS_SERVICE, !redisHealth, null));
+                if (!redisHealth) {
+                    isAllHealthy = false;
+                }
+            } catch (Exception e) {
+                responseList.add(ProjectUtil.createCheckResponse(JsonKey.REDIS_SERVICE, true, e));
                 isAllHealthy = false;
+                logger.error("HealthActor: Redis health check failed", e);
             }
-        } catch (Exception e) {
-            responseList.add(ProjectUtil.createCheckResponse(JsonKey.REDIS_SERVICE, true, e));
-            isAllHealthy = false;
-            logger.error("HealthActor: Redis health check failed", e);
         }
 
         // 4. Content Service (EKStep) Health Check

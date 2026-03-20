@@ -3,6 +3,7 @@ package org.sunbird.cache.util
 import java.time.Duration
 import org.apache.commons.lang3.StringUtils
 import org.sunbird.cache.platform.Platform
+import org.sunbird.common.ProjectUtil
 import org.sunbird.keys.JsonKey
 import org.sunbird.logging.LoggerUtil
 import redis.clients.jedis.{Jedis, JedisPool, JedisPoolConfig}
@@ -39,7 +40,18 @@ class RedisCacheUtil {
     poolConfig
   }
 
-  protected var jedisPool: JedisPool = new JedisPool(buildPoolConfig, redis_host, redis_port)
+  // Lazy-init: defer TCP connection until first use so that constructing RedisCacheUtil
+  // (e.g. via Guice injection) does not open a socket when redis.enabled=false.
+  // IMPORTANT: must stay @volatile — required for double-checked locking correctness.
+  @volatile private var _jedisPool: JedisPool = _
+
+  protected def jedisPool: JedisPool = {
+    if (_jedisPool == null) synchronized {
+      if (_jedisPool == null)
+        _jedisPool = new JedisPool(buildPoolConfig, redis_host, redis_port)
+    }
+    _jedisPool
+  }
 
   /**
    * Returns a Jedis connection for the specified database.
@@ -75,8 +87,10 @@ class RedisCacheUtil {
 
   /** Resets the connection pool. */
   def resetConnection(): Unit = {
-    jedisPool.close()
-    jedisPool = new JedisPool(buildPoolConfig, redis_host, redis_port)
+    synchronized {
+      if (_jedisPool != null) _jedisPool.close()
+      _jedisPool = new JedisPool(buildPoolConfig, redis_host, redis_port)
+    }
   }
 
   /** Closes the connection pool. */
@@ -352,4 +366,8 @@ class RedisCacheUtil {
 
   private def defaultListHandler(objKey: String): List[String] = List()
 
+}
+
+object RedisCacheUtil {
+  def isRedisEnabled: Boolean = Option(ProjectUtil.getConfigValue("redis.enabled")).exists(_.toBoolean)
 }

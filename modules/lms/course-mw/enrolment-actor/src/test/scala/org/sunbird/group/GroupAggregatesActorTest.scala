@@ -7,7 +7,6 @@ import org.apache.pekko.actor.{ActorSystem, Props}
 import org.apache.pekko.testkit.TestKit
 import org.scalamock.scalatest.MockFactory
 import org.scalatest.{FlatSpec, Matchers}
-import org.sunbird.cache.util.RedisCacheUtil
 import org.sunbird.exception.ProjectCommonException
 import org.sunbird.response.Response
 import org.sunbird.request.{Request, RequestContext}
@@ -21,13 +20,11 @@ class GroupAggregatesActorTest extends FlatSpec with Matchers with MockFactory {
     val system = ActorSystem.create("system")
     val groupAggregateUtil = mock[GroupAggregatesUtil]
     val groupDao = mock[GroupDaoImpl]
-    val cacheUtil = mock[RedisCacheUtil]
 
   "GroupAggregatesActor" should "return sucess" in {
     (groupAggregateUtil.getGroupDetails(_:String, _:Request)).expects(*,*).returns(validRestResponse())
     (groupDao.read(_: String, _: String, _: java.util.List[String], _: RequestContext)).expects(*,*,*,* ).returns(validDBResponse())
-      (cacheUtil.set(_: String, _: String, _: Int)).expects(*, *, *).once()
-    val response = callActor(getGroupActivityAggRequest(), Props(new GroupAggregatesActor()(cacheUtil).setInstanceVariable(groupAggregateUtil, groupDao)))
+    val response = callActor(getGroupActivityAggRequest(), Props(new GroupAggregatesActor().setInstanceVariable(groupAggregateUtil, groupDao)))
 
     assert(response.getResponseCode == ResponseCode.OK)
   }
@@ -35,8 +32,7 @@ class GroupAggregatesActorTest extends FlatSpec with Matchers with MockFactory {
   "GroupAggregatesActor with null aggr field" should "return success" in {
     (groupAggregateUtil.getGroupDetails(_:String, _:Request)).expects(*,*).returns(validRestResponse())
     (groupDao.read(_: String, _: String, _: java.util.List[String], _: RequestContext)).expects(*,*,*,* ).returns(validDBResponseWithNullAggr())
-    (cacheUtil.set(_: String, _: String, _: Int)).expects(*, *, *).once()
-    val response = callActor(getGroupActivityAggRequest(), Props(new GroupAggregatesActor()(cacheUtil).setInstanceVariable(groupAggregateUtil, groupDao)))
+    val response = callActor(getGroupActivityAggRequest(), Props(new GroupAggregatesActor().setInstanceVariable(groupAggregateUtil, groupDao)))
 
     assert(response.getResponseCode == ResponseCode.OK)
   }
@@ -44,34 +40,33 @@ class GroupAggregatesActorTest extends FlatSpec with Matchers with MockFactory {
   "GroupAggregatesActor with missing attemptCount last updated" should "return success" in {
     (groupAggregateUtil.getGroupDetails(_:String, _:Request)).expects(*,*).returns(validRestResponse())
     (groupDao.read(_: String, _: String, _: java.util.List[String], _: RequestContext)).expects(*,*,*,* ).returns(validDBResponseWithMissingAttemptsCountLastUpdated())
-    (cacheUtil.set(_: String, _: String, _: Int)).expects(*, *, *).once()
-    val response = callActor(getGroupActivityAggRequest(), Props(new GroupAggregatesActor()(cacheUtil).setInstanceVariable(groupAggregateUtil, groupDao)))
+    val response = callActor(getGroupActivityAggRequest(), Props(new GroupAggregatesActor().setInstanceVariable(groupAggregateUtil, groupDao)))
 
     assert(response.getResponseCode == ResponseCode.OK)
   }
 
   "GroupAggregatesActor" should "return member not found" in {
     (groupAggregateUtil.getGroupDetails(_:String, _:Request)).expects(*,*).returns(blankRestResponse())
-    val response = callActor(getGroupActivityAggRequest(), Props(new GroupAggregatesActor()(cacheUtil).setInstanceVariable(groupAggregateUtil, groupDao)))
+    val response = callActor(getGroupActivityAggRequest(), Props(new GroupAggregatesActor().setInstanceVariable(groupAggregateUtil, groupDao)))
     assert(response.getResponseCode == ResponseCode.OK)
   }
 
   "GroupAggregatesActor" should "return no enrolled member found" in {
     (groupAggregateUtil.getGroupDetails(_:String, _:Request)).expects(*,*).returns(validRestResponse())
     (groupDao.read(_: String, _: String, _: java.util.List[String], _: RequestContext)).expects(*,*,*, *).returns(blankDBResponse())
-    val response = callActor(getGroupActivityAggRequest(), Props(new GroupAggregatesActor()(cacheUtil).setInstanceVariable(groupAggregateUtil, groupDao)))
+    val response = callActor(getGroupActivityAggRequest(), Props(new GroupAggregatesActor().setInstanceVariable(groupAggregateUtil, groupDao)))
     assert(response.getResponseCode == ResponseCode.OK)
   }
 
   "GroupAggregatesActor" should "return error db response" in {
     (groupAggregateUtil.getGroupDetails(_:String, _:Request)).expects(*,*).returns(validRestResponse())
     (groupDao.read(_: String, _: String, _: java.util.List[String], _: RequestContext)).expects(*,*,*,*).returns(errorDBResponse())
-    val response = callActorForFailure(getGroupActivityAggRequest(), Props(new GroupAggregatesActor()(cacheUtil).setInstanceVariable(groupAggregateUtil, groupDao)))
+    val response = callActorForFailure(getGroupActivityAggRequest(), Props(new GroupAggregatesActor().setInstanceVariable(groupAggregateUtil, groupDao)))
     assert(response.getErrorResponseCode == ResponseCode.SERVER_ERROR.getResponseCode)
   }
 
   "GroupAggregatesActor" should "return wrong operation" in {
-    val response = callActorForFailure(getGroupActivityAggWrongRequest(), Props(new GroupAggregatesActor()(cacheUtil).setInstanceVariable(groupAggregateUtil, groupDao)))
+    val response = callActorForFailure(getGroupActivityAggWrongRequest(), Props(new GroupAggregatesActor().setInstanceVariable(groupAggregateUtil, groupDao)))
     assert(response.getErrorResponseCode == ResponseCode.CLIENT_ERROR.getResponseCode)
   }
 

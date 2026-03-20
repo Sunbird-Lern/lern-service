@@ -14,17 +14,18 @@ import org.sunbird.learner.actors.group.dao.impl.GroupDaoImpl
 import org.sunbird.learner.util.JsonUtil
 
 import java.text.MessageFormat
-import javax.inject.Inject
 import scala.collection.JavaConverters._
 import scala.collection.convert.ImplicitConversions._
 
-class GroupAggregatesActor @Inject()(implicit val cacheUtil: RedisCacheUtil) extends BaseActor {
+class GroupAggregatesActor extends BaseActor {
 
   private val GROUP_MEMBERS_METADATA: java.util.List[String] = java.util.Arrays.asList("name", "userId", "role", "status", "createdBy")
   var groupDao: GroupDaoImpl = new GroupDaoImpl()
   var groupAggregatesUtil: GroupAggregatesUtil = new GroupAggregatesUtil()
+  private val redisEnabled: Boolean = RedisCacheUtil.isRedisEnabled
+  private lazy val cacheUtil: RedisCacheUtil = new RedisCacheUtil()
   val ttl: Int = if(StringUtils.isNotBlank(ProjectUtil.getConfigValue("group_activity_agg_cache_ttl"))) (ProjectUtil.getConfigValue("group_activity_agg_cache_ttl")).toInt else 60
-  val isCacheEnabled = if(StringUtils.isNotBlank(ProjectUtil.getConfigValue("group_activity_agg_cache_enable"))) (ProjectUtil.getConfigValue("group_activity_agg_cache_enable")).toBoolean else false
+  val isCacheEnabled = redisEnabled && (if(StringUtils.isNotBlank(ProjectUtil.getConfigValue("group_activity_agg_cache_enable"))) (ProjectUtil.getConfigValue("group_activity_agg_cache_enable")).toBoolean else false)
 
   @throws[Throwable]
   override def onReceive(request: Request): Unit = {
@@ -126,7 +127,7 @@ class GroupAggregatesActor @Inject()(implicit val cacheUtil: RedisCacheUtil) ext
     val activityAggs = List(Map("metric" -> "enrolmentCount", "lastUpdatedOn" -> activityLastUpdatedOn, "value" -> enrolmentCount).asJava).asJava
     response.put("activity", Map("id" -> activityId, "type" -> activityType, "agg" -> activityAggs).asJava)
     response.put("members", finalMemberList.asJava)
-    if (finalMemberList.nonEmpty && finalMemberList.size > 0) {
+    if (finalMemberList.nonEmpty && finalMemberList.size > 0 && isCacheEnabled) {
       setResponseToRedis(getCacheKey(groupId, activityId, activityType), response)
     }
     response

@@ -376,6 +376,8 @@ class CourseEnrolmentTest extends FlatSpec with Matchers with MockFactory {
 }
 
 class TestCourseEnrolmentActor(cacheUtil: RedisCacheUtil) extends CourseEnrolmentActor(null)(cacheUtil) {
+  override val isCacheEnabled: Boolean = true
+
   override def getUpdatedStatus(enrolmentData: UserCourses): Unit = {
     if (enrolmentData != null) {
         enrolmentData.setStatus(getCompletionStatus(enrolmentData.getProgress, 10))
