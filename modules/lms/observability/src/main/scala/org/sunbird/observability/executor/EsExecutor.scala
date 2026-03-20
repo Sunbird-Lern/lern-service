@@ -1,13 +1,20 @@
 package org.sunbird.observability.executor
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import org.sunbird.common.factory.EsClientFactory
-import org.sunbird.common.{ElasticSearchHelper, ProjectUtil}
-import org.sunbird.dto.SearchDTO
-import org.sunbird.keys.JsonKey
+import org.elasticsearch.action.search.SearchRequest
+import org.elasticsearch.client.RequestOptions
+import org.elasticsearch.index.query.QueryBuilders
+import org.elasticsearch.search.aggregations.AggregationBuilders
+import org.elasticsearch.search.aggregations.bucket.histogram.{DateHistogramInterval, LongBounds, ParsedDateHistogram}
+import org.elasticsearch.search.builder.SearchSourceBuilder
+import org.sunbird.common.ProjectUtil
+import org.sunbird.exception.ProjectCommonException
+import org.sunbird.helper.ConnectionManager
 import org.sunbird.logging.LoggerUtil
+import org.sunbird.message.ResponseCode
+import org.sunbird.request.RequestContext
 
-import java.time.LocalDate
+import java.time.{LocalDate, ZoneOffset}
 import scala.collection.JavaConverters._
 
 /**
@@ -18,91 +25,79 @@ import scala.collection.JavaConverters._
  *  - **Range mode** (both dates provided): returns a single total count for the date range.
  *    `fromDate` is inclusive, `toDate` is exclusive. Dates must be `yyyy-MM-dd`.
  *
- *  - **Monthly mode** (no dates): returns per-month counts for the last 12 months,
- *    from the start of the month 11 months ago through to the end of the current month.
- *    Runs 12 sequential range queries — one per calendar month.
+ *  - **Monthly mode** (no dates): returns per-month counts for the last 12 months via a
+ *    single `date_histogram` aggregation, bucketed by calendar month.
  *
- * The `createdAt` field in the `user` index must be mapped as `keyword` with a `.raw`
- * sub-field — consistent with all other filterable fields in the index.
- * ElasticSearchHelper.createRangeQuery appends `.raw` to the field name, so the range
- * query hits `createdAt.raw` (keyword), which sorts correctly for `yyyy-MM-dd` strings.
+ * The `createdAt` field in the `user` index must be mapped as `date` with `format: yyyy-MM-dd`.
+ * Range queries and `date_histogram` aggregations work natively on this type — no `.raw`
+ * sub-field is needed.
  *
- * The Cassandra `sunbird.user` table must have a `createdat date` column.
+ * The Cassandra `sunbird.user` table must have a `createdat text` column.
  * Both are populated by `UserUtil.setUserDefaultValue()`.
  */
 class EsExecutor extends QueryExecutor {
 
-  private val logger    = new LoggerUtil(classOf[EsExecutor])
-  private val esService = EsClientFactory.getInstance(JsonKey.REST)
-  private val mapper    = new ObjectMapper()
+  private val logger = new LoggerUtil(classOf[EsExecutor])
+  private val mapper = new ObjectMapper()
 
-  override def execute(renderedQuery: String, params: List[Any]): List[Map[String, Any]] = {
+  override def execute(renderedQuery: String, params: List[Any], requestContext: RequestContext): List[Map[String, Any]] = {
     val config   = mapper.readValue(renderedQuery, classOf[java.util.Map[String, AnyRef]])
     val fromDate = Option(config.get("fromDate")).map(_.toString).filter(_.nonEmpty)
     val toDate   = Option(config.get("toDate")).map(_.toString).filter(_.nonEmpty)
 
     (fromDate, toDate) match {
       case (Some(from), Some(to)) =>
-        logger.info(s"EsExecutor: range count from=$from to=$to")
-        rangeCount(from, to)
-      case _ =>
-        logger.info(s"EsExecutor: no dates provided — computing last 12 months")
-        monthlyBreakdown()
+        logger.info(requestContext, s"EsExecutor: range count from=$from to=$to")
+        List(Map[String, Any]("userCount" -> rangeCount(from, to, requestContext)))
+      case (None, None) =>
+        logger.info(requestContext, "EsExecutor: no dates provided — computing last 12 months")
+        monthlyBreakdown(requestContext)
+      case (Some(_), None) =>
+        throw new ProjectCommonException(
+          ResponseCode.invalidRequestData.getErrorCode,
+          "toDate is required when fromDate is provided",
+          ResponseCode.CLIENT_ERROR.getResponseCode
+        )
+      case (None, Some(_)) =>
+        throw new ProjectCommonException(
+          ResponseCode.invalidRequestData.getErrorCode,
+          "fromDate is required when toDate is provided",
+          ResponseCode.CLIENT_ERROR.getResponseCode
+        )
     }
   }
 
-  /**
-   * Returns a single-element list: [{ "userCount": N }]
-   * `fromDate` inclusive, `toDate` exclusive — both as `yyyy-MM-dd` strings.
-   */
-  private def rangeCount(fromDate: String, toDate: String): List[Map[String, Any]] = {
-    val rangeFilter = Map(
-      ">=" -> fromDate.asInstanceOf[AnyRef],
-      "<"  -> toDate.asInstanceOf[AnyRef]
-    ).asJava
-
-    val searchDTO = new SearchDTO()
-    searchDTO.getAdditionalProperties.put(
-      JsonKey.FILTERS,
-      Map("createdAt" -> rangeFilter).asJava
-    )
-    searchDTO.setLimit(0) // no documents needed — only the count
-
-    val resultF  = esService.search(searchDTO, ProjectUtil.EsType.user.getTypeName(), null)
-    val esResult = Option(ElasticSearchHelper.getResponseFromFuture(resultF))
-      .map(_.asInstanceOf[java.util.Map[String, AnyRef]])
-      .orNull
-
-    val count = Option(esResult).flatMap(r => Option(r.get(JsonKey.COUNT))).map(_.toString.toLong).getOrElse(0L)
-    List(Map("userCount" -> count.asInstanceOf[Any]))
+  private def rangeCount(fromDate: String, toDate: String, ctx: RequestContext): Long = {
+    val query         = QueryBuilders.rangeQuery("createdAt").gte(fromDate).lt(toDate)
+    val sourceBuilder = new SearchSourceBuilder().query(query).size(0)
+    val request       = new SearchRequest(ProjectUtil.EsType.user.getTypeName()).source(sourceBuilder)
+    logger.info(ctx, s"EsExecutor.rangeCount: from=$fromDate to=$toDate")
+    val response = ConnectionManager.getRestClient().search(request, RequestOptions.DEFAULT)
+    response.getHits.getTotalHits.value
   }
 
-  /**
-   * Returns 12 rows — one per calendar month — in chronological order:
-   * [{ "month": "yyyy-MM", "userCount": N }, ...]
-   *
-   * Covers the last 12 months: from start of month 11 months ago through end of current month.
-   * Runs 12 sequential [[rangeCount]] calls — one per month.
-   */
-  private def monthlyBreakdown(): List[Map[String, Any]] = {
-    val today = LocalDate.now()
+  private def monthlyBreakdown(ctx: RequestContext): List[Map[String, Any]] = {
+    val today = LocalDate.now(ZoneOffset.UTC)
+    val from  = today.minusMonths(11).withDayOfMonth(1)
+    val to    = today.plusMonths(1).withDayOfMonth(1) // exclusive upper bound
 
-    // monthsAgo=11 → oldest month, monthsAgo=0 → current month
-    (11 to 0 by -1).map { monthsAgo =>
-      val monthStart = today.minusMonths(monthsAgo).withDayOfMonth(1)
-      val monthEnd   = monthStart.plusMonths(1)
-      val label      = monthStart.toString.substring(0, 7) // "yyyy-MM"
+    val agg = AggregationBuilders.dateHistogram("users_per_month")
+      .field("createdAt")
+      .calendarInterval(DateHistogramInterval.MONTH)
+      .format("yyyy-MM")
+      .minDocCount(0)
+      .extendedBounds(new LongBounds(from.toString, today.withDayOfMonth(1).toString))
 
-      val count = rangeCount(monthStart.toString, monthEnd.toString)
-        .headOption
-        .flatMap(_.get("userCount"))
-        .map(_.toString.toLong)
-        .getOrElse(0L)
+    val query         = QueryBuilders.rangeQuery("createdAt").gte(from.toString).lt(to.toString)
+    val sourceBuilder = new SearchSourceBuilder().query(query).aggregation(agg).size(0)
+    val request       = new SearchRequest(ProjectUtil.EsType.user.getTypeName()).source(sourceBuilder)
 
-      Map(
-        "month"     -> label.asInstanceOf[Any],
-        "userCount" -> count.asInstanceOf[Any]
-      )
+    logger.info(ctx, s"EsExecutor.monthlyBreakdown: from=$from to=$to")
+    val response  = ConnectionManager.getRestClient().search(request, RequestOptions.DEFAULT)
+    val histogram = response.getAggregations.get[ParsedDateHistogram]("users_per_month")
+
+    histogram.getBuckets.asScala.map { bucket =>
+      Map[String, Any]("month" -> bucket.getKeyAsString, "userCount" -> bucket.getDocCount)
     }.toList
   }
 }
