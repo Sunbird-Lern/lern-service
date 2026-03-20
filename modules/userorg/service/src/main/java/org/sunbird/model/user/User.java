@@ -64,6 +64,7 @@ public class User implements Serializable {
   private String profileLocation;
   private String profileUserTypes;
   private String profileDetails;
+  private String createdAt;
 
   public Map<String, String> getAllTncAccepted() {
     return allTncAccepted;
@@ -452,5 +453,13 @@ public class User implements Serializable {
     } else {
       this.profileDetails = (String) profileDetails;
     }
+  }
+
+  public String getCreatedAt() {
+    return createdAt;
+  }
+
+  public void setCreatedAt(String createdAt) {
+    this.createdAt = createdAt;
   }
 }

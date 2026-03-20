@@ -7,6 +7,7 @@ import org.sunbird.http.HttpUtil
 import org.sunbird.logging.LoggerUtil
 
 import java.util
+import org.sunbird.request.RequestContext
 import scala.collection.JavaConverters._
 
 /**
@@ -20,7 +21,7 @@ class SearchServiceQueryExecutor extends QueryExecutor {
   private val listType = new TypeReference[java.util.List[java.util.Map[String, AnyRef]]]() {}
   private val mapType  = new TypeReference[java.util.Map[String, AnyRef]]() {}
 
-  override def execute(renderedQuery: String, params: List[Any]): List[Map[String, Any]] = {
+  override def execute(renderedQuery: String, params: List[Any], requestContext: RequestContext): List[Map[String, Any]] = {
     val searchBasePath = ProjectUtil.getConfigValue("service_search_base_path")
     val url = searchBasePath + "/v3/search"
 

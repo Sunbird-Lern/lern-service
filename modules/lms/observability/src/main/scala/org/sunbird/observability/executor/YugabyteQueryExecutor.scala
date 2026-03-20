@@ -2,6 +2,7 @@ package org.sunbird.observability.executor
 
 import org.sunbird.db.PostgreSQLConnectionManager
 import org.sunbird.logging.LoggerUtil
+import org.sunbird.request.RequestContext
 
 import java.sql.{Connection, PreparedStatement, ResultSet}
 import scala.collection.mutable.ListBuffer
@@ -14,7 +15,7 @@ class YugabyteQueryExecutor extends QueryExecutor {
 
   private val logger = new LoggerUtil(classOf[YugabyteQueryExecutor])
 
-  override def execute(renderedQuery: String, params: List[Any]): List[Map[String, Any]] = {
+  override def execute(renderedQuery: String, params: List[Any], requestContext: RequestContext): List[Map[String, Any]] = {
     var conn: Connection = null
     var stmt: PreparedStatement = null
     var rs: ResultSet = null

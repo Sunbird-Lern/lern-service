@@ -97,6 +97,7 @@ public final class JsonKey {
   public static final String CREATE = "create";
   public static final String CREATED_BY = "createdBy";
   public static final String CREATED_DATE = "createdDate";
+  public static final String CREATED_AT = "createdAt";
   public static final String CRITERIA = "criteria";
   public static final String CURRENT_LOGIN_TIME = "currentLoginTime";
   public static final String CURRENT_STATE = "CURRENT_STATE";

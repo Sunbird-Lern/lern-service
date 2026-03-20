@@ -7,7 +7,7 @@ package org.sunbird.observability.model
  * @param title            Human-readable title
  * @param description      Optional description
  * @param domain           Domain: generic | consumption | user_profile
- * @param dataSource       Data source: ELASTICSEARCH | YUGABYTE_SQL | YUGABYTE_CQL | YUGABYTE_CQL_AGG
+ * @param dataSource       Data source: SEARCHSERVICE | ELASTICSEARCH | YUGABYTE_SQL | YUGABYTE_CQL | YUGABYTE_CQL_AGG
  * @param queryTemplate    Query template string with {{key}} placeholders
  * @param supportedFilters List of filter keys this report accepts
  * @param enabled          Whether the report is available for use
