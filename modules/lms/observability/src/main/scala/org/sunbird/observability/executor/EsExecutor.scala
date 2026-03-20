@@ -86,15 +86,26 @@ class EsExecutor extends QueryExecutor {
       .calendarInterval(DateHistogramInterval.MONTH)
       .format("yyyy-MM")
       .minDocCount(0)
-      .extendedBounds(new LongBounds(from.toString, today.withDayOfMonth(1).toString))
+      .extendedBounds(new LongBounds(from.toString.substring(0, 7), today.toString.substring(0, 7)))
 
     val query         = QueryBuilders.rangeQuery("createdAt").gte(from.toString).lt(to.toString)
     val sourceBuilder = new SearchSourceBuilder().query(query).aggregation(agg).size(0)
     val request       = new SearchRequest(ProjectUtil.EsType.user.getTypeName()).source(sourceBuilder)
 
     logger.info(ctx, s"EsExecutor.monthlyBreakdown: from=$from to=$to")
-    val response  = ConnectionManager.getRestClient().search(request, RequestOptions.DEFAULT)
-    val histogram = response.getAggregations.get[ParsedDateHistogram]("users_per_month")
+    val response = ConnectionManager.getRestClient().search(request, RequestOptions.DEFAULT)
+
+    val aggs = response.getAggregations
+    if (aggs == null) {
+      logger.info(ctx, "EsExecutor.monthlyBreakdown: no aggregations in response — returning empty")
+      return List.empty
+    }
+
+    val histogram = aggs.get[ParsedDateHistogram]("users_per_month")
+    if (histogram == null) {
+      logger.info(ctx, "EsExecutor.monthlyBreakdown: histogram not found in response — returning empty")
+      return List.empty
+    }
 
     histogram.getBuckets.asScala.map { bucket =>
       Map[String, Any]("month" -> bucket.getKeyAsString, "userCount" -> bucket.getDocCount)
