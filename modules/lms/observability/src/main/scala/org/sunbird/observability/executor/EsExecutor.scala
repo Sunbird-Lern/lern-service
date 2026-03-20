@@ -47,6 +47,8 @@ class EsExecutor extends QueryExecutor {
 
     (fromDate, toDate) match {
       case (Some(from), Some(to)) =>
+        validateDateFormat(from, "fromDate")
+        validateDateFormat(to, "toDate")
         logger.info(requestContext, s"EsExecutor: range count from=$from to=$to")
         List(Map[String, Any]("userCount" -> rangeCount(from, to, requestContext)))
       case (None, None) =>
@@ -74,6 +76,15 @@ class EsExecutor extends QueryExecutor {
     logger.info(ctx, s"EsExecutor.rangeCount: from=$fromDate to=$toDate")
     val response = ConnectionManager.getRestClient().search(request, RequestOptions.DEFAULT)
     response.getHits.getTotalHits.value
+  }
+
+  private def validateDateFormat(date: String, fieldName: String): Unit = {
+    if (!date.matches("""\d{4}-\d{2}-\d{2}"""))
+      throw new ProjectCommonException(
+        ResponseCode.invalidRequestData.getErrorCode,
+        s"$fieldName must be in yyyy-MM-dd format, got: '$date'",
+        ResponseCode.CLIENT_ERROR.getResponseCode
+      )
   }
 
   private def monthlyBreakdown(ctx: RequestContext): List[Map[String, Any]] = {
