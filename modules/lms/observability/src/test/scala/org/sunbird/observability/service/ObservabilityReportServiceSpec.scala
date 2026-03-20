@@ -53,7 +53,7 @@ class ObservabilityReportServiceSpec extends AnyWordSpec with Matchers {
       val sqlExecutor = mock(classOf[QueryExecutor])
 
       when(dao.getById("active_users_weekly")).thenReturn(Some(esReportMeta()))
-      when(esExecutor.execute(anyString(), org.mockito.ArgumentMatchers.any())).thenReturn(
+      when(esExecutor.execute(anyString(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(
         List(Map("date" -> "2025-01-01".asInstanceOf[Any], "count" -> 100.asInstanceOf[Any]))
       )
 
@@ -74,7 +74,7 @@ class ObservabilityReportServiceSpec extends AnyWordSpec with Matchers {
       val sqlExecutor = mock(classOf[QueryExecutor])
 
       when(dao.getById("users_by_state")).thenReturn(Some(sqlReportMeta()))
-      when(sqlExecutor.execute(anyString(), org.mockito.ArgumentMatchers.any())).thenReturn(
+      when(sqlExecutor.execute(anyString(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(
         List(Map("state" -> "Karnataka".asInstanceOf[Any], "count" -> 5000.asInstanceOf[Any]))
       )
 
@@ -128,7 +128,7 @@ class ObservabilityReportServiceSpec extends AnyWordSpec with Matchers {
       val rawRow      = Map("userid" -> "u1".asInstanceOf[Any], "count" -> 5.asInstanceOf[Any])
 
       when(dao.getById("test_report")).thenReturn(Some(esReportMeta("test_report")))
-      when(esExecutor.execute(anyString(), org.mockito.ArgumentMatchers.any()))
+      when(esExecutor.execute(anyString(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
         .thenReturn(List(rawRow))
 
       val service = new ObservabilityReportServiceImpl(dao, esExecutor, sqlExecutor)
@@ -151,7 +151,7 @@ class ObservabilityReportServiceSpec extends AnyWordSpec with Matchers {
       val rawRow      = Map("userid" -> "u1".asInstanceOf[Any], "score" -> 42.asInstanceOf[Any])
 
       when(dao.getById("test_report")).thenReturn(Some(esReportMeta("test_report")))
-      when(esExecutor.execute(anyString(), org.mockito.ArgumentMatchers.any()))
+      when(esExecutor.execute(anyString(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
         .thenReturn(List(rawRow))
 
       val service = new ObservabilityReportServiceImpl(dao, esExecutor, sqlExecutor)
@@ -179,7 +179,7 @@ class ObservabilityReportServiceSpec extends AnyWordSpec with Matchers {
       val rawRow      = Map("userid" -> "u2".asInstanceOf[Any])
 
       when(dao.getById("test_report")).thenReturn(Some(esReportMeta("test_report")))
-      when(esExecutor.execute(anyString(), org.mockito.ArgumentMatchers.any()))
+      when(esExecutor.execute(anyString(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
         .thenReturn(List(rawRow))
 
       val service = new ObservabilityReportServiceImpl(dao, esExecutor, sqlExecutor)

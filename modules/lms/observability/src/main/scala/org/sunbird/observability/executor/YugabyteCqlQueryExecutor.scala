@@ -4,6 +4,7 @@ import com.datastax.driver.core.exceptions.InvalidQueryException
 import com.datastax.driver.core.{PreparedStatement, ResultSet, Session}
 import org.sunbird.helper.CassandraConnectionMngrFactory
 import org.sunbird.logging.LoggerUtil
+import org.sunbird.request.RequestContext
 
 import java.util.concurrent.ConcurrentHashMap
 import scala.collection.JavaConverters._
@@ -62,7 +63,7 @@ class YugabyteCqlQueryExecutor(keyspace: String = "sunbird_courses") extends Que
     }
   }
 
-  override def execute(renderedQuery: String, params: List[Any]): List[Map[String, Any]] = {
+  override def execute(renderedQuery: String, params: List[Any], requestContext: RequestContext): List[Map[String, Any]] = {
     val results = ListBuffer[Map[String, Any]]()
     try {
       val session: Session = CassandraConnectionMngrFactory.getInstance().getSession(keyspace)

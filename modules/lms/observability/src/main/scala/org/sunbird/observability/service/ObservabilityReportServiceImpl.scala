@@ -72,22 +72,22 @@ class ObservabilityReportServiceImpl(
       case "SEARCHSERVICE" =>
         val renderedQuery = QueryTemplateRenderer.renderEs(reportMeta.queryTemplate, filters)
         logger.info(request.getRequestContext, s"generateReport: Executing Search Service report $reportId")
-        esExecutor.execute(renderedQuery, List.empty)
+        esExecutor.execute(renderedQuery, List.empty, request.getRequestContext)
 
       case "YUGABYTE_SQL" =>
         val rendered = QueryTemplateRenderer.renderSql(reportMeta.queryTemplate, filters)
         logger.info(request.getRequestContext, s"generateReport: Executing SQL report $reportId")
-        sqlExecutor.execute(rendered.query, rendered.params)
+        sqlExecutor.execute(rendered.query, rendered.params, request.getRequestContext)
 
       case "YUGABYTE_CQL" =>
         val rendered = QueryTemplateRenderer.renderSql(reportMeta.queryTemplate, filters)
         logger.info(request.getRequestContext, s"generateReport: Executing CQL report $reportId")
-        cqlExecutor.execute(rendered.query, rendered.params)
+        cqlExecutor.execute(rendered.query, rendered.params, request.getRequestContext)
 
       case "ELASTICSEARCH" =>
         val renderedQuery = QueryTemplateRenderer.renderEs(reportMeta.queryTemplate, filters)
         logger.info(request.getRequestContext, s"generateReport: Executing ES report $reportId")
-        esCountExecutor.execute(renderedQuery, List.empty)
+        esCountExecutor.execute(renderedQuery, List.empty, request.getRequestContext)
 
       case "YUGABYTE_CQL_AGG" =>
         val spec = reportMeta.aggregationSpec.getOrElse(
