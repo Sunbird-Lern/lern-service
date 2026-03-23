@@ -24,6 +24,8 @@ public class KeyManager {
     private static final LoggerUtil logger = new LoggerUtil(KeyManager.class);
     private static final PropertiesCache propertiesCache = PropertiesCache.getInstance();
     private static final Map<String, KeyData> keyMap = new HashMap<>();
+    private static volatile long lastReloadAttemptMs = 0L;
+    private static final long RELOAD_COOLDOWN_MS = 5 * 60 * 1000L; // 5 minutes
 
     /**
      * Initializes the KeyManager by loading public keys from the configured base path.
@@ -60,11 +62,25 @@ public class KeyManager {
 
     /**
      * Retrieves the KeyData for a given Key ID.
+     * If not found in cache, attempts a one-time reload from disk (rate-limited to once per 5 minutes)
+     * to self-heal after Keycloak key rotation or a ConfigMap update without requiring a pod restart.
      * @param keyId The Key ID.
-     * @return The KeyData object, or null if not found.
+     * @return The KeyData object, or null if not found even after reload.
      */
     public static KeyData getPublicKey(String keyId) {
-        return keyMap.get(keyId);
+        KeyData keyData = keyMap.get(keyId);
+        if (keyData == null) {
+            long now = System.currentTimeMillis();
+            if (now - lastReloadAttemptMs > RELOAD_COOLDOWN_MS) {
+                lastReloadAttemptMs = now;
+                logger.info("KeyManager:getPublicKey: Key not found for kid: " + keyId + ", reloading keys from disk");
+                init();
+                keyData = keyMap.get(keyId);
+            } else {
+                logger.warn("KeyManager:getPublicKey: Key not found for kid: " + keyId + ", reload skipped (cooldown active)");
+            }
+        }
+        return keyData;
     }
 
     /**
