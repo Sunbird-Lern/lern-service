@@ -244,81 +244,18 @@
         </dependency>
 
         <!-- Cloud Storage SDK -->
+        <!-- API module — compile-time contract -->
         <dependency>
             <groupId>org.sunbird</groupId>
-            <artifactId>cloud-store-sdk_2.13</artifactId>
-            <version>${cloud-store-sdk.version}</version>
-            <exclusions>
-                <!-- Security: Exclude vulnerable hadoop-shaded-protobuf from transitive hadoop-common -->
-                <exclusion>
-                    <groupId>org.apache.hadoop.thirdparty</groupId>
-                    <artifactId>hadoop-shaded-protobuf_3_7</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.avro</groupId>
-                    <artifactId>avro</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.zookeeper</groupId>
-                    <artifactId>zookeeper</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.sun.jersey</groupId>
-                    <artifactId>jersey-core</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.sun.jersey</groupId>
-                    <artifactId>jersey-server</artifactId>
-                </exclusion>
-                <exclusion>
-                    <artifactId>slf4j-log4j12</artifactId>
-                    <groupId>org.slf4j</groupId>
-                </exclusion>
-                <exclusion>
-                    <groupId>io.netty</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>ch.qos.reload4j</groupId>
-                    <artifactId>reload4j</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.slf4j</groupId>
-                    <artifactId>slf4j-reload4j</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.yaml</groupId>
-                    <artifactId>snakeyaml</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.fasterxml.jackson.core</groupId>
-                    <artifactId>jackson-core</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.fasterxml.jackson.core</groupId>
-                    <artifactId>jackson-databind</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.fasterxml.jackson.core</groupId>
-                    <artifactId>jackson-annotations</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.fasterxml.jackson.datatype</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.fasterxml.jackson.dataformat</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.fasterxml.jackson.module</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.google.inject.extensions</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-            </exclusions>
+            <artifactId>cloud-storage-sdk-api</artifactId>
+            <version>${cloud-storage-sdk.version}</version>
+        </dependency>
+        <!-- Azure CSP implementation — runtime, discovered via Java ServiceLoader -->
+        <dependency>
+            <groupId>org.sunbird</groupId>
+            <artifactId>cloud-storage-sdk-azure</artifactId>
+            <version>${cloud-storage-sdk.version}</version>
+            <scope>runtime</scope>
         </dependency>
 
         <!-- Elasticsearch Dependencies -->
@@ -437,6 +374,14 @@
                     <artifactId>lz4-java</artifactId>
                 </exclusion>
             </exclusions>
+        </dependency>
+        <!-- Guice DI — provided: only needed to compile StorageModule; runtime is
+             supplied by the Play app container (play-guice) -->
+        <dependency>
+            <groupId>org.playframework</groupId>
+            <artifactId>play-guice_2.13</artifactId>
+            <version>${play2.version}</version>
+            <scope>provided</scope>
         </dependency>
     </dependencies>
 
