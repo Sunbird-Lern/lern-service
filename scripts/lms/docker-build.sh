@@ -1,9 +1,11 @@
 #!/bin/bash
+set -e
 
 # Default values
 REPO=""
 IMAGE_NAME="lms-service"
 IMAGE_TAG="latest"
+CSP=${CSP:-azure}  # Default to azure if not provided via environment or parameter
 
 # Parse command line arguments
 while [[ "$#" -gt 0 ]]; do
@@ -11,6 +13,7 @@ while [[ "$#" -gt 0 ]]; do
         -r|--repo) REPO="$2"; shift ;;
         -n|--name) IMAGE_NAME="$2"; shift ;;
         -t|--tag) IMAGE_TAG="$2"; shift ;;
+        -c|--csp) CSP="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
@@ -24,6 +27,7 @@ fi
 
 echo "========================================="
 echo "Building Docker Image: $FULL_IMAGE_NAME"
+echo "Cloud Storage Provider (CSP): ${CSP}"
 echo "========================================="
 
 # Get the script directory and navigate to project root
@@ -41,7 +45,7 @@ if [ ! -f "$DIST_ZIP" ]; then
 fi
 
 echo "Building Docker image..."
-docker build -f build/lms/Dockerfile -t "$FULL_IMAGE_NAME" .
+docker build -f build/lms/Dockerfile -t "$FULL_IMAGE_NAME" --build-arg CSP="${CSP}" .
 
 echo ""
 echo "========================================="

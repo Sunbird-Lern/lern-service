@@ -5,6 +5,7 @@ REPO=""
 IMAGE_NAME="lern-service"
 IMAGE_TAG="latest"
 PUSH=false
+CSP=${CSP:-azure}  # Default to azure if not provided via environment or parameter
 
 # Help message
 function show_help {
@@ -14,6 +15,7 @@ function show_help {
     echo "  -r, --repo    Docker repository/registry (optional)"
     echo "  -n, --name    Image name (default: lern-service)"
     echo "  -t, --tag     Image tag (default: latest)"
+    echo "  -c, --csp     Cloud Storage Provider (default: azure)"
     echo "  -p, --push    Push image to repository"
     echo "  -h, --help    Show this help message"
 }
@@ -24,6 +26,7 @@ while [[ "$#" -gt 0 ]]; do
         -r|--repo) REPO="$2"; shift ;;
         -n|--name) IMAGE_NAME="$2"; shift ;;
         -t|--tag) IMAGE_TAG="$2"; shift ;;
+        -c|--csp) CSP="$2"; shift ;;
         -p|--push) PUSH=true ;;
         -h|--help) show_help; exit 0 ;;
         *) echo "Unknown parameter passed: $1"; show_help; exit 1 ;;
@@ -39,6 +42,7 @@ fi
 
 echo "========================================="
 echo "Docker Operation for: $FULL_IMAGE_NAME"
+echo "Cloud Storage Provider (CSP): ${CSP}"
 echo "Push after build: $PUSH"
 echo "========================================="
 
@@ -56,7 +60,7 @@ if [ ! -f "$DIST_ZIP" ]; then
 fi
 
 echo "Step 1: Building Docker image..."
-docker build -f build/lern/Dockerfile -t "$FULL_IMAGE_NAME" .
+docker build -f build/lern/Dockerfile -t "$FULL_IMAGE_NAME" --build-arg CSP="${CSP}" .
 
 if [ $? -ne 0 ]; then
     echo "Docker build failed!"

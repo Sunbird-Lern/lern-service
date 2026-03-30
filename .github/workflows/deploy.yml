@@ -51,14 +51,19 @@ jobs:
           echo "LMS_ENABLE=${{ vars.LMS_SERVICE_BUILD == 'true' }}" >> $GITHUB_ENV
           echo "NOTIFICATION_ENABLE=${{ vars.NOTIFICATION_SERVICE_BUILD == 'true' }}" >> $GITHUB_ENV
 
+          # Cloud Storage Provider (CSP) — lookup from repo settings, default to azure
+          CSP="${{ vars.CLOUD_STORAGE_PROVIDER }}"
+          CSP="${CSP:-azure}"
+          echo "CSP=${CSP}" >> $GITHUB_ENV
+
           # Prepare Image Meta
           REPO_LOWER=$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')
           SHORT_SHA=$(git rev-parse HEAD | cut -c1-7)
           TAG_LOWER=$(echo "${GITHUB_REF_NAME}" | tr '[:upper:]' '[:lower:]' | tr '/' '-')
-          
+
           REPO_FULL=${{ env.REGISTRY }}/${REPO_LOWER}
           ORG_BASE=$(dirname ${REPO_FULL})
-          
+
           echo "REPO_BASE=${REPO_FULL}" >> $GITHUB_ENV
           echo "ORG_BASE=${ORG_BASE}" >> $GITHUB_ENV
           echo "IMAGE_TAG=${TAG_LOWER}_${SHORT_SHA}_${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
@@ -68,6 +73,8 @@ jobs:
       # ----------------------------------------------------------------
       - name: Build Lern Service
         if: env.LERN_ENABLE == 'true'
+        env:
+          CSP: ${{ env.CSP }}
         run: ./scripts/lern/build.sh
 
       - name: Push Lern Service Docker
@@ -78,12 +85,16 @@ jobs:
           file: build/lern/Dockerfile
           push: true
           tags: ${{ env.ORG_BASE }}/lern-service:${{ env.IMAGE_TAG }}
+          build-args: |
+            CSP=${{ env.CSP }}
 
       # ----------------------------------------------------------------
       # USERORG SERVICE
       # ----------------------------------------------------------------
       - name: Build UserOrg Service
         if: env.USERORG_ENABLE == 'true'
+        env:
+          CSP: ${{ env.CSP }}
         run: ./scripts/userorg/build.sh
 
       - name: Push UserOrg Service Docker
@@ -94,12 +105,16 @@ jobs:
           file: build/userorg/Dockerfile
           push: true
           tags: ${{ env.ORG_BASE }}/lern-userorg-service:${{ env.IMAGE_TAG }}
+          build-args: |
+            CSP=${{ env.CSP }}
 
       # ----------------------------------------------------------------
       # LMS SERVICE
       # ----------------------------------------------------------------
       - name: Build LMS Service
         if: env.LMS_ENABLE == 'true'
+        env:
+          CSP: ${{ env.CSP }}
         run: ./scripts/lms/build.sh
 
       - name: Push LMS Service Docker
@@ -110,12 +125,16 @@ jobs:
           file: build/lms/Dockerfile
           push: true
           tags: ${{ env.ORG_BASE }}/lern-lms-service:${{ env.IMAGE_TAG }}
+          build-args: |
+            CSP=${{ env.CSP }}
 
       # ----------------------------------------------------------------
       # NOTIFICATION SERVICE
       # ----------------------------------------------------------------
       - name: Build Notification Service
         if: env.NOTIFICATION_ENABLE == 'true'
+        env:
+          CSP: ${{ env.CSP }}
         run: ./scripts/notification/build.sh
 
       - name: Push Notification Service Docker
@@ -126,3 +145,5 @@ jobs:
           file: build/notification/Dockerfile
           push: true
           tags: ${{ env.ORG_BASE }}/lern-notification-service:${{ env.IMAGE_TAG }}
+          build-args: |
+            CSP=${{ env.CSP }}

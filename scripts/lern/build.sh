@@ -1,13 +1,15 @@
 #!/bin/bash
 set -e
 
-# Default value for skipping tests
+# Default values
 SKIP_TESTS=true
+CSP=${CSP:-azure}  # Default to azure if not provided via environment or parameter
 
 # Parse command line arguments
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         -t|--tests) SKIP_TESTS=false ;;
+        -c|--csp) CSP="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
@@ -15,6 +17,7 @@ done
 
 echo "========================================="
 echo "Building Lern Service (Unified)"
+echo "Cloud Provider (CSP): ${CSP}"
 if [ "$SKIP_TESTS" = true ]; then
     echo "Tests: SKIPPED"
 else
@@ -31,9 +34,9 @@ echo ""
 echo "Step 1: Building all core modules and integrated services..."
 
 if [ "$SKIP_TESTS" = true ]; then
-    mvn clean install -P lern -DskipTests
+    mvn clean install -P lern,${CSP} -DskipTests
 else
-    mvn clean install -P lern
+    mvn clean install -P lern,${CSP}
 fi
 
 echo ""

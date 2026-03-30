@@ -152,8 +152,13 @@ public class CloudStorageUtil {
       StorageConfig.Builder builder =
           StorageConfig.builder(CloudStorageConfigUtil.resolveStorageType(storageType))
               .storageKey(storageKey)
-              .endPoint(endpoint)
               .authType(authType);
+
+      // Only set endpoint if configured (optional for OIDC and other credential-chain auth types)
+      if (StringUtils.isNotBlank(endpoint)) {
+        builder.endPoint(endpoint);
+      }
+
       // For ACCESS_KEY auth, provide the account secret.
       // For OIDC / IAM / IAM_ROLE / INSTANCE_PROFILE, the cloud SDK resolves
       // credentials automatically from Workload Identity env vars or instance
