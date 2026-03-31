@@ -75,7 +75,7 @@ jobs:
         if: env.LERN_ENABLE == 'true'
         env:
           CSP: ${{ env.CSP }}
-        run: ./scripts/lern/build.sh
+        run: ./scripts/build-local.sh --service lern
 
       - name: Push Lern Service Docker
         if: env.LERN_ENABLE == 'true'
@@ -95,7 +95,7 @@ jobs:
         if: env.USERORG_ENABLE == 'true'
         env:
           CSP: ${{ env.CSP }}
-        run: ./scripts/userorg/build.sh
+        run: ./scripts/build-local.sh --service userorg
 
       - name: Push UserOrg Service Docker
         if: env.USERORG_ENABLE == 'true'
@@ -115,7 +115,7 @@ jobs:
         if: env.LMS_ENABLE == 'true'
         env:
           CSP: ${{ env.CSP }}
-        run: ./scripts/lms/build.sh
+        run: ./scripts/build-local.sh --service lms
 
       - name: Push LMS Service Docker
         if: env.LMS_ENABLE == 'true'
@@ -135,7 +135,7 @@ jobs:
         if: env.NOTIFICATION_ENABLE == 'true'
         env:
           CSP: ${{ env.CSP }}
-        run: ./scripts/notification/build.sh
+        run: ./scripts/build-local.sh --service notification
 
       - name: Push Notification Service Docker
         if: env.NOTIFICATION_ENABLE == 'true'

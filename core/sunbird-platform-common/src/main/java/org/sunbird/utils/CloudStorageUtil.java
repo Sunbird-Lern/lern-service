@@ -143,21 +143,30 @@ public class CloudStorageUtil {
       if (storageServiceMap.containsKey(compositeKey)) {
         return storageServiceMap.get(compositeKey);
       }
-      String endpoint = PropertiesCache.getInstance().getProperty(JsonKey.ACCOUNT_ENDPOINT);
       String authTypeStr = PropertiesCache.getInstance().getProperty(JsonKey.AUTH_TYPE);
       if (StringUtils.isBlank(authTypeStr)) {
-        authTypeStr = "access_key";
+        authTypeStr = "ACCESS_KEY";
       }
-      StorageConfig.AuthType authType = CloudStorageConfigUtil.resolveAuthType(authTypeStr);
-      StorageConfig.Builder builder =
-          StorageConfig.builder(CloudStorageConfigUtil.resolveStorageType(storageType))
+
+      // Resolve auth type from config value (case-insensitive enum name)
+      StorageConfig.AuthType authType;
+      try {
+        authType = StorageConfig.AuthType.valueOf(authTypeStr.replace("-", "_").toUpperCase());
+      } catch (IllegalArgumentException e) {
+        throw new IllegalArgumentException("Invalid auth type: " + authTypeStr + ". Must be a valid StorageConfig.AuthType enum value.", e);
+      }
+
+      // Resolve storage type from config value (case-insensitive enum name)
+      StorageConfig.StorageType resolvedStorageType;
+      try {
+        resolvedStorageType = StorageConfig.StorageType.valueOf(storageType.toUpperCase());
+      } catch (IllegalArgumentException e) {
+        throw new IllegalArgumentException("Invalid storage type: " + storageType + ". Must be a valid StorageConfig.StorageType enum value.", e);
+      }
+
+      StorageConfig.Builder builder = StorageConfig.builder(resolvedStorageType)
               .storageKey(storageKey)
               .authType(authType);
-
-      // Only set endpoint if configured (optional for OIDC and other credential-chain auth types)
-      if (StringUtils.isNotBlank(endpoint)) {
-        builder.endPoint(endpoint);
-      }
 
       // For ACCESS_KEY auth, provide the account secret.
       // For OIDC / IAM / IAM_ROLE / INSTANCE_PROFILE, the cloud SDK resolves
