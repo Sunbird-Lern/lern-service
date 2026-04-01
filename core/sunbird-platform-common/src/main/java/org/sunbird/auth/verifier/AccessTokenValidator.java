@@ -95,10 +95,18 @@ public class AccessTokenValidator {
         String keyId = headerData.get("kid").toString();
 
         // Verify Signature
+        // Note: KeyManager.init() ensures keys are loaded at startup, but we defensively check
+        // in case a key ID is requested that hasn't been provisioned yet
+        KeyData keyData = KeyManager.getPublicKey(keyId);
+        if (keyData == null) {
+            logger.warn("AccessTokenValidator: Public key not found for keyId: " + keyId + ". This may indicate a key rotation issue.");
+            return Collections.emptyMap();
+        }
+
         boolean isValid = CryptoUtil.verifyRSASign(
                 payLoad,
                 decodeFromBase64(signature),
-                KeyManager.getPublicKey(keyId).getPublicKey(),
+                keyData.getPublicKey(),
                 JsonKey.SHA_256_WITH_RSA);
 
         if (isValid) {

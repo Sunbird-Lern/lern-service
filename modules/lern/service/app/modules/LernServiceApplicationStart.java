@@ -55,13 +55,13 @@ public class LernServiceApplicationStart {
 
     private void initializeSharedResources() {
         logger.info("Initializing Shared Resources...");
-        
+
         // Initialize Cassandra Connections (Shared)
         // Using UserOrg's Util or Common Util
         try {
-            org.sunbird.helper.CassandraConnectionManager cassandraConnectionManager = 
+            org.sunbird.helper.CassandraConnectionManager cassandraConnectionManager =
                 org.sunbird.helper.CassandraConnectionMngrFactory.getInstance();
-            
+
             String nodes = System.getenv("sunbird_cassandra_host"); // JsonKey.SUNBIRD_CASSANDRA_IP
             String[] hosts = null;
             if (nodes != null && !nodes.isEmpty()) {
@@ -71,11 +71,16 @@ public class LernServiceApplicationStart {
             }
             cassandraConnectionManager.createConnection(hosts);
             logger.info("Cassandra connections established");
-            
-            // Initialize KeyManager
-            KeyManager.init();
-            logger.info("KeyManager initialized");
-            
+
+            // Initialize KeyManager - CRITICAL: Service cannot start without public keys
+            try {
+                KeyManager.init();
+                logger.info("KeyManager initialized successfully");
+            } catch (Exception keyManagerException) {
+                logger.error("CRITICAL: Failed to initialize KeyManager. Service startup aborted.", keyManagerException);
+                throw keyManagerException; // Re-throw to prevent service startup
+            }
+
             // Initialize HTTP Client
             org.sunbird.http.HttpClientUtil.getInstance();
             logger.info("HTTP Client initialized");
@@ -83,9 +88,10 @@ public class LernServiceApplicationStart {
             // Initialize Kafka Client (Eagerly)
             org.sunbird.kafka.KafkaClient.init();
             logger.info("Kafka Client initialized");
-            
+
         } catch (Exception e) {
-            logger.error("Error initializing shared resources", e);
+            logger.error("CRITICAL: Error initializing shared resources - service startup failed", e);
+            throw new RuntimeException("Service startup failed due to initialization error", e);
         }
     }
 

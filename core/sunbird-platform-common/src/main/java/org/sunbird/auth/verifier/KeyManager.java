@@ -33,11 +33,17 @@ public class KeyManager {
     public static void init() {
         String basePath = propertiesCache.getProperty(JsonKey.ACCESS_TOKEN_PUBLICKEY_BASEPATH);
         logger.info("KeyManager:init: Starting public key loading from base path: " + basePath);
-        
+
         try (Stream<Path> walk = Files.walk(Paths.get(basePath))) {
             List<String> result =
                     walk.filter(Files::isRegularFile).map(x -> x.toString()).collect(Collectors.toList());
-            
+
+            if (result.isEmpty()) {
+                String errorMsg = "KeyManager:init: No public key files found in base path: " + basePath + ". Service cannot start without public keys.";
+                logger.error(errorMsg);
+                throw new RuntimeException(errorMsg);
+            }
+
             result.forEach(
                     file -> {
                         try {
@@ -45,7 +51,7 @@ public class KeyManager {
                             Path path = Paths.get(file);
                             Files.lines(path, StandardCharsets.UTF_8)
                                     .forEach(contentBuilder::append);
-                            
+
                             KeyData keyData =
                                     new KeyData(
                                             path.getFileName().toString(), loadPublicKey(contentBuilder.toString()));
@@ -55,9 +61,30 @@ public class KeyManager {
                             logger.error("KeyManager:init: Exception in reading public key file: " + file, e);
                         }
                     });
+
+            // CRITICAL: Ensure at least one key was successfully loaded
+            // If files exist but are empty/invalid, keyMap will be empty
+            if (keyMap.isEmpty()) {
+                String errorMsg = "KeyManager:init: Key files exist in " + basePath + " but none could be loaded. " +
+                        "Files may be empty, corrupted, or invalid. Found " + result.size() + " file(s) but 0 valid keys.";
+                logger.error(errorMsg);
+                throw new RuntimeException(errorMsg);
+            }
+
+            logger.info("KeyManager:init: Successfully loaded " + keyMap.size() + " public keys");
         } catch (Exception e) {
-            logger.error("KeyManager:init: Exception in loading public keys base directory", e);
+            String errorMsg = "KeyManager:init: Exception in loading public keys base directory: " + e.getMessage();
+            logger.error(errorMsg, e);
+            throw new RuntimeException(errorMsg, e);
         }
+    }
+
+    /**
+     * Checks if keys have been successfully loaded.
+     * @return true if at least one key is loaded, false otherwise.
+     */
+    public static boolean isKeysLoaded() {
+        return !keyMap.isEmpty();
     }
 
     /**
@@ -74,8 +101,13 @@ public class KeyManager {
             if (now - lastReloadAttemptMs > RELOAD_COOLDOWN_MS) {
                 lastReloadAttemptMs = now;
                 logger.info("KeyManager:getPublicKey: Key not found for kid: " + keyId + ", reloading keys from disk");
-                init();
-                keyData = keyMap.get(keyId);
+                try {
+                    init();
+                    keyData = keyMap.get(keyId);
+                } catch (Exception e) {
+                    logger.error("KeyManager:getPublicKey: Failed to reload keys from disk for kid: " + keyId, e);
+                    // Continue gracefully - let AccessTokenValidator handle null keyData
+                }
             } else {
                 logger.warn("KeyManager:getPublicKey: Key not found for kid: " + keyId + ", reload skipped (cooldown active)");
             }
