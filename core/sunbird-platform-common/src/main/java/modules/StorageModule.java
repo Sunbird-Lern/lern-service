@@ -30,7 +30,7 @@ import javax.inject.Singleton;
  * <p>Relevant keys:
  * <pre>
  * sunbird_cloud_service_provider    — azure | aws | gcloud | oci | cephs3  (default: azure)
- * sunbird_cloud_storage_auth_type   — ACCESS_KEY | OIDC | IAM | IAM_ROLE | INSTANCE_PROFILE (default: ACCESS_KEY)
+ * sunbird_cloud_storage_auth_type   — ACCESS_KEY | OIDC | IAM | IAM_ROLE | INSTANCE_PROFILE (default: OIDC)
  * sunbird_account_name              — storage account name / AWS access key ID
  * sunbird_account_key               — storage account secret  (ACCESS_KEY auth only)
  * </pre>
@@ -52,7 +52,7 @@ public class StorageModule extends AbstractModule {
     @Singleton
     public IStorageService provideStorageService() {
         String storageTypeStr = defaultIfBlank(ProjectUtil.getConfigValue(JsonKey.CLOUD_SERVICE_PROVIDER), "azure");
-        String authTypeStr    = defaultIfBlank(ProjectUtil.getConfigValue(JsonKey.AUTH_TYPE), "ACCESS_KEY");
+        String authTypeStr    = defaultIfBlank(ProjectUtil.getConfigValue(JsonKey.AUTH_TYPE), "OIDC");
         String storageKey = ProjectUtil.getConfigValue(JsonKey.ACCOUNT_NAME);
 
         // Resolve storage type from config value (case-insensitive enum name)
