@@ -205,4 +205,84 @@ public class CourseBatchUtil {
     }
     return value;
   }
+
+  /**
+   * Compute batch status from start and end dates.
+   * Status derivation:
+   *   - NOT_STARTED (0): today < startDate
+   *   - STARTED (1): startDate <= today AND (endDate == null OR today <= endDate)
+   *   - COMPLETED (2): endDate != null AND today > endDate
+   *
+   * @param startDate the batch start date
+   * @param endDate the batch end date (may be null for ongoing batches)
+   * @return batch status (0, 1, or 2)
+   */
+  public static int computeBatchStatus(Date startDate, Date endDate) {
+    TimeZone tz = TimeZone.getTimeZone(ProjectUtil.getConfigValue(JsonKey.SUNBIRD_TIMEZONE));
+    Calendar todayCal = Calendar.getInstance(tz);
+    todayCal.set(Calendar.HOUR_OF_DAY, 0);
+    todayCal.set(Calendar.MINUTE, 0);
+    todayCal.set(Calendar.SECOND, 0);
+    todayCal.set(Calendar.MILLISECOND, 0);
+    Date today = todayCal.getTime();
+
+    if (today.before(startDate)) {
+      return ProjectUtil.ProgressStatus.NOT_STARTED.getValue();  // 0
+    }
+
+    if (endDate == null || !today.after(endDate)) {
+      return ProjectUtil.ProgressStatus.STARTED.getValue();  // 1
+    }
+
+    return ProjectUtil.ProgressStatus.COMPLETED.getValue();  // 2
+  }
+
+  /**
+   * Enrich a batch map with computed status from its dates.
+   * Handles ISO 8601 date format from Elasticsearch.
+   *
+   * @param batchMap the batch data map (with startDate and endDate fields)
+   */
+  public static void enrichBatchStatusFromDates(Map<String, Object> batchMap) {
+    if (MapUtils.isEmpty(batchMap)) {
+      return;
+    }
+    try {
+      // ES dates are in ISO 8601 format: "2026-03-31T18:29:59.999Z"
+      SimpleDateFormat isoFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
+      isoFormat.setTimeZone(TimeZone.getTimeZone("UTC"));
+
+      Date startDate = null;
+      Date endDate = null;
+
+      if (batchMap.get(JsonKey.START_DATE) != null) {
+        String startDateStr = batchMap.get(JsonKey.START_DATE).toString();
+        startDate = isoFormat.parse(startDateStr);
+      }
+
+      if (batchMap.get(JsonKey.END_DATE) != null) {
+        String endDateStr = batchMap.get(JsonKey.END_DATE).toString();
+        endDate = isoFormat.parse(endDateStr);
+      }
+
+      // Convert UTC dates to configured timezone for comparison
+      TimeZone tz = TimeZone.getTimeZone(ProjectUtil.getConfigValue(JsonKey.SUNBIRD_TIMEZONE));
+      Calendar cal = Calendar.getInstance(tz);
+      if (startDate != null) {
+        cal.setTimeInMillis(startDate.getTime());
+        startDate = cal.getTime();
+      }
+      if (endDate != null) {
+        cal.setTimeInMillis(endDate.getTime());
+        endDate = cal.getTime();
+      }
+
+      int computedStatus = computeBatchStatus(startDate, endDate);
+      batchMap.put(JsonKey.STATUS, computedStatus);
+    } catch (ParseException e) {
+      logger.error("enrichBatchStatusFromDates: date parse error - " + e.getMessage(), e);
+    } catch (Exception e) {
+      logger.error("enrichBatchStatusFromDates: unexpected error - " + e.getMessage(), e);
+    }
+  }
 }

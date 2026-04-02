@@ -19,6 +19,7 @@ import org.sunbird.keys.JsonKey;
 import org.sunbird.request.RequestContext;
 import org.sunbird.dto.SearchDTO;
 import org.sunbird.learner.actors.coursebatch.service.UserCoursesService;
+import org.sunbird.learner.util.CourseBatchUtil;
 import org.sunbird.learner.util.Util;
 import org.sunbird.telemetry.util.TelemetryWriter;
 import org.sunbird.userorg.UserOrgService;
@@ -109,8 +110,14 @@ public class SearchHandlerActor extends BaseActor {
       logger.info(request.getRequestContext(), 
           "SearchHandlerActor:onReceive search complete instant duration=" + (Instant.now().toEpochMilli() - instant.toEpochMilli()));
       if (EsType.courseBatch.getTypeName().equalsIgnoreCase(filterObjectType)) {
+        List<Map<String, Object>> courseBatchList = (List<Map<String, Object>>) result.get(JsonKey.CONTENT);
+
+        // Recompute status from dates for all search results to handle stale cached values
+        if (CollectionUtils.isNotEmpty(courseBatchList)) {
+          courseBatchList.forEach(batch -> CourseBatchUtil.enrichBatchStatusFromDates(batch));
+        }
+
         if (JsonKey.PARTICIPANTS.equalsIgnoreCase((String) request.getContext().get(JsonKey.PARTICIPANTS))) {
-          List<Map<String, Object>> courseBatchList = (List<Map<String, Object>>) result.get(JsonKey.CONTENT);
           for (Map<String, Object> courseBatch : courseBatchList) {
             courseBatch.put(JsonKey.PARTICIPANTS, getParticipantList(request.getRequestContext(), (String) courseBatch.get(JsonKey.BATCH_ID)));
           }

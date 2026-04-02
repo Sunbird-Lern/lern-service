@@ -92,7 +92,9 @@ public class CourseBatchManagementActor extends BaseActor {
           ProjectUtil.formatMessage(ResponseCode.invalidRequestParameter.getErrorMessage(), JsonKey.PARTICIPANTS));
     }
     CourseBatch courseBatch = JsonUtil.convert(request, CourseBatch.class);
-    courseBatch.setStatus(setCourseBatchStatus(actorMessage.getRequestContext(), (String) request.get(JsonKey.START_DATE)));
+    courseBatch.setStatus(CourseBatchUtil.computeBatchStatus(
+        courseBatch.getStartDate(),
+        courseBatch.getEndDate()));
     String courseId = (String) request.get(JsonKey.COURSE_ID);
     Map<String, Object> contentDetails = getContentDetails(actorMessage.getRequestContext(),courseId, headers);
     courseBatch.setCreatedDate(ProjectUtil.getTimeStamp());
@@ -249,6 +251,10 @@ public class CourseBatchManagementActor extends BaseActor {
         esService.getDataByIdentifier(ProjectUtil.EsType.courseBatch.getTypeName(),
             (String) actorMessage.getContext().get(JsonKey.BATCH_ID), actorMessage.getRequestContext());
     Map<String, Object> result = (Map<String, Object>) ElasticSearchHelper.getResponseFromFuture(resultF);
+
+    // Recompute status from dates to handle stale cached values
+    CourseBatchUtil.enrichBatchStatusFromDates(result);
+
     if (result.containsKey(JsonKey.COURSE_ID))
       result.put(JsonKey.COLLECTION_ID, result.getOrDefault(JsonKey.COURSE_ID, ""));
     Response response = new Response();
@@ -350,19 +356,12 @@ public class CourseBatchManagementActor extends BaseActor {
     validateUpdateBatchStartDate(requestedStartDate);
     validateBatchStartAndEndDate(dbBatchStartDate, dbBatchEndDate, requestedStartDate, requestedEndDate, todayDate);
     
-    /* Update the batch to In-Progress for below conditions
-    * 1. StartDate is greater than or equal to today's date
-    * 2. EndDate can be either NULL or 
-    *     EndDate can be greater than or equal to today's date or
-    *     EndDate can be greater than or equal to existing EndDate
-    * */
-    Boolean batchStarted = (null != requestedStartDate && todayDate.compareTo(requestedStartDate) >=0)
-            && ((null == requestedEndDate) 
-                || (null != requestedEndDate && null == dbBatchEndDate && todayDate.compareTo(requestedEndDate) <= 0) 
-                || (null != requestedEndDate && null != dbBatchEndDate && requestedEndDate.compareTo(dbBatchEndDate) >=0));
-    
-    if(batchStarted)
-      courseBatch.setStatus(ProgressStatus.STARTED.getValue());
+    // Resolve which dates to use based on request or database values
+    Date resolvedStartDate = null != requestedStartDate ? requestedStartDate : courseBatch.getStartDate();
+    Date resolvedEndDate = null != requestedEndDate ? requestedEndDate : courseBatch.getEndDate();
+
+    // Recompute status from resolved dates
+    courseBatch.setStatus(CourseBatchUtil.computeBatchStatus(resolvedStartDate, resolvedEndDate));
     
     validateBatchEnrollmentEndDate(
         dbBatchStartDate,
