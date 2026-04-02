@@ -20,15 +20,15 @@ public class KeySetupTest {
         Path testKeysDirPath = Paths.get(testKeysDir);
         Files.createDirectories(testKeysDirPath);
 
-        // Create a test public key file
+        // Create a test public key file (2048-bit RSA public key for testing)
         String testPublicKey = "-----BEGIN PUBLIC KEY-----\n" +
-                "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0Z3VS5JJcds3g8AQFL/y\n" +
-                "nRxIeEWn7s64tC/2zcE/Cr0tXdkZELHEf5h7tW6w1v7bWFyI8AuHONzVXkFlx2r9\n" +
-                "FXqTDkP4yVLxNpVpKKqOPqLMYe5O8XaKvXjK5qT8m7LqS7LKf8K4VQXf/cT8PQAB\n" +
-                "VPEo5U9z9XQ9Wp/s4j4X3Q3VZZ8jV8nF7VqVXQVLXVV8vQVVLpUVVVZ7FVVVVlU8\n" +
-                "VVq9SZkQ8QVq9SZkQ8QVq9SZkQ8QVq9SZkQ8QVq9SZkQ8QVq9SZkQ8QVq9SZkQ8Q\n" +
-                "VVq9SZkQ8QVq9SZkQ8QVq9SZkQ8QVq9SZkQ8QVq9SZkQ8QVq9SZkQ8QVq9SZkQ8Q\n" +
-                "VQIDAQAB\n" +
+                "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4f5wg5l2hKsTeNem/V41\n" +
+                "fGnJm6gOdrj8ym3rFkEU/wT8RDtn1tDuWnYLe3bBt7PlJGEe6l0ZCT7bW0oRyUdQ\n" +
+                "h4XPBM0z/4LHrZyFYMJiIRWVKfLEFJcW8xVQyPLzKEiSWiBJPBcx2DWLhZEJqq3d\n" +
+                "1sKlzP7LcN+5eqP7bZ8/wIgkMKdDwN9VT7XpvHDL6BZQUZg5m3KEr3vf6WU3sI1E\n" +
+                "bkpHLPU4EKmNmQv7wf3z01TgkpQ6eqbVf0TJBJxM7oJqDKTW2pqNdkCWMLLN9CMm\n" +
+                "Z6hPB6hjNIDwqnmXVCJvh6FHJY/9dXkYxfLFPqHjX3eo0a+Lq1EqL6wJyNcxqNWn\n" +
+                "bQIDAQAB\n" +
                 "-----END PUBLIC KEY-----";
 
         // Write test key to file
