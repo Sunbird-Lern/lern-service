@@ -29,12 +29,21 @@ public class KeyManager {
 
     /**
      * Initializes the KeyManager by loading public keys from the configured base path.
+     * CRITICAL: Fails fast if keys cannot be loaded - service cannot start without valid public keys.
      */
     public static void init() {
         String basePath = propertiesCache.getProperty(JsonKey.ACCESS_TOKEN_PUBLICKEY_BASEPATH);
         logger.info("KeyManager:init: Starting public key loading from base path: " + basePath);
 
-        try (Stream<Path> walk = Files.walk(Paths.get(basePath))) {
+        // Validate path exists
+        Path keyPath = Paths.get(basePath);
+        if (!Files.exists(keyPath)) {
+            String errorMsg = "KeyManager:init: Public key path does not exist: " + basePath + ". Service cannot start without public keys.";
+            logger.error(errorMsg);
+            throw new RuntimeException(errorMsg);
+        }
+
+        try (Stream<Path> walk = Files.walk(keyPath)) {
             List<String> result =
                     walk.filter(Files::isRegularFile).map(x -> x.toString()).collect(Collectors.toList());
 

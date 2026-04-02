@@ -56,8 +56,7 @@ public class LernServiceApplicationStart {
     private void initializeSharedResources() {
         logger.info("Initializing Shared Resources...");
 
-        // Initialize Cassandra Connections (Shared)
-        // Using UserOrg's Util or Common Util
+        // Initialize Cassandra Connections (Shared) - CRITICAL
         try {
             org.sunbird.helper.CassandraConnectionManager cassandraConnectionManager =
                 org.sunbird.helper.CassandraConnectionMngrFactory.getInstance();
@@ -71,27 +70,34 @@ public class LernServiceApplicationStart {
             }
             cassandraConnectionManager.createConnection(hosts);
             logger.info("Cassandra connections established");
+        } catch (Exception cassandraException) {
+            logger.error("CRITICAL: Failed to establish Cassandra connections. Service startup aborted.", cassandraException);
+            throw new RuntimeException("Service startup failed - Cassandra unavailable", cassandraException);
+        }
 
-            // Initialize KeyManager - CRITICAL: Service cannot start without public keys
-            try {
-                KeyManager.init();
-                logger.info("KeyManager initialized successfully");
-            } catch (Exception keyManagerException) {
-                logger.error("CRITICAL: Failed to initialize KeyManager. Service startup aborted.", keyManagerException);
-                throw keyManagerException; // Re-throw to prevent service startup
-            }
+        // Initialize KeyManager - CRITICAL: Service cannot start without public keys
+        try {
+            KeyManager.init();
+            logger.info("KeyManager initialized successfully");
+        } catch (Exception keyManagerException) {
+            logger.error("CRITICAL: Failed to initialize KeyManager. Service startup aborted.", keyManagerException);
+            throw new RuntimeException("Service startup failed - KeyManager initialization failed", keyManagerException);
+        }
 
-            // Initialize HTTP Client
+        // Initialize HTTP Client - Non-critical
+        try {
             org.sunbird.http.HttpClientUtil.getInstance();
             logger.info("HTTP Client initialized");
+        } catch (Exception httpException) {
+            logger.warn("Warning: Failed to initialize HTTP Client. Service may have limited functionality.", httpException);
+        }
 
-            // Initialize Kafka Client (Eagerly)
+        // Initialize Kafka Client (Eagerly) - Non-critical
+        try {
             org.sunbird.kafka.KafkaClient.init();
             logger.info("Kafka Client initialized");
-
-        } catch (Exception e) {
-            logger.error("CRITICAL: Error initializing shared resources - service startup failed", e);
-            throw new RuntimeException("Service startup failed due to initialization error", e);
+        } catch (Exception kafkaException) {
+            logger.warn("Warning: Failed to initialize Kafka Client. Event publishing may be unavailable.", kafkaException);
         }
     }
 
