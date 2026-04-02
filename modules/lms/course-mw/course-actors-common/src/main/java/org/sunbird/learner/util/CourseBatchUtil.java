@@ -248,21 +248,25 @@ public class CourseBatchUtil {
       return;
     }
     try {
-      // ES dates are in ISO 8601 format: "2026-03-31T18:29:59.999Z"
+      // ES dates can be in multiple formats:
+      // 1. ISO 8601 with time: "2026-03-31T18:29:59.999Z"
+      // 2. Date only: "2026-03-31"
       SimpleDateFormat isoFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
       isoFormat.setTimeZone(TimeZone.getTimeZone("UTC"));
+      SimpleDateFormat dateOnlyFormat = new SimpleDateFormat("yyyy-MM-dd");
+      dateOnlyFormat.setTimeZone(TimeZone.getTimeZone("UTC"));
 
       Date startDate = null;
       Date endDate = null;
 
       if (batchMap.get(JsonKey.START_DATE) != null) {
         String startDateStr = batchMap.get(JsonKey.START_DATE).toString();
-        startDate = isoFormat.parse(startDateStr);
+        startDate = parseEsDate(startDateStr, isoFormat, dateOnlyFormat);
       }
 
       if (batchMap.get(JsonKey.END_DATE) != null) {
         String endDateStr = batchMap.get(JsonKey.END_DATE).toString();
-        endDate = isoFormat.parse(endDateStr);
+        endDate = parseEsDate(endDateStr, isoFormat, dateOnlyFormat);
       }
 
       // Convert UTC dates to configured timezone for comparison
@@ -283,6 +287,16 @@ public class CourseBatchUtil {
       logger.error("enrichBatchStatusFromDates: date parse error - " + e.getMessage(), e);
     } catch (Exception e) {
       logger.error("enrichBatchStatusFromDates: unexpected error - " + e.getMessage(), e);
+    }
+  }
+
+  private static Date parseEsDate(String dateStr, SimpleDateFormat isoFormat, SimpleDateFormat dateOnlyFormat) throws ParseException {
+    try {
+      // Try ISO 8601 format first
+      return isoFormat.parse(dateStr);
+    } catch (ParseException e) {
+      // Fall back to date-only format
+      return dateOnlyFormat.parse(dateStr);
     }
   }
 }
