@@ -95,6 +95,13 @@ public class SearchHandlerActor extends BaseActor {
           }
         }
       }
+
+      // Translate status filter to dates (for Status 0 and 2; Status 1 uses in-memory filtering)
+      Integer requestedStatusForInMemoryFilter = null;
+      if (EsType.courseBatch.getTypeName().equalsIgnoreCase(filterObjectType)) {
+        requestedStatusForInMemoryFilter = translateStatusFilterToDates(filtersMap, request.getRequestContext());
+      }
+
       if (!searchQueryMap.containsKey(JsonKey.LIMIT)) {
         // set default limit for course bath as 30
         searchQueryMap.put(JsonKey.LIMIT, 30);
@@ -115,6 +122,15 @@ public class SearchHandlerActor extends BaseActor {
         // Recompute status from dates for all search results to handle stale cached values
         if (CollectionUtils.isNotEmpty(courseBatchList)) {
           courseBatchList.forEach(batch -> CourseBatchUtil.enrichBatchStatusFromDates(batch));
+        }
+
+        // In-memory filter for Status=1 (STARTED) - apply after enrichment to ensure accurate status
+        if (requestedStatusForInMemoryFilter != null && requestedStatusForInMemoryFilter == 1) {
+          if (CollectionUtils.isNotEmpty(courseBatchList)) {
+            courseBatchList.removeIf(batch -> !batch.get(JsonKey.STATUS).equals(1));
+            result.put(JsonKey.COUNT, courseBatchList.size());
+            logger.info(request.getRequestContext(), "SearchHandlerActor: Applied in-memory Status=1 filter, result count = " + courseBatchList.size());
+          }
         }
 
         if (JsonKey.PARTICIPANTS.equalsIgnoreCase((String) request.getContext().get(JsonKey.PARTICIPANTS))) {
@@ -333,5 +349,57 @@ public class SearchHandlerActor extends BaseActor {
     }
     
     return targetMap;
+  }
+
+  /**
+   * Translates status filter to date-based range filters for ES query.
+   *
+   * Status = 0 (NOT_STARTED): startDate > today
+   * Status = 1 (STARTED): Uses in-memory filtering after Phase 1 enrichment
+   * Status = 2 (COMPLETED): endDate < today
+   *
+   * @param filtersMap the filters map to update
+   * @param requestContext the request context for logging
+   * @return the requested status if it was Status=1 (for in-memory filtering), null otherwise
+   */
+  private Integer translateStatusFilterToDates(Map<String, Object> filtersMap, RequestContext requestContext) {
+    if (!filtersMap.containsKey(JsonKey.STATUS)) {
+      return null;
+    }
+
+    Object statusObj = filtersMap.remove(JsonKey.STATUS);
+    int requestedStatus;
+
+    if (statusObj instanceof List) {
+      requestedStatus = Integer.parseInt(((List<?>) statusObj).get(0).toString());
+    } else {
+      requestedStatus = Integer.parseInt(statusObj.toString());
+    }
+
+    String today = new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date());
+    Map<String, Object> filters = new HashMap<>();
+
+    switch (requestedStatus) {
+      case 0: // NOT_STARTED
+        filters.put("startDate", Map.of("gt", today));
+        filtersMap.put(JsonKey.FILTERS, filters);
+        logger.info(requestContext, "SearchHandlerActor: Translated Status=0 to startDate > " + today);
+        return null;
+
+      case 1: // STARTED
+        // Don't add date filters - will filter in-memory after Phase 1 enrichment
+        logger.info(requestContext, "SearchHandlerActor: Status=1 will use in-memory filtering after enrichment");
+        return 1;  // Return flag for in-memory filtering
+
+      case 2: // COMPLETED
+        filters.put("endDate", Map.of("lt", today));
+        filtersMap.put(JsonKey.FILTERS, filters);
+        logger.info(requestContext, "SearchHandlerActor: Translated Status=2 to endDate < " + today);
+        return null;
+
+      default:
+        logger.info(requestContext, "SearchHandlerActor: Unknown status filter value: " + requestedStatus);
+        return null;
+    }
   }
 }
