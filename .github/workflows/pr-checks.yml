@@ -8,6 +8,9 @@ jobs:
   build-core:
     runs-on: ubuntu-latest
 
+    env:
+      CSP: ${{ vars.CLOUD_STORAGE_PROVIDER || 'azure' }}
+
     services:
       redis:
         image: redis:4.0.0
@@ -37,7 +40,7 @@ jobs:
             
       - name: Build Core
         run: |
-          mvn clean install
+          mvn clean install -P${CSP}
       - name: Upload Core Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -47,6 +50,10 @@ jobs:
   userorg-build:
     needs: build-core
     runs-on: ubuntu-latest
+
+    env:
+      CSP: ${{ vars.CLOUD_STORAGE_PROVIDER || 'azure' }}
+
     steps:
       - uses: actions/checkout@v4
       
@@ -64,7 +71,7 @@ jobs:
           
       - name: Build and Generate Coverage Report (UserOrg)
         run: |
-          mvn verify -P userorg -rf :userorg-service
+          mvn verify -P userorg,${CSP} -rf :userorg-service
           
       - name: Upload UserOrg Artifacts
         uses: actions/upload-artifact@v4
@@ -75,6 +82,9 @@ jobs:
   lms-build:
     needs: build-core
     runs-on: ubuntu-latest
+
+    env:
+      CSP: ${{ vars.CLOUD_STORAGE_PROVIDER || 'azure' }}
 
     services:
       redis:
@@ -103,7 +113,7 @@ jobs:
           
       - name: Build and Generate Coverage Report (LMS)
         run: |
-          mvn verify -P lms -rf :lms-service
+          mvn verify -P lms,${CSP} -rf :lms-service
           
       - name: Upload LMS Artifacts
         uses: actions/upload-artifact@v4
@@ -114,6 +124,10 @@ jobs:
   notification-build:
     needs: build-core
     runs-on: ubuntu-latest
+
+    env:
+      CSP: ${{ vars.CLOUD_STORAGE_PROVIDER || 'azure' }}
+
     steps:
       - uses: actions/checkout@v4
       
@@ -131,7 +145,7 @@ jobs:
           
       - name: Build and Generate Coverage Report (Notification)
         run: |
-          mvn verify -P notification -rf :notification-service
+          mvn verify -P notification,${CSP} -rf :notification-service
       - name: Upload Notification Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -141,6 +155,9 @@ jobs:
   lern-build:
     needs: build-core
     runs-on: ubuntu-latest
+
+    env:
+      CSP: ${{ vars.CLOUD_STORAGE_PROVIDER || 'azure' }}
 
     services:
       redis:
@@ -170,11 +187,11 @@ jobs:
       - name: Build and Generate Coverage Report (Lern Service Impl)
         run: |
           # Install dependencies into local repo skipped to ensure resolution
-          mvn install -P lern -pl modules/lern/service -am -DskipTests -Dcheckstyle.skip
+          mvn install -P lern,${CSP} -pl modules/lern/service -am -DskipTests -Dcheckstyle.skip
           # Run verification/tests for the target module
           # -DreuseForks=false: each test class gets its own JVM, preventing mockStatic classloader contamination
           # --add-opens: allows Mockito to instrument sun.misc.Signal used by SignalHandler on Java 11
-          mvn verify -P lern -pl modules/lern/service \
+          mvn verify -P lern,${CSP} -pl modules/lern/service \
             -DreuseForks=false \
             -DargLine="--add-opens java.base/sun.misc=ALL-UNNAMED -Djdk.attach.allowAttachSelf=true"
           
@@ -187,6 +204,10 @@ jobs:
   sonar-analysis:
     needs: [userorg-build, lms-build, notification-build, lern-build]
     runs-on: ubuntu-latest
+
+    env:
+      CSP: ${{ vars.CLOUD_STORAGE_PROVIDER || 'azure' }}
+
     steps:
       - uses: actions/checkout@v4
       
@@ -238,13 +259,13 @@ jobs:
         run: |
           if [ -n "$SONAR_TOKEN" ]; then
             # 1. Ensure reactor is healthy and all modules are available in local repo
-            mvn install -P lern -DskipTests -Dcheckstyle.skip -Dmaven.main.compile.skip=true
+            mvn install -P lern,${CSP} -DskipTests -Dcheckstyle.skip -Dmaven.main.compile.skip=true
             # 2. Aggregate coverage reports
-            mvn -P lern -pl lern-jacoco-report -am jacoco:report-aggregate \
+            mvn -P lern,${CSP} -pl lern-jacoco-report -am jacoco:report-aggregate \
               -DskipTests -Dcheckstyle.skip
             # 3. Run Sonar analysis on the entire project
             # Note: We now have all binaries (downloaded) and the reactor is healthy (pre-installed)
-            mvn -P lern sonar:sonar \
+            mvn -P lern,${CSP} sonar:sonar \
               -Dsonar.projectKey=Sunbird-Lern_lern-service \
               -Dsonar.organization=sunbird-lern \
               -Dsonar.host.url=https://sonarcloud.io \

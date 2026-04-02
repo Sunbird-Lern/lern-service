@@ -7,18 +7,16 @@ import static org.sunbird.common.ProjectUtil.getConfigValue;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.commons.lang3.StringUtils;
-import org.sunbird.cloud.storage.BaseStorageService;
-import org.sunbird.cloud.storage.factory.StorageConfig;
-import org.sunbird.cloud.storage.factory.StorageServiceFactory;
+import org.sunbird.cloud.storage.IStorageService;
+import org.sunbird.cloud.storage.StorageConfig;
+import org.sunbird.cloud.storage.StorageServiceFactory;
 import org.sunbird.keys.JsonKey;
 import org.sunbird.common.ProjectUtil;
 import org.sunbird.common.PropertiesCache;
-import scala.Option;
-import scala.Some;
 
 public class CloudStorageUtil {
   private static final int STORAGE_SERVICE_API_RETRY_COUNT = 3;
-  private static final Map<String, BaseStorageService> storageServiceMap = new HashMap<>();
+  private static final Map<String, IStorageService> storageServiceMap = new HashMap<>();
 
   /**
    * Uploads a file to the cloud storage.
@@ -31,15 +29,15 @@ public class CloudStorageUtil {
    */
   public static String upload(
       String storageType, String container, String objectKey, String filePath) {
-    BaseStorageService storageService = getStorageService(storageType);
+    IStorageService storageService = getStorageService(storageType);
     return storageService.upload(
         container,
         filePath,
         objectKey,
-        Option.apply(false),
-        Option.apply(1),
-        Option.apply(STORAGE_SERVICE_API_RETRY_COUNT),
-        Option.empty());
+        false,
+        1,
+        STORAGE_SERVICE_API_RETRY_COUNT,
+        null);
   }
 
   /**
@@ -51,7 +49,7 @@ public class CloudStorageUtil {
    * @return The signed URL.
    */
   public static String getSignedUrl(String storageType, String container, String objectKey) {
-    BaseStorageService storageService = getStorageService(storageType);
+    IStorageService storageService = getStorageService(storageType);
     return getSignedUrl(storageService, container, objectKey, storageType);
   }
 
@@ -65,14 +63,14 @@ public class CloudStorageUtil {
    * @return The signed URL.
    */
   public static String getSignedUrl(
-      BaseStorageService storageService, String container, String objectKey, String cloudType) {
+      IStorageService storageService, String container, String objectKey, String cloudType) {
     return storageService.getSignedURLV2(
         container,
         objectKey,
-        Some.apply(getTimeoutInSeconds()),
-        Some.apply("r"),
-        Some.apply("application/pdf"),
-        Option.empty());
+        getTimeoutInSeconds(),
+        "r",
+        "application/pdf",
+        null);
   }
 
   /**
@@ -83,8 +81,8 @@ public class CloudStorageUtil {
    * @param objectKey The key of the object to delete.
    */
   public static void deleteFile(String storageType, String container, String objectKey) {
-    BaseStorageService storageService = getStorageService(storageType);
-    storageService.deleteObject(container, objectKey, Option.apply(false));
+    IStorageService storageService = getStorageService(storageType);
+    storageService.deleteObject(container, objectKey, false);
   }
 
   /**
@@ -98,8 +96,8 @@ public class CloudStorageUtil {
    */
   public static String getUri(
       String storageType, String container, String prefix, boolean isDirectory) {
-    BaseStorageService storageService = getStorageService(storageType);
-    return storageService.getUri(container, prefix, Option.apply(isDirectory));
+    IStorageService storageService = getStorageService(storageType);
+    return storageService.getUri(container, prefix, isDirectory);
   }
 
   /**
@@ -118,9 +116,9 @@ public class CloudStorageUtil {
    * Loads account name and key from properties cache.
    *
    * @param storageType The type of storage (e.g., azure, aws).
-   * @return A BaseStorageService instance.
+   * @return An IStorageService instance.
    */
-  private static BaseStorageService getStorageService(String storageType) {
+  private static IStorageService getStorageService(String storageType) {
     String storageKey = PropertiesCache.getInstance().getProperty(JsonKey.ACCOUNT_NAME);
     String storageSecret = PropertiesCache.getInstance().getProperty(JsonKey.ACCOUNT_KEY);
     return getStorageService(storageType, storageKey, storageSecret);
@@ -133,9 +131,9 @@ public class CloudStorageUtil {
    * @param storageType The type of storage.
    * @param storageKey The storage account key/name.
    * @param storageSecret The storage account secret.
-   * @return A BaseStorageService instance.
+   * @return An IStorageService instance.
    */
-  private static BaseStorageService getStorageService(
+  private static IStorageService getStorageService(
       String storageType, String storageKey, String storageSecret) {
     String compositeKey = storageType + "-" + storageKey;
     if (storageServiceMap.containsKey(compositeKey)) {
@@ -145,18 +143,40 @@ public class CloudStorageUtil {
       if (storageServiceMap.containsKey(compositeKey)) {
         return storageServiceMap.get(compositeKey);
       }
-      scala.Option<String> storageEndpoint =
-          scala.Option.apply(PropertiesCache.getInstance().getProperty(JsonKey.ACCOUNT_ENDPOINT));
-      scala.Option<String> storageRegion = scala.Option.apply("");
-      scala.Option<String> authType =
-          scala.Option.apply(PropertiesCache.getInstance().getProperty(JsonKey.AUTH_TYPE));
-      if (authType.isEmpty()) {
-        authType = scala.Option.apply("access_key");
+      String authTypeStr = PropertiesCache.getInstance().getProperty(JsonKey.AUTH_TYPE);
+      if (StringUtils.isBlank(authTypeStr)) {
+        authTypeStr = "ACCESS_KEY";
       }
-      StorageConfig storageConfig =
-          new StorageConfig(
-              storageType, storageKey, storageSecret, storageEndpoint, storageRegion, authType);
-      BaseStorageService storageService = StorageServiceFactory.getStorageService(storageConfig);
+
+      // Resolve auth type from config value (case-insensitive enum name)
+      StorageConfig.AuthType authType;
+      try {
+        authType = StorageConfig.AuthType.valueOf(authTypeStr.replace("-", "_").toUpperCase());
+      } catch (IllegalArgumentException e) {
+        throw new IllegalArgumentException("Invalid auth type: " + authTypeStr + ". Must be a valid StorageConfig.AuthType enum value.", e);
+      }
+
+      // Resolve storage type from config value (case-insensitive enum name)
+      StorageConfig.StorageType resolvedStorageType;
+      try {
+        resolvedStorageType = StorageConfig.StorageType.valueOf(storageType.toUpperCase());
+      } catch (IllegalArgumentException e) {
+        throw new IllegalArgumentException("Invalid storage type: " + storageType + ". Must be a valid StorageConfig.StorageType enum value.", e);
+      }
+
+      StorageConfig.Builder builder = StorageConfig.builder(resolvedStorageType)
+              .storageKey(storageKey)
+              .authType(authType);
+
+      // For ACCESS_KEY auth, provide the account secret.
+      // For OIDC / IAM / IAM_ROLE / INSTANCE_PROFILE, the cloud SDK resolves
+      // credentials automatically from Workload Identity env vars or instance
+      // metadata — passing a secret would break the credential chain.
+      if (authType == StorageConfig.AuthType.ACCESS_KEY) {
+        builder.storageSecret(storageSecret);
+      }
+      StorageConfig storageConfig = builder.build();
+      IStorageService storageService = StorageServiceFactory.getStorageService(storageConfig);
       storageServiceMap.put(compositeKey, storageService);
     }
     return storageServiceMap.get(compositeKey);

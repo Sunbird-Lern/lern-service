@@ -32,8 +32,8 @@ import org.powermock.modules.junit4.PowerMockRunner;
 import org.sunbird.actor.location.validator.LocationRequestValidator;
 import org.sunbird.actor.organisation.validator.OrgTypeValidator;
 import org.sunbird.cassandraimpl.CassandraOperationImpl;
-import org.sunbird.cloud.storage.BaseStorageService;
-import org.sunbird.cloud.storage.factory.StorageServiceFactory;
+import org.sunbird.cloud.storage.IStorageService;
+import org.sunbird.cloud.storage.StorageServiceFactory;
 import org.sunbird.common.ElasticSearchRestHighImpl;
 import org.sunbird.common.factory.EsClientFactory;
 import org.sunbird.common.inf.ElasticSearchService;
@@ -54,7 +54,6 @@ import org.sunbird.service.organisation.impl.OrgServiceImpl;
 import org.sunbird.utils.CloudStorageUtil;
 import org.sunbird.common.PropertiesCache;
 import org.sunbird.util.Util;
-import scala.Option;
 import scala.concurrent.Promise;
 
 @RunWith(PowerMockRunner.class)
@@ -363,7 +362,7 @@ public class OrgManagementActorTest {
   @Ignore
   public void testAddEncryptionKey() throws Exception {
     try {
-      BaseStorageService service = mock(BaseStorageService.class);
+      IStorageService service = mock(IStorageService.class);
       mockStatic(StorageServiceFactory.class);
 
       try {
@@ -373,10 +372,10 @@ public class OrgManagementActorTest {
                 Mockito.anyString(),
                 Mockito.anyString(),
                 Mockito.anyString(),
-                Mockito.any(Option.class),
-                Mockito.any(Option.class),
-                Mockito.any(Option.class),
-                Mockito.any(Option.class)))
+                Mockito.anyBoolean(),
+                Mockito.anyInt(),
+                Mockito.anyInt(),
+                Mockito.any()))
             .thenReturn(UPLOAD_URL);
       } catch (Exception e) {
         Assert.fail(e.getMessage());

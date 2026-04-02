@@ -9,6 +9,14 @@ RUN unzip lern-service-impl-1.0-SNAPSHOT-dist.zip
 # Stage 2: Runtime
 FROM eclipse-temurin:11-jre-alpine
 
+# Cloud Storage Provider selection — pass --build-arg CSP=<azure|aws|gcloud|oci> at build time.
+# Defaults to azure. The Maven build must have been run with the matching profile (-P <csp>).
+# cloud_storage_auth_type defaults to OIDC (Kubernetes Workload Identity).
+# Override at runtime via K8s ConfigMap or: docker run -e sunbird_cloud_storage_auth_type=ACCESS_KEY
+ARG CSP=azure
+ENV sunbird_cloud_service_provider=${CSP}
+ENV sunbird_cloud_storage_auth_type=OIDC
+
 RUN apk upgrade --no-cache \
     && apk add --no-cache curl "zlib>=1.3.2-r0" \
     && adduser -u 1001 -h /home/sunbird/ -D sunbird \

@@ -3,8 +3,6 @@ package org.sunbird.util.user;
 import static org.junit.Assert.assertTrue;
 import static org.powermock.api.mockito.PowerMockito.when;
 
-import com.google.gson.JsonObject;
-import org.jclouds.json.Json;
 import org.json.JSONObject;
 import org.junit.Before;
 import org.junit.Test;
