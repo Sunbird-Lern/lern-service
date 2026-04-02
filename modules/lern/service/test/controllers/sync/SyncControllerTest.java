@@ -37,7 +37,8 @@ public class SyncControllerTest {
           .build();
       Helpers.start(application);
     } catch (Exception e) {
-      throw new RuntimeException("Failed to setup test environment", e);
+      e.printStackTrace();
+      throw new RuntimeException("Failed to setup test environment: " + e.getMessage(), e);
     }
   }
 
