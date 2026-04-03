@@ -153,19 +153,64 @@ public class CourseBatchUtil {
     SimpleDateFormat dateTimeFormat = ProjectUtil.getDateFormatter();
     dateFormat.setTimeZone(TimeZone.getTimeZone(ProjectUtil.getConfigValue(JsonKey.SUNBIRD_TIMEZONE)));
     dateTimeFormat.setTimeZone(TimeZone.getTimeZone(ProjectUtil.getConfigValue(JsonKey.SUNBIRD_TIMEZONE)));
+
+    // Create UTC formatter for storing dates in ISO 8601 format in ES
+    SimpleDateFormat utcDateTimeFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
+    utcDateTimeFormat.setTimeZone(TimeZone.getTimeZone("UTC"));
+
     Map<String, Object> esCourseMap = mapper.convertValue(courseBatch, Map.class);
+
     changeInDateFormat.forEach(key -> {
-      if (null != esCourseMap.get(key))
-        esCourseMap.put(key, dateTimeFormat.format(esCourseMap.get(key)));
-      else 
+      if (null != esCourseMap.get(key)) {
+        Object value = esCourseMap.get(key);
+        Date dateValue;
+        if (value instanceof Date) {
+          dateValue = (Date) value;
+        } else if (value instanceof Long) {
+          dateValue = new Date((Long) value);
+        } else {
+          logger.error("CourseBatchUtil:esCourseMapping: Unexpected date type for key " + key + ": " + value.getClass().getName());
+          esCourseMap.put(key, null);
+          return;
+        }
+        esCourseMap.put(key, dateTimeFormat.format(dateValue));
+      } else {
         esCourseMap.put(key, null);
+      }
     });
+
+    // Format date-only fields with ISO 8601 UTC timestamps
     changeInSimpleDateFormat.forEach(key -> {
-      if (null != esCourseMap.get(key))
-        esCourseMap.put(key, dateFormat.format(esCourseMap.get(key)));
-      else 
+      if (null != esCourseMap.get(key)) {
+        try {
+          Date dateValue;
+          Object value = esCourseMap.get(key);
+          // Handle both Date objects and Long timestamps
+          if (value instanceof Date) {
+            dateValue = (Date) value;
+          } else if (value instanceof Long) {
+            dateValue = new Date((Long) value);
+          } else {
+            logger.error("CourseBatchUtil:esCourseMapping: Unexpected date type for key " + key + ": " + value.getClass().getName());
+            esCourseMap.put(key, null);
+            return;
+          }
+          // Format in local timezone first to normalize
+          String formatted = dateTimeFormat.format(dateValue);
+          Date normalized = dateTimeFormat.parse(formatted);
+          // Apply end-of-day for endDate and enrollmentEndDate fields
+          Date finalDate = setEndOfDay(key, normalized, dateFormat);
+          // Format as ISO 8601 UTC string for ES
+          esCourseMap.put(key, utcDateTimeFormat.format(finalDate));
+        } catch (ParseException e) {
+          logger.error("CourseBatchUtil:esCourseMapping: Error formatting date for key " + key + ": " + e.getMessage(), e);
+          esCourseMap.put(key, null);
+        }
+      } else {
         esCourseMap.put(key, null);
+      }
     });
+
     esCourseMap.put(CourseJsonKey.CERTIFICATE_TEMPLATES_COLUMN, courseBatch.getCertTemplates());
     return esCourseMap;
   }
@@ -249,36 +294,27 @@ public class CourseBatchUtil {
     }
     try {
       // ES dates can be in multiple formats:
-      // 1. ISO 8601 with time: "2026-03-31T18:29:59.999Z"
-      // 2. Date only: "2026-03-31"
+      // 1. ISO 8601 with time: "2026-03-31T18:29:59.999Z" (new format)
+      // 2. Date only: "2026-03-31" (old format - represents local timezone date)
+      TimeZone localTz = TimeZone.getTimeZone(ProjectUtil.getConfigValue(JsonKey.SUNBIRD_TIMEZONE));
+
       SimpleDateFormat isoFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
       isoFormat.setTimeZone(TimeZone.getTimeZone("UTC"));
+
       SimpleDateFormat dateOnlyFormat = new SimpleDateFormat("yyyy-MM-dd");
-      dateOnlyFormat.setTimeZone(TimeZone.getTimeZone("UTC"));
+      dateOnlyFormat.setTimeZone(localTz);  // Old format uses local timezone
 
       Date startDate = null;
       Date endDate = null;
 
       if (batchMap.get(JsonKey.START_DATE) != null) {
         String startDateStr = batchMap.get(JsonKey.START_DATE).toString();
-        startDate = parseEsDate(startDateStr, isoFormat, dateOnlyFormat);
+        startDate = parseEsDateForComparison(startDateStr, isoFormat, dateOnlyFormat, localTz);
       }
 
       if (batchMap.get(JsonKey.END_DATE) != null) {
         String endDateStr = batchMap.get(JsonKey.END_DATE).toString();
-        endDate = parseEsDate(endDateStr, isoFormat, dateOnlyFormat);
-      }
-
-      // Convert UTC dates to configured timezone for comparison
-      TimeZone tz = TimeZone.getTimeZone(ProjectUtil.getConfigValue(JsonKey.SUNBIRD_TIMEZONE));
-      Calendar cal = Calendar.getInstance(tz);
-      if (startDate != null) {
-        cal.setTimeInMillis(startDate.getTime());
-        startDate = cal.getTime();
-      }
-      if (endDate != null) {
-        cal.setTimeInMillis(endDate.getTime());
-        endDate = cal.getTime();
+        endDate = parseEsDateForComparison(endDateStr, isoFormat, dateOnlyFormat, localTz);
       }
 
       int computedStatus = computeBatchStatus(startDate, endDate);
@@ -296,6 +332,21 @@ public class CourseBatchUtil {
       return isoFormat.parse(dateStr);
     } catch (ParseException e) {
       // Fall back to date-only format
+      return dateOnlyFormat.parse(dateStr);
+    }
+  }
+
+  private static Date parseEsDateForComparison(String dateStr, SimpleDateFormat isoFormat, SimpleDateFormat dateOnlyFormat, TimeZone localTz) throws ParseException {
+    try {
+      // Try ISO 8601 format first (new format with UTC timestamp)
+      Date parsedDate = isoFormat.parse(dateStr);
+      // Convert UTC time to local timezone representation for comparison
+      SimpleDateFormat localFormat = new SimpleDateFormat("yyyy-MM-dd");
+      localFormat.setTimeZone(localTz);
+      String localDateStr = localFormat.format(parsedDate);
+      return localFormat.parse(localDateStr);
+    } catch (ParseException e) {
+      // Fall back to date-only format (old format - already in local timezone)
       return dateOnlyFormat.parse(dateStr);
     }
   }
