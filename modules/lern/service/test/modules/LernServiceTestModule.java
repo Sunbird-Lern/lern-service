@@ -12,6 +12,13 @@ import org.sunbird.helper.CassandraConnectionManager;
  */
 public class LernServiceTestModule extends AbstractModule {
 
+    @Override
+    protected void configure() {
+        // Bind LernServiceApplicationStart to a mock so its constructor (which connects to Cassandra)
+        // is never invoked during tests.
+        bind(LernServiceApplicationStart.class).toInstance(Mockito.mock(LernServiceApplicationStart.class));
+    }
+
     /**
      * Provides a mocked Cassandra connection manager that doesn't actually connect.
      */
