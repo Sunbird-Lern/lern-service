@@ -185,7 +185,10 @@ public class CourseBatchUtilTest {
   public void esCourseMappingTest() throws Exception {
     Map<String, Object> esMap = CourseBatchUtil.esCourseMapping(getCourseBatch(), dateformat);
     Assert.assertNotNull(esMap);
-    Assert.assertEquals(esMap.get(JsonKey.START_DATE), "2021-05-04");
+    // startDate should be formatted as ISO 8601 UTC timestamp with time component
+    String startDate = esMap.get(JsonKey.START_DATE).toString();
+    Assert.assertTrue("Should contain date", startDate.contains("2021-05-04"));
+    Assert.assertTrue("Should have ISO 8601 format with time", startDate.matches(".*T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z.*"));
   }
 
   @Test
