@@ -16,7 +16,7 @@ import org.sunbird.common.ProjectUtil
 import org.sunbird.helper.ServiceFactory
 import org.sunbird.kafka.{InstructionEventGenerator, KafkaClient}
 import org.sunbird.learner.constants.{CourseJsonKey, InstructionEvent}
-import org.sunbird.learner.util.Util
+import org.sunbird.learner.util.{CourseBatchUtil, Util}
 
 import com.datastax.driver.core.{UDTValue, UserType}
 import java.util
@@ -134,6 +134,7 @@ class ContentConsumptionActor @Inject() (
             val batches:Map[String, List[java.util.Map[String, AnyRef]]] = getBatches(requestContext ,new java.util.ArrayList[String](batchIds), null).toList.groupBy(batch => batch.get(JsonKey.BATCH_ID).asInstanceOf[String])
             val invalidBatchIds = batchAssessmentList.keySet.diff(batches.keySet).toList.asJava
             val validBatches:Map[String, List[java.util.Map[String, AnyRef]]]  = batches.filter { case (key, _) => batchIds.contains(key) }
+            validBatches.values.foreach(batchList => batchList.foreach(batch => CourseBatchUtil.enrichBatchStatusFromDates(batch)))
             val completedBatchIds = validBatches.filter(batch => 1 != batch._2.head.get(JsonKey.STATUS).asInstanceOf[Integer]).keys.toList.asJava
             val invalidAssessments = new java.util.ArrayList[java.util.Map[String, AnyRef]]()
             val validUserIds = List(requestedBy, requestedFor).filter(p => StringUtils.isNotBlank(p))
@@ -179,6 +180,7 @@ class ContentConsumptionActor @Inject() (
             val batches:Map[String, List[java.util.Map[String, AnyRef]]] = getBatches(requestContext ,new java.util.ArrayList[String](batchIds), null).toList.groupBy(batch => batch.get(JsonKey.BATCH_ID).asInstanceOf[String])
             val invalidBatchIds = batchContentList.keySet.diff(batches.keySet).toList.asJava
             val validBatches:Map[String, List[java.util.Map[String, AnyRef]]]  = batches.filter { case (key, _) => batchIds.contains(key) }
+            validBatches.values.foreach(batchList => batchList.foreach(batch => CourseBatchUtil.enrichBatchStatusFromDates(batch)))
             val completedBatchIds = validBatches.filter(batch => 1 != batch._2.head.get(JsonKey.STATUS).asInstanceOf[Integer]).keys.toList.asJava
             val responseMessage = new java.util.HashMap[String, AnyRef]()
             val invalidContents = new java.util.ArrayList[java.util.Map[String, AnyRef]]()
