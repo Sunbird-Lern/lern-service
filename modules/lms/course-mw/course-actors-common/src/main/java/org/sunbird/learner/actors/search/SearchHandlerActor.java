@@ -377,12 +377,10 @@ public class SearchHandlerActor extends BaseActor {
     }
 
     String today = new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date());
-    Map<String, Object> filters = new HashMap<>();
 
     switch (requestedStatus) {
       case 0: // NOT_STARTED
-        filters.put("startDate", Map.of("gt", today));
-        filtersMap.put(JsonKey.FILTERS, filters);
+        filtersMap.put(JsonKey.START_DATE, Map.of("gt", today));
         logger.info(requestContext, "SearchHandlerActor: Translated Status=0 to startDate > " + today);
         return null;
 
@@ -392,8 +390,7 @@ public class SearchHandlerActor extends BaseActor {
         return 1;  // Return flag for in-memory filtering
 
       case 2: // COMPLETED
-        filters.put("endDate", Map.of("lt", today));
-        filtersMap.put(JsonKey.FILTERS, filters);
+        filtersMap.put(JsonKey.END_DATE, Map.of("lt", today));
         logger.info(requestContext, "SearchHandlerActor: Translated Status=2 to endDate < " + today);
         return null;
 
