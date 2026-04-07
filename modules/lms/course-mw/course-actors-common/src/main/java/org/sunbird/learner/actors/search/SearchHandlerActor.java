@@ -127,7 +127,7 @@ public class SearchHandlerActor extends BaseActor {
         // In-memory filter for Status=1 (STARTED) - apply after enrichment to ensure accurate status
         if (requestedStatusForInMemoryFilter != null && requestedStatusForInMemoryFilter == 1) {
           if (CollectionUtils.isNotEmpty(courseBatchList)) {
-            courseBatchList.removeIf(batch -> !batch.get(JsonKey.STATUS).equals(1));
+            courseBatchList.removeIf(batch -> !Integer.valueOf(1).equals(batch.get(JsonKey.STATUS)));
             result.put(JsonKey.COUNT, courseBatchList.size());
             logger.info(request.getRequestContext(), "SearchHandlerActor: Applied in-memory Status=1 filter, result count = " + courseBatchList.size());
           }
