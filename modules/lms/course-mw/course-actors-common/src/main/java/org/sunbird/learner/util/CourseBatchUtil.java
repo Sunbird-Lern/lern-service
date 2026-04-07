@@ -262,14 +262,24 @@ public class CourseBatchUtil {
    * @param endDate the batch end date (may be null for ongoing batches)
    * @return batch status (0, 1, or 2)
    */
-  public static int computeBatchStatus(Date startDate, Date endDate) {
+  private static Date getTodayMidnightDate() {
     TimeZone tz = TimeZone.getTimeZone(ProjectUtil.getConfigValue(JsonKey.SUNBIRD_TIMEZONE));
     Calendar todayCal = Calendar.getInstance(tz);
     todayCal.set(Calendar.HOUR_OF_DAY, 0);
     todayCal.set(Calendar.MINUTE, 0);
     todayCal.set(Calendar.SECOND, 0);
     todayCal.set(Calendar.MILLISECOND, 0);
-    Date today = todayCal.getTime();
+    return todayCal.getTime();
+  }
+
+  public static String getTodayBoundaryUtc() {
+    SimpleDateFormat utcFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
+    utcFormat.setTimeZone(TimeZone.getTimeZone("UTC"));
+    return utcFormat.format(getTodayMidnightDate());
+  }
+
+  public static int computeBatchStatus(Date startDate, Date endDate) {
+    Date today = getTodayMidnightDate();
 
     if (today.before(startDate)) {
       return ProjectUtil.ProgressStatus.NOT_STARTED.getValue();  // 0

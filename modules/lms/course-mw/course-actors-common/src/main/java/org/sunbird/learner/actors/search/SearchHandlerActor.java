@@ -376,12 +376,12 @@ public class SearchHandlerActor extends BaseActor {
       requestedStatus = Integer.parseInt(statusObj.toString());
     }
 
-    String today = new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date());
+    String todayBoundary = CourseBatchUtil.getTodayBoundaryUtc();
 
     switch (requestedStatus) {
       case 0: // NOT_STARTED
-        filtersMap.put(JsonKey.START_DATE, Map.of("gt", today));
-        logger.info(requestContext, "SearchHandlerActor: Translated Status=0 to startDate > " + today);
+        filtersMap.put(JsonKey.START_DATE, Map.of("gt", todayBoundary));
+        logger.info(requestContext, "SearchHandlerActor: Translated Status=0 to startDate > " + todayBoundary);
         return null;
 
       case 1: // STARTED
@@ -390,8 +390,8 @@ public class SearchHandlerActor extends BaseActor {
         return 1;  // Return flag for in-memory filtering
 
       case 2: // COMPLETED
-        filtersMap.put(JsonKey.END_DATE, Map.of("lt", today));
-        logger.info(requestContext, "SearchHandlerActor: Translated Status=2 to endDate < " + today);
+        filtersMap.put(JsonKey.END_DATE, Map.of("lt", todayBoundary));
+        logger.info(requestContext, "SearchHandlerActor: Translated Status=2 to endDate < " + todayBoundary);
         return null;
 
       default:
