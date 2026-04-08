@@ -48,6 +48,7 @@ import scala.concurrent.Promise;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -234,7 +235,7 @@ public class SearchHandlerActorTest {
   @Test
   public void testTranslateStatusFilter_status0_asListValue() throws Exception {
     Map<String, Object> filtersMap = new HashMap<>();
-    filtersMap.put(JsonKey.STATUS, List.of("0"));
+    filtersMap.put(JsonKey.STATUS, Arrays.asList("0"));
     Integer result = (Integer) getTranslateMethod().invoke(actorRef.underlyingActor(), filtersMap, getRequestContext());
     assertNull(result);
     assertTrue(filtersMap.containsKey(JsonKey.START_DATE));

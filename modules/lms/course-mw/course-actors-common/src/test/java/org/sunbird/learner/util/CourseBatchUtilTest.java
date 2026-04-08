@@ -237,7 +237,7 @@ public class CourseBatchUtilTest {
   }
 
   @Test
-  @PrepareForTest({EsClientFactory.class, ElasticSearchHelper.class, Unirest.class})
+  @PrepareForTest({EsClientFactory.class, ElasticSearchHelper.class, Unirest.class, ProjectUtil.class})
   public void validateCourseBatchSuccessTest() {
     group.withESMock(new ESMocker());
     CustomObjectWrapper<Map<String, Object>> courseBatchIn =
@@ -253,7 +253,7 @@ public class CourseBatchUtilTest {
   }
 
   @Ignore
-  @PrepareForTest({EsClientFactory.class, ElasticSearchHelper.class, Unirest.class})
+  @PrepareForTest({EsClientFactory.class, ElasticSearchHelper.class, Unirest.class, ProjectUtil.class})
   public void validateCourseBatchFailureTest() {
     group.withESMock(new ESMocker());
     when(group.getESMockerService().getDataByIdentifier(Mockito.anyString(), Mockito.anyString(), Mockito.any()))
@@ -267,7 +267,7 @@ public class CourseBatchUtilTest {
   }
 
   @Test
-  @PrepareForTest({EsClientFactory.class, ElasticSearchHelper.class, Unirest.class})
+  @PrepareForTest({EsClientFactory.class, ElasticSearchHelper.class, Unirest.class, ProjectUtil.class})
   public void validateCourseBatchCourseMismatchFailureTest() {
     group.withESMock(new ESMocker());
     CustomObjectWrapper<Map<String, Object>> courseBatchIn =
@@ -286,7 +286,7 @@ public class CourseBatchUtilTest {
 
   @Ignore
   @Test
-  @PrepareForTest({EsClientFactory.class, ElasticSearchHelper.class, Unirest.class})
+  @PrepareForTest({EsClientFactory.class, ElasticSearchHelper.class, Unirest.class, ProjectUtil.class})
   public void syncCourseBatchForegroundSuccessTest() {
     group.withESMock(new ESMocker());
     when(group
