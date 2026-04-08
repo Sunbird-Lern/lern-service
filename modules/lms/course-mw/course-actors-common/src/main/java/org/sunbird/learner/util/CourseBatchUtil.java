@@ -327,6 +327,10 @@ public class CourseBatchUtil {
         endDate = parseEsDateForComparison(endDateStr, isoFormat, dateOnlyFormat, localTz);
       }
 
+      if (startDate == null) {
+        logger.warn("enrichBatchStatusFromDates: startDate missing, skipping status enrichment for batch: " + batchMap.get(JsonKey.ID));
+        return;
+      }
       int computedStatus = computeBatchStatus(startDate, endDate);
       batchMap.put(JsonKey.STATUS, computedStatus);
     } catch (ParseException e) {

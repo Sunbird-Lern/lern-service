@@ -21,6 +21,7 @@ import org.sunbird.builder.mocker.MockerBuilder;
 import org.sunbird.builder.object.CustomObjectBuilder;
 import org.sunbird.builder.object.CustomObjectBuilder.CustomObjectWrapper;
 import org.sunbird.common.ElasticSearchHelper;
+import org.sunbird.common.ProjectUtil;
 import org.sunbird.exception.ProjectCommonException;
 import org.sunbird.common.factory.EsClientFactory;
 import org.sunbird.keys.JsonKey;
@@ -29,12 +30,17 @@ import org.sunbird.utils.JsonUtil;
 import org.sunbird.models.course.batch.CourseBatch;
 
 import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.TimeZone;
 
+import static org.junit.Assert.*;
 import static org.powermock.api.mockito.PowerMockito.when;
 
 @RunWith(PowerMockRunner.class)
-@PrepareForTest({Unirest.class})
+@PrepareForTest({Unirest.class, ProjectUtil.class})
 @PowerMockIgnore("javax.management.*")
 public class CourseBatchUtilTest {
 
@@ -44,6 +50,118 @@ public class CourseBatchUtilTest {
   @Before
   public void setup() {
     group = MockerBuilder.getFreshMockerGroup().andStaticMock(Unirest.class);
+    PowerMockito.mockStatic(ProjectUtil.class);
+    when(ProjectUtil.getConfigValue(JsonKey.SUNBIRD_TIMEZONE)).thenReturn("Asia/Kolkata");
+    when(ProjectUtil.getDateFormatter()).thenReturn(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss:SSSZ"));
+    when(ProjectUtil.getDateFormatter(dateformat)).thenReturn(new SimpleDateFormat(dateformat));
+  }
+
+  // --- computeBatchStatus tests ---
+
+  private Date todayInIst() {
+    Calendar cal = Calendar.getInstance(TimeZone.getTimeZone("Asia/Kolkata"));
+    cal.set(Calendar.HOUR_OF_DAY, 0);
+    cal.set(Calendar.MINUTE, 0);
+    cal.set(Calendar.SECOND, 0);
+    cal.set(Calendar.MILLISECOND, 0);
+    return cal.getTime();
+  }
+
+  private Date daysFromToday(int days) {
+    Calendar cal = Calendar.getInstance(TimeZone.getTimeZone("Asia/Kolkata"));
+    cal.set(Calendar.HOUR_OF_DAY, 0);
+    cal.set(Calendar.MINUTE, 0);
+    cal.set(Calendar.SECOND, 0);
+    cal.set(Calendar.MILLISECOND, 0);
+    cal.add(Calendar.DATE, days);
+    return cal.getTime();
+  }
+
+  @Test
+  public void computeBatchStatus_notStarted_startDateInFuture() {
+    Date start = daysFromToday(1);
+    assertEquals(0, CourseBatchUtil.computeBatchStatus(start, null));
+  }
+
+  @Test
+  public void computeBatchStatus_started_startDateToday_noEndDate() {
+    Date start = todayInIst();
+    assertEquals(1, CourseBatchUtil.computeBatchStatus(start, null));
+  }
+
+  @Test
+  public void computeBatchStatus_started_startDatePast_endDateFuture() {
+    Date start = daysFromToday(-5);
+    Date end = daysFromToday(5);
+    assertEquals(1, CourseBatchUtil.computeBatchStatus(start, end));
+  }
+
+  @Test
+  public void computeBatchStatus_started_endDateToday() {
+    Date start = daysFromToday(-5);
+    Date end = todayInIst();
+    assertEquals(1, CourseBatchUtil.computeBatchStatus(start, end));
+  }
+
+  @Test
+  public void computeBatchStatus_completed_endDateInPast() {
+    Date start = daysFromToday(-10);
+    Date end = daysFromToday(-1);
+    assertEquals(2, CourseBatchUtil.computeBatchStatus(start, end));
+  }
+
+  // --- enrichBatchStatusFromDates tests ---
+
+  @Test
+  public void enrichBatchStatus_isoFormat_started() {
+    // startDate yesterday, no endDate → STARTED
+    Map<String, Object> batch = new HashMap<>();
+    batch.put(JsonKey.START_DATE, "2020-01-01T00:00:00.000Z");
+    CourseBatchUtil.enrichBatchStatusFromDates(batch);
+    assertEquals(1, batch.get(JsonKey.STATUS));
+  }
+
+  @Test
+  public void enrichBatchStatus_isoFormat_completed() {
+    // startDate and endDate both in past → COMPLETED
+    Map<String, Object> batch = new HashMap<>();
+    batch.put(JsonKey.START_DATE, "2020-01-01T00:00:00.000Z");
+    batch.put(JsonKey.END_DATE, "2020-01-31T18:29:59.999Z");
+    CourseBatchUtil.enrichBatchStatusFromDates(batch);
+    assertEquals(2, batch.get(JsonKey.STATUS));
+  }
+
+  @Test
+  public void enrichBatchStatus_dateOnlyFormat_started() {
+    // Old date-only format, startDate in past → STARTED
+    Map<String, Object> batch = new HashMap<>();
+    batch.put(JsonKey.START_DATE, "2020-01-01");
+    CourseBatchUtil.enrichBatchStatusFromDates(batch);
+    assertEquals(1, batch.get(JsonKey.STATUS));
+  }
+
+  @Test
+  public void enrichBatchStatus_dateOnlyFormat_completed() {
+    Map<String, Object> batch = new HashMap<>();
+    batch.put(JsonKey.START_DATE, "2020-01-01");
+    batch.put(JsonKey.END_DATE, "2020-01-31");
+    CourseBatchUtil.enrichBatchStatusFromDates(batch);
+    assertEquals(2, batch.get(JsonKey.STATUS));
+  }
+
+  @Test
+  public void enrichBatchStatus_missingStartDate_statusNotSet() {
+    Map<String, Object> batch = new HashMap<>();
+    batch.put(JsonKey.END_DATE, "2020-01-31T18:29:59.999Z");
+    CourseBatchUtil.enrichBatchStatusFromDates(batch);
+    assertFalse(batch.containsKey(JsonKey.STATUS));
+  }
+
+  @Test
+  public void enrichBatchStatus_emptyMap_noOp() {
+    Map<String, Object> batch = new HashMap<>();
+    CourseBatchUtil.enrichBatchStatusFromDates(batch);
+    assertFalse(batch.containsKey(JsonKey.STATUS));
   }
 
   @Test

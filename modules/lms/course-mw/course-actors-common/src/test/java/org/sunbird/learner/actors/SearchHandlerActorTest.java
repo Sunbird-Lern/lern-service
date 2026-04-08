@@ -52,7 +52,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 import static org.powermock.api.mockito.PowerMockito.*;
 
 @RunWith(PowerMockRunner.class)
@@ -102,6 +102,7 @@ public class SearchHandlerActorTest {
     when(ProjectUtil.getConfigValue("user_search_base_url")).thenReturn("http://test.com/api");
     when(ProjectUtil.getConfigValue("sunbird_user_search_cretordetails_fields")).thenReturn("id,firstName,lastName");
     when(ProjectUtil.getConfigValue("sunbird_api_request_lower_case_fields")).thenReturn("compositeSearch,testOperation");
+    when(ProjectUtil.getConfigValue(JsonKey.SUNBIRD_TIMEZONE)).thenReturn("Asia/Kolkata");
     mockStatic(HttpUtil.class);
     String body = "{\"id\":\"api.user.search\",\"ver\":\"v1\",\"ts\":\"2020-04-15 14:59:51:094+0000\",\"params\":{\"resmsgid\":null,\"msgid\":null,\"err\":null,\"status\":\"success\",\"errmsg\":null},\"responseCode\":\"OK\",\"result\":{\"response\":{\"count\":1,\"content\":[{\"lastName\":\"User\",\"firstName\":\"Reviewer\",\"id\":\"95e4942d-cbe8-477d-aebd-ad8e6de4bfc8\"}]}}}";
     when(HttpUtil.doPostRequest(Mockito.anyString(), Mockito.anyString(), Mockito.anyMap())).thenReturn(new HttpUtilResponse(body, 200));
@@ -195,6 +196,91 @@ public class SearchHandlerActorTest {
       if(StringUtils.equalsIgnoreCase("95e4942d-cbe8-477d-aebd-ad8e6de4bfc8", (String) map.get("createdBy")))
         assertTrue(MapUtils.isNotEmpty((Map<String, Object>) map.get("creatorDetails")));
     }
+  }
+
+  private Method getTranslateMethod() throws Exception {
+    Method method = SearchHandlerActor.class.getDeclaredMethod("translateStatusFilterToDates", Map.class, RequestContext.class);
+    method.setAccessible(true);
+    return method;
+  }
+
+  private RequestContext getRequestContext() {
+    return new RequestContext("uid", "did", "sid", "appId", "appVer", "reqId", "debugEnabled", null);
+  }
+
+  @Test
+  public void testTranslateStatusFilter_noStatusKey_returnsNull() throws Exception {
+    Map<String, Object> filtersMap = new HashMap<>();
+    filtersMap.put("courseId", "course123");
+    Integer result = (Integer) getTranslateMethod().invoke(actorRef.underlyingActor(), filtersMap, getRequestContext());
+    assertNull(result);
+    assertFalse(filtersMap.containsKey(JsonKey.START_DATE));
+    assertFalse(filtersMap.containsKey(JsonKey.END_DATE));
+  }
+
+  @Test
+  public void testTranslateStatusFilter_status0_addsStartDateGtFilter() throws Exception {
+    Map<String, Object> filtersMap = new HashMap<>();
+    filtersMap.put(JsonKey.STATUS, 0);
+    Integer result = (Integer) getTranslateMethod().invoke(actorRef.underlyingActor(), filtersMap, getRequestContext());
+    assertNull(result);
+    assertFalse(filtersMap.containsKey(JsonKey.STATUS));
+    assertTrue(filtersMap.containsKey(JsonKey.START_DATE));
+    Map<String, Object> range = (Map<String, Object>) filtersMap.get(JsonKey.START_DATE);
+    assertTrue(range.containsKey("gt"));
+    assertTrue(((String) range.get("gt")).contains("T")); // UTC ISO 8601 format
+  }
+
+  @Test
+  public void testTranslateStatusFilter_status0_asListValue() throws Exception {
+    Map<String, Object> filtersMap = new HashMap<>();
+    filtersMap.put(JsonKey.STATUS, List.of("0"));
+    Integer result = (Integer) getTranslateMethod().invoke(actorRef.underlyingActor(), filtersMap, getRequestContext());
+    assertNull(result);
+    assertTrue(filtersMap.containsKey(JsonKey.START_DATE));
+  }
+
+  @Test
+  public void testTranslateStatusFilter_status1_returnsOneForInMemoryFilter() throws Exception {
+    Map<String, Object> filtersMap = new HashMap<>();
+    filtersMap.put(JsonKey.STATUS, 1);
+    Integer result = (Integer) getTranslateMethod().invoke(actorRef.underlyingActor(), filtersMap, getRequestContext());
+    assertEquals(Integer.valueOf(1), result);
+    assertFalse(filtersMap.containsKey(JsonKey.STATUS));
+    assertFalse(filtersMap.containsKey(JsonKey.START_DATE));
+    assertFalse(filtersMap.containsKey(JsonKey.END_DATE));
+  }
+
+  @Test
+  public void testTranslateStatusFilter_status2_addsEndDateLtFilter() throws Exception {
+    Map<String, Object> filtersMap = new HashMap<>();
+    filtersMap.put(JsonKey.STATUS, 2);
+    Integer result = (Integer) getTranslateMethod().invoke(actorRef.underlyingActor(), filtersMap, getRequestContext());
+    assertNull(result);
+    assertFalse(filtersMap.containsKey(JsonKey.STATUS));
+    assertTrue(filtersMap.containsKey(JsonKey.END_DATE));
+    Map<String, Object> range = (Map<String, Object>) filtersMap.get(JsonKey.END_DATE);
+    assertTrue(range.containsKey("lt"));
+    assertTrue(((String) range.get("lt")).contains("T")); // UTC ISO 8601 format
+  }
+
+  @Test
+  public void testTranslateStatusFilter_preservesExistingFilters() throws Exception {
+    Map<String, Object> filtersMap = new HashMap<>();
+    filtersMap.put(JsonKey.STATUS, 0);
+    filtersMap.put("courseId", "course123");
+    getTranslateMethod().invoke(actorRef.underlyingActor(), filtersMap, getRequestContext());
+    assertEquals("course123", filtersMap.get("courseId")); // other filters untouched
+  }
+
+  @Test
+  public void testTranslateStatusFilter_unknownStatus_returnsNull() throws Exception {
+    Map<String, Object> filtersMap = new HashMap<>();
+    filtersMap.put(JsonKey.STATUS, 99);
+    Integer result = (Integer) getTranslateMethod().invoke(actorRef.underlyingActor(), filtersMap, getRequestContext());
+    assertNull(result);
+    assertFalse(filtersMap.containsKey(JsonKey.START_DATE));
+    assertFalse(filtersMap.containsKey(JsonKey.END_DATE));
   }
 
   private void mockResponse() throws UnirestException {

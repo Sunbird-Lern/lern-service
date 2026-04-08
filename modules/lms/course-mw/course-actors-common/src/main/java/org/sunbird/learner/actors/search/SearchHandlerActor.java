@@ -114,7 +114,8 @@ public class SearchHandlerActor extends BaseActor {
       String searchType = (types != null && types.length > 0) ? types[0] : "";
       Future<Map<String, Object>> resultF = esService.search(searchDto, searchType, request.getRequestContext());
       result = (Map<String, Object>) ElasticSearchHelper.getResponseFromFuture(resultF);
-      logger.info(request.getRequestContext(), 
+      if (result == null) result = new HashMap<>();
+      logger.info(request.getRequestContext(),
           "SearchHandlerActor:onReceive search complete instant duration=" + (Instant.now().toEpochMilli() - instant.toEpochMilli()));
       if (EsType.courseBatch.getTypeName().equalsIgnoreCase(filterObjectType)) {
         List<Map<String, Object>> courseBatchList = (List<Map<String, Object>>) result.get(JsonKey.CONTENT);
@@ -139,16 +140,11 @@ public class SearchHandlerActor extends BaseActor {
           }
         }
         Response response = new Response();
-        if (result != null) {
-          if (BooleanUtils.isTrue(showCreator))
-            populateCreatorDetails(convertToJavaMap(request.getContext()), result, request.getRequestContext());
-          if (!searchQueryMap.containsKey(JsonKey.FIELDS))
-            addCollectionId(result);
-          response.put(JsonKey.RESPONSE, result);
-        } else {
-          result = new HashMap<>();
-          response.put(JsonKey.RESPONSE, result);
-        }
+        if (BooleanUtils.isTrue(showCreator))
+          populateCreatorDetails(convertToJavaMap(request.getContext()), result, request.getRequestContext());
+        if (!searchQueryMap.containsKey(JsonKey.FIELDS))
+          addCollectionId(result);
+        response.put(JsonKey.RESPONSE, result);
         sender().tell(response, self());
         // create search telemetry event here ...
         generateSearchTelemetryEvent(searchDto, types, result, convertToJavaMap(request.getContext()));
