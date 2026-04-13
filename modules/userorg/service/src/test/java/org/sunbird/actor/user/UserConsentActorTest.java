@@ -163,10 +163,10 @@ public class UserConsentActorTest {
 
   @Test
   public void getUserConsentTestSuccess() {
-    
+
     TestKit probe = new TestKit(system);
     ActorRef subject = system.actorOf(props);
-    
+
     Map<String, Object> consentMap = new HashMap();
     List<Map<String, Object>> consentList = new ArrayList<>();
     consentMap.put(JsonKey.ID, "someID");
@@ -187,5 +187,19 @@ public class UserConsentActorTest {
     Response res = probe.expectMsgClass(Duration.ofSeconds(10), Response.class);
     Assert.assertTrue(null != res && res.getResponseCode() == ResponseCode.OK);
   }
-  
+
+  @Test
+  public void getUserConsentTestNoData() {
+    TestKit probe = new TestKit(system);
+    ActorRef subject = system.actorOf(props);
+
+    when(userConsentService.getConsent(Mockito.any())).thenReturn(new ArrayList<>());
+
+    subject.tell(getUserConsentRequest(), probe.getRef());
+    Response res = probe.expectMsgClass(Duration.ofSeconds(10), Response.class);
+    Assert.assertTrue(null != res && res.getResponseCode() == ResponseCode.OK);
+    List<?> consentResponse = (List<?>) res.get(JsonKey.CONSENT_RESPONSE);
+    Assert.assertTrue(consentResponse != null && consentResponse.isEmpty());
+  }
+
 }

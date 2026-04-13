@@ -1,6 +1,5 @@
 package org.sunbird.actor.userconsent;
 
-import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -8,8 +7,6 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import org.apache.commons.collections4.CollectionUtils;
 import org.sunbird.actor.core.BaseActor;
-import org.sunbird.exception.ProjectCommonException;
-import org.sunbird.response.ResponseCode;
 import org.sunbird.keys.JsonKey;
 import org.sunbird.request.Request;
 import org.sunbird.request.RequestContext;
@@ -50,19 +47,10 @@ public class UserConsentActor extends BaseActor {
 
     Response response = new Response();
     if (CollectionUtils.isNotEmpty(consentList)) {
-      //Remove revoked consent from the list
-      List<Map<String, Object>> consentResponseList = constructConsentResponse(consentList);
-      consentList=consentResponseList;
+      //Remove deleted consent from the list
+      consentList = constructConsentResponse(consentList);
     }
-    if(CollectionUtils.isNotEmpty(consentList)){
-      response.put(JsonKey.CONSENT_RESPONSE, consentList);
-    }else {
-      throw new ProjectCommonException(
-          ResponseCode.resourceNotFound,
-          MessageFormat.format(
-              ResponseCode.resourceNotFound.getErrorMessage(), JsonKey.USER_CONSENT_TEXT),
-          ResponseCode.RESOURCE_NOT_FOUND.getResponseCode());
-    }
+    response.put(JsonKey.CONSENT_RESPONSE, CollectionUtils.isNotEmpty(consentList) ? consentList : new ArrayList<>());
     sender().tell(response, self());
   }
 
