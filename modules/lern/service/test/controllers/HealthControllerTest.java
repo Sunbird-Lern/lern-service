@@ -35,20 +35,31 @@ public class HealthControllerTest {
     private static TestProbe healthActorProbe;
 
     private static SignalHandler signalHandlerMock;
+    private static String testKeysDir;
 
     @BeforeClass
     public static void startApp() {
-        system = ActorSystem.create();
-        healthActorProbe = new TestProbe(system, "HealthActor");
-        signalHandlerMock = mock(SignalHandler.class);
-        when(signalHandlerMock.isShuttingDown()).thenReturn(false);
+        try {
+            // Setup test keys directory before application start
+            testKeysDir = util.KeyTestUtil.setupTestKeys();
+            util.KeyTestUtil.setTestKeyPath(testKeysDir);
 
-        application = new GuiceApplicationBuilder()
-            .in(Mode.TEST)
-            .overrides(Bindings.bind(SignalHandler.class).toInstance(signalHandlerMock))
-            .overrides(Bindings.bind(ActorRef.class).qualifiedWith("HealthActor").toInstance(healthActorProbe.ref()))
-            .build();
-        play.test.Helpers.start(application);
+            system = ActorSystem.create();
+            healthActorProbe = new TestProbe(system, "HealthActor");
+            signalHandlerMock = mock(SignalHandler.class);
+            when(signalHandlerMock.isShuttingDown()).thenReturn(false);
+
+            application = new GuiceApplicationBuilder()
+                .in(Mode.TEST)
+                .overrides(Bindings.bind(SignalHandler.class).toInstance(signalHandlerMock))
+                .overrides(Bindings.bind(ActorRef.class).qualifiedWith("HealthActor").toInstance(healthActorProbe.ref()))
+                .overrides(new modules.LernServiceTestModule())
+                .build();
+            play.test.Helpers.start(application);
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw new RuntimeException("Failed to setup test environment: " + e.getMessage(), e);
+        }
     }
 
     @Before
@@ -60,11 +71,22 @@ public class HealthControllerTest {
 
     @AfterClass
     public static void stopApp() {
-        if (system != null) {
-            TestKit.shutdownActorSystem(system);
-        }
-        if (application != null) {
-            play.test.Helpers.stop(application);
+        try {
+            if (system != null) {
+                TestKit.shutdownActorSystem(system);
+            }
+            if (application != null) {
+                play.test.Helpers.stop(application);
+            }
+        } finally {
+            // Cleanup test keys
+            if (testKeysDir != null) {
+                try {
+                    util.KeyTestUtil.cleanupTestKeys(testKeysDir);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
         }
     }
 

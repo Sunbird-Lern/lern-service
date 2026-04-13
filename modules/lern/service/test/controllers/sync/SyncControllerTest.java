@@ -22,19 +22,41 @@ import com.fasterxml.jackson.databind.JsonNode;
 public class SyncControllerTest {
 
   private static Application application;
+  private static String testKeysDir;
 
   @BeforeClass
   public static void setUp() {
-    application = new GuiceApplicationBuilder()
-        .in(Mode.TEST)
-        .build();
-    Helpers.start(application);
+    try {
+      // Setup test keys directory before application start
+      testKeysDir = util.KeyTestUtil.setupTestKeys();
+      util.KeyTestUtil.setTestKeyPath(testKeysDir);
+
+      application = new GuiceApplicationBuilder()
+          .in(Mode.TEST)
+          .overrides(new modules.LernServiceTestModule())
+          .build();
+      Helpers.start(application);
+    } catch (Exception e) {
+      e.printStackTrace();
+      throw new RuntimeException("Failed to setup test environment: " + e.getMessage(), e);
+    }
   }
 
   @AfterClass
   public static void tearDown() {
-    if (application != null) {
-      Helpers.stop(application);
+    try {
+      if (application != null) {
+        Helpers.stop(application);
+      }
+    } finally {
+      // Cleanup test keys
+      if (testKeysDir != null) {
+        try {
+          util.KeyTestUtil.cleanupTestKeys(testKeysDir);
+        } catch (Exception e) {
+          e.printStackTrace();
+        }
+      }
     }
   }
 
