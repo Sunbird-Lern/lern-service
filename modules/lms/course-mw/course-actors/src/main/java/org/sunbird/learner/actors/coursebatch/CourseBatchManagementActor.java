@@ -92,7 +92,13 @@ public class CourseBatchManagementActor extends BaseActor {
           ProjectUtil.formatMessage(ResponseCode.invalidRequestParameter.getErrorMessage(), JsonKey.PARTICIPANTS));
     }
     CourseBatch courseBatch = JsonUtil.convert(request, CourseBatch.class);
-    courseBatch.setStatus(setCourseBatchStatus(actorMessage.getRequestContext(), (String) request.get(JsonKey.START_DATE)));
+    Date startDate = getDate(actorMessage.getRequestContext(), JsonKey.START_DATE, request);
+    Date endDate = getDate(actorMessage.getRequestContext(), JsonKey.END_DATE, request);
+    Date enrollmentEndDate = getDate(actorMessage.getRequestContext(), JsonKey.ENROLLMENT_END_DATE, request);
+    if (startDate != null) courseBatch.setStartDate(startDate);
+    if (endDate != null) courseBatch.setEndDate(endDate);
+    if (enrollmentEndDate != null) courseBatch.setEnrollmentEndDate(enrollmentEndDate);
+    courseBatch.setStatus(CourseBatchUtil.computeBatchStatus(startDate, endDate));
     String courseId = (String) request.get(JsonKey.COURSE_ID);
     Map<String, Object> contentDetails = getContentDetails(actorMessage.getRequestContext(),courseId, headers);
     courseBatch.setCreatedDate(ProjectUtil.getTimeStamp());
@@ -249,6 +255,10 @@ public class CourseBatchManagementActor extends BaseActor {
         esService.getDataByIdentifier(ProjectUtil.EsType.courseBatch.getTypeName(),
             (String) actorMessage.getContext().get(JsonKey.BATCH_ID), actorMessage.getRequestContext());
     Map<String, Object> result = (Map<String, Object>) ElasticSearchHelper.getResponseFromFuture(resultF);
+
+    // Recompute status from dates to handle stale cached values
+    CourseBatchUtil.enrichBatchStatusFromDates(result);
+
     if (result.containsKey(JsonKey.COURSE_ID))
       result.put(JsonKey.COLLECTION_ID, result.getOrDefault(JsonKey.COURSE_ID, ""));
     Response response = new Response();
@@ -350,19 +360,12 @@ public class CourseBatchManagementActor extends BaseActor {
     validateUpdateBatchStartDate(requestedStartDate);
     validateBatchStartAndEndDate(dbBatchStartDate, dbBatchEndDate, requestedStartDate, requestedEndDate, todayDate);
     
-    /* Update the batch to In-Progress for below conditions
-    * 1. StartDate is greater than or equal to today's date
-    * 2. EndDate can be either NULL or 
-    *     EndDate can be greater than or equal to today's date or
-    *     EndDate can be greater than or equal to existing EndDate
-    * */
-    Boolean batchStarted = (null != requestedStartDate && todayDate.compareTo(requestedStartDate) >=0)
-            && ((null == requestedEndDate) 
-                || (null != requestedEndDate && null == dbBatchEndDate && todayDate.compareTo(requestedEndDate) <= 0) 
-                || (null != requestedEndDate && null != dbBatchEndDate && requestedEndDate.compareTo(dbBatchEndDate) >=0));
-    
-    if(batchStarted)
-      courseBatch.setStatus(ProgressStatus.STARTED.getValue());
+    // Resolve which dates to use based on request or database values
+    Date resolvedStartDate = null != requestedStartDate ? requestedStartDate : courseBatch.getStartDate();
+    Date resolvedEndDate = null != requestedEndDate ? requestedEndDate : courseBatch.getEndDate();
+
+    // Recompute status from resolved dates
+    courseBatch.setStatus(CourseBatchUtil.computeBatchStatus(resolvedStartDate, resolvedEndDate));
     
     validateBatchEnrollmentEndDate(
         dbBatchStartDate,
@@ -470,17 +473,26 @@ public class CourseBatchManagementActor extends BaseActor {
 
   private Date getDate(RequestContext requestContext, String key, Map<String, Object> map) {
     try {
-      SimpleDateFormat format = ProjectUtil.getDateFormatter(dateFormat);
-      format.setTimeZone(TimeZone.getTimeZone(timeZone));
+      SimpleDateFormat dateOnlyFormat = ProjectUtil.getDateFormatter(dateFormat);
+      dateOnlyFormat.setTimeZone(TimeZone.getTimeZone(timeZone));
       if (MapUtils.isEmpty(map)) {
-        return format.parse(format.format(new Date()));
+        return dateOnlyFormat.parse(dateOnlyFormat.format(new Date()));
       } else {
         if (map.get(key) != null) {
           Date d;
           if (map.get(key) instanceof Date) {
-            d = format.parse(format.format(map.get(key)));
+            // Date object from Cassandra — already normalized, strip time and re-normalize to SUNBIRD_TIMEZONE
+            d = dateOnlyFormat.parse(dateOnlyFormat.format(map.get(key)));
           } else {
-            d = format.parse((String) map.get(key));
+            String dateStr = (String) map.get(key);
+            if (dateStr.contains("T")) {
+              // Timestamp string provided — use as-is, skip start/end-of-day normalization
+              SimpleDateFormat isoFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
+              isoFormat.setTimeZone(TimeZone.getTimeZone("UTC"));
+              return isoFormat.parse(dateStr);
+            }
+            // Date-only string — normalize to start/end of day in SUNBIRD_TIMEZONE
+            d = dateOnlyFormat.parse(dateStr);
           }
           if (key.equalsIgnoreCase(JsonKey.END_DATE) || key.equalsIgnoreCase(JsonKey.ENROLLMENT_END_DATE) ||
                   key.equalsIgnoreCase(JsonKey.OLD_END_DATE) || key.equalsIgnoreCase(JsonKey.OLD_ENROLLMENT_END_DATE)) {

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 ################################################################################
 # Unified Docker Build Script for All Services
@@ -137,7 +137,7 @@ fi
 
 echo ""
 echo "Step 1: Building Docker image..."
-docker build -f "$DOCKERFILE_PATH" -t "$FULL_IMAGE_NAME" --build-arg CSP="${CSP}" .
+docker build -f "$DOCKERFILE_PATH" -t "$FULL_IMAGE_NAME" --platform linux/amd64 --build-arg CSP="${CSP}" .
 
 if [ $? -ne 0 ]; then
     echo "Docker build failed!"

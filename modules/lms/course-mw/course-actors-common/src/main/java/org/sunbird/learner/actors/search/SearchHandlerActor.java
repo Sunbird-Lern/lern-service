@@ -19,6 +19,7 @@ import org.sunbird.keys.JsonKey;
 import org.sunbird.request.RequestContext;
 import org.sunbird.dto.SearchDTO;
 import org.sunbird.learner.actors.coursebatch.service.UserCoursesService;
+import org.sunbird.learner.util.CourseBatchUtil;
 import org.sunbird.learner.util.Util;
 import org.sunbird.telemetry.util.TelemetryWriter;
 import org.sunbird.userorg.UserOrgService;
@@ -94,6 +95,13 @@ public class SearchHandlerActor extends BaseActor {
           }
         }
       }
+
+      // Translate status filter to dates (for Status 0 and 2; Status 1 uses in-memory filtering)
+      Integer requestedStatusForInMemoryFilter = null;
+      if (EsType.courseBatch.getTypeName().equalsIgnoreCase(filterObjectType)) {
+        requestedStatusForInMemoryFilter = translateStatusFilterToDates(filtersMap, request.getRequestContext());
+      }
+
       if (!searchQueryMap.containsKey(JsonKey.LIMIT)) {
         // set default limit for course bath as 30
         searchQueryMap.put(JsonKey.LIMIT, 30);
@@ -106,26 +114,37 @@ public class SearchHandlerActor extends BaseActor {
       String searchType = (types != null && types.length > 0) ? types[0] : "";
       Future<Map<String, Object>> resultF = esService.search(searchDto, searchType, request.getRequestContext());
       result = (Map<String, Object>) ElasticSearchHelper.getResponseFromFuture(resultF);
-      logger.info(request.getRequestContext(), 
+      if (result == null) result = new HashMap<>();
+      logger.info(request.getRequestContext(),
           "SearchHandlerActor:onReceive search complete instant duration=" + (Instant.now().toEpochMilli() - instant.toEpochMilli()));
       if (EsType.courseBatch.getTypeName().equalsIgnoreCase(filterObjectType)) {
+        List<Map<String, Object>> courseBatchList = (List<Map<String, Object>>) result.get(JsonKey.CONTENT);
+
+        // Recompute status from dates for all search results to handle stale cached values
+        if (CollectionUtils.isNotEmpty(courseBatchList)) {
+          courseBatchList.forEach(batch -> CourseBatchUtil.enrichBatchStatusFromDates(batch));
+        }
+
+        // In-memory filter for Status=1 (STARTED) - apply after enrichment to ensure accurate status
+        if (requestedStatusForInMemoryFilter != null && requestedStatusForInMemoryFilter == 1) {
+          if (CollectionUtils.isNotEmpty(courseBatchList)) {
+            courseBatchList.removeIf(batch -> !Integer.valueOf(1).equals(batch.get(JsonKey.STATUS)));
+            result.put(JsonKey.COUNT, courseBatchList.size());
+            logger.info(request.getRequestContext(), "SearchHandlerActor: Applied in-memory Status=1 filter, result count = " + courseBatchList.size());
+          }
+        }
+
         if (JsonKey.PARTICIPANTS.equalsIgnoreCase((String) request.getContext().get(JsonKey.PARTICIPANTS))) {
-          List<Map<String, Object>> courseBatchList = (List<Map<String, Object>>) result.get(JsonKey.CONTENT);
           for (Map<String, Object> courseBatch : courseBatchList) {
             courseBatch.put(JsonKey.PARTICIPANTS, getParticipantList(request.getRequestContext(), (String) courseBatch.get(JsonKey.BATCH_ID)));
           }
         }
         Response response = new Response();
-        if (result != null) {
-          if (BooleanUtils.isTrue(showCreator))
-            populateCreatorDetails(convertToJavaMap(request.getContext()), result, request.getRequestContext());
-          if (!searchQueryMap.containsKey(JsonKey.FIELDS))
-            addCollectionId(result);
-          response.put(JsonKey.RESPONSE, result);
-        } else {
-          result = new HashMap<>();
-          response.put(JsonKey.RESPONSE, result);
-        }
+        if (BooleanUtils.isTrue(showCreator))
+          populateCreatorDetails(convertToJavaMap(request.getContext()), result, request.getRequestContext());
+        if (!searchQueryMap.containsKey(JsonKey.FIELDS))
+          addCollectionId(result);
+        response.put(JsonKey.RESPONSE, result);
         sender().tell(response, self());
         // create search telemetry event here ...
         generateSearchTelemetryEvent(searchDto, types, result, convertToJavaMap(request.getContext()));
@@ -326,5 +345,54 @@ public class SearchHandlerActor extends BaseActor {
     }
     
     return targetMap;
+  }
+
+  /**
+   * Translates status filter to date-based range filters for ES query.
+   *
+   * Status = 0 (NOT_STARTED): startDate > today
+   * Status = 1 (STARTED): Uses in-memory filtering after Phase 1 enrichment
+   * Status = 2 (COMPLETED): endDate < today
+   *
+   * @param filtersMap the filters map to update
+   * @param requestContext the request context for logging
+   * @return the requested status if it was Status=1 (for in-memory filtering), null otherwise
+   */
+  private Integer translateStatusFilterToDates(Map<String, Object> filtersMap, RequestContext requestContext) {
+    if (!filtersMap.containsKey(JsonKey.STATUS)) {
+      return null;
+    }
+
+    Object statusObj = filtersMap.remove(JsonKey.STATUS);
+    int requestedStatus;
+
+    if (statusObj instanceof List) {
+      requestedStatus = Integer.parseInt(((List<?>) statusObj).get(0).toString());
+    } else {
+      requestedStatus = Integer.parseInt(statusObj.toString());
+    }
+
+    String todayBoundary = CourseBatchUtil.getTodayBoundaryUtc();
+
+    switch (requestedStatus) {
+      case 0: // NOT_STARTED
+        filtersMap.put(JsonKey.START_DATE, Map.of("gt", todayBoundary));
+        logger.info(requestContext, "SearchHandlerActor: Translated Status=0 to startDate > " + todayBoundary);
+        return null;
+
+      case 1: // STARTED
+        // Don't add date filters - will filter in-memory after Phase 1 enrichment
+        logger.info(requestContext, "SearchHandlerActor: Status=1 will use in-memory filtering after enrichment");
+        return 1;  // Return flag for in-memory filtering
+
+      case 2: // COMPLETED
+        filtersMap.put(JsonKey.END_DATE, Map.of("lt", todayBoundary));
+        logger.info(requestContext, "SearchHandlerActor: Translated Status=2 to endDate < " + todayBoundary);
+        return null;
+
+      default:
+        logger.info(requestContext, "SearchHandlerActor: Unknown status filter value: " + requestedStatus);
+        return null;
+    }
   }
 }

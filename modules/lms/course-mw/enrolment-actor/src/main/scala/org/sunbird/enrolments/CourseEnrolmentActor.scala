@@ -49,7 +49,11 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
         (ProjectUtil.getConfigValue("user_enrolments_response_cache_enable")).toBoolean else true)
     val ttl: Int = if (StringUtils.isNotBlank(ProjectUtil.getConfigValue("user_enrolments_response_cache_ttl")))
         (ProjectUtil.getConfigValue("user_enrolments_response_cache_ttl")).toInt else 60
-    private val DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd")
+    private val DATE_FORMAT = {
+      val fmt = new SimpleDateFormat("yyyy-MM-dd")
+      fmt.setTimeZone(java.util.TimeZone.getTimeZone(ProjectUtil.getConfigValue(JsonKey.SUNBIRD_TIMEZONE)))
+      fmt
+    }
 
 
     override def preStart { println("Starting CourseEnrolmentActor") }
@@ -187,7 +191,8 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
         val batchIds:java.util.List[String] = enrolmentList.map(e => e.getOrDefault(JsonKey.BATCH_ID, "").asInstanceOf[String]).distinct.filter(id => StringUtils.isNotBlank(id)).toList.asJava
         val batchDetails = searchBatchDetails(batchIds, request)
         if(CollectionUtils.isNotEmpty(batchDetails)){
-            val batchMap = batchDetails.map(b => b.get(JsonKey.BATCH_ID).asInstanceOf[String] -> b).toMap
+            batchDetails.foreach(batch => CourseBatchUtil.enrichBatchStatusFromDates(batch))
+        val batchMap = batchDetails.map(b => b.get(JsonKey.BATCH_ID).asInstanceOf[String] -> b).toMap
             enrolmentList.map(enrolment => {
                 enrolment.put(JsonKey.BATCH, batchMap.getOrElse(enrolment.get(JsonKey.BATCH_ID).asInstanceOf[String], new java.util.HashMap[String, AnyRef]()))
                 //To Do : A temporary change to support updation of completed course remove in next release
@@ -222,10 +227,11 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
           EnrolmentType.open.getVal.equalsIgnoreCase(batchData.getEnrollmentType)))
             ProjectCommonException.throwClientErrorException(ResponseCode.enrollmentTypeValidation, ResponseCode.enrollmentTypeValidation.getErrorMessage)
         
-        if((2 == batchData.getStatus) || (null != batchData.getEndDate && LocalDateTime.now().isAfter(LocalDate.parse(DATE_FORMAT.format(batchData.getEndDate), DateTimeFormatter.ofPattern("yyyy-MM-dd")).atTime(LocalTime.MAX))))
+        val currentDateTime = LocalDateTime.now(DATE_FORMAT.getTimeZone.toZoneId)
+        if(null != batchData.getEndDate && currentDateTime.isAfter(LocalDate.parse(DATE_FORMAT.format(batchData.getEndDate), DateTimeFormatter.ofPattern("yyyy-MM-dd")).atTime(LocalTime.MAX)))
             ProjectCommonException.throwClientErrorException(ResponseCode.courseBatchAlreadyCompleted, ResponseCode.courseBatchAlreadyCompleted.getErrorMessage)
-        
-        if(isEnrol && null != batchData.getEnrollmentEndDate && LocalDateTime.now().isAfter(LocalDate.parse(DATE_FORMAT.format(batchData.getEnrollmentEndDate), DateTimeFormatter.ofPattern("yyyy-MM-dd")).atTime(LocalTime.MAX)))
+
+        if(isEnrol && null != batchData.getEnrollmentEndDate && currentDateTime.isAfter(LocalDate.parse(DATE_FORMAT.format(batchData.getEnrollmentEndDate), DateTimeFormatter.ofPattern("yyyy-MM-dd")).atTime(LocalTime.MAX)))
             ProjectCommonException.throwClientErrorException(ResponseCode.courseBatchEnrollmentDateEnded, ResponseCode.courseBatchEnrollmentDateEnded.getErrorMessage)
         
         if(isEnrol && null != enrolmentData && enrolmentData.isActive) ProjectCommonException.throwClientErrorException(ResponseCode.userAlreadyEnrolledCourse, ResponseCode.userAlreadyEnrolledCourse.getErrorMessage)
