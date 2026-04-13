@@ -41,8 +41,8 @@ public class HealthControllerTest {
     public static void startApp() {
         try {
             // Setup test keys directory before application start
-            testKeysDir = util.KeySetupTest.setupTestKeys();
-            util.KeySetupTest.setTestKeyPath(testKeysDir);
+            testKeysDir = util.KeyTestUtil.setupTestKeys();
+            util.KeyTestUtil.setTestKeyPath(testKeysDir);
 
             system = ActorSystem.create();
             healthActorProbe = new TestProbe(system, "HealthActor");
@@ -82,7 +82,7 @@ public class HealthControllerTest {
             // Cleanup test keys
             if (testKeysDir != null) {
                 try {
-                    util.KeySetupTest.cleanupTestKeys(testKeysDir);
+                    util.KeyTestUtil.cleanupTestKeys(testKeysDir);
                 } catch (Exception e) {
                     e.printStackTrace();
                 }

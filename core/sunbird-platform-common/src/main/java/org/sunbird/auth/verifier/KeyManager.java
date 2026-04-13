@@ -7,9 +7,12 @@ import java.nio.file.Paths;
 import java.security.KeyFactory;
 import java.security.PublicKey;
 import java.security.spec.X509EncodedKeySpec;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.sunbird.keys.JsonKey;
@@ -23,8 +26,8 @@ public class KeyManager {
 
     private static final LoggerUtil logger = new LoggerUtil(KeyManager.class);
     private static final PropertiesCache propertiesCache = PropertiesCache.getInstance();
-    private static final Map<String, KeyData> keyMap = new HashMap<>();
-    private static volatile long lastReloadAttemptMs = 0L;
+    private static final AtomicReference<Map<String, KeyData>> keyMapRef = new AtomicReference<>(Collections.emptyMap());
+    private static final AtomicLong lastReloadAttemptMs = new AtomicLong(0L);
     private static final long RELOAD_COOLDOWN_MS = 5 * 60 * 1000L; // 5 minutes
 
     /**
@@ -53,18 +56,22 @@ public class KeyManager {
                 throw new RuntimeException(errorMsg);
             }
 
+            // Build into a local map so concurrent readers always see a fully-populated
+            // snapshot — never a half-written one.
+            Map<String, KeyData> newMap = new HashMap<>();
             result.forEach(
                     file -> {
                         try {
                             StringBuilder contentBuilder = new StringBuilder();
                             Path path = Paths.get(file);
-                            Files.lines(path, StandardCharsets.UTF_8)
-                                    .forEach(contentBuilder::append);
+                            try (Stream<String> lines = Files.lines(path, StandardCharsets.UTF_8)) {
+                                lines.forEach(contentBuilder::append);
+                            }
 
                             KeyData keyData =
                                     new KeyData(
                                             path.getFileName().toString(), loadPublicKey(contentBuilder.toString()));
-                            keyMap.put(path.getFileName().toString(), keyData);
+                            newMap.put(path.getFileName().toString(), keyData);
                             logger.info("KeyManager:init: Loaded key: " + path.getFileName().toString());
                         } catch (Exception e) {
                             logger.error("KeyManager:init: Exception in reading public key file: " + file, e);
@@ -72,15 +79,20 @@ public class KeyManager {
                     });
 
             // CRITICAL: Ensure at least one key was successfully loaded
-            // If files exist but are empty/invalid, keyMap will be empty
-            if (keyMap.isEmpty()) {
+            // If files exist but are empty/invalid, newMap will be empty
+            if (newMap.isEmpty()) {
                 String errorMsg = "KeyManager:init: Key files exist in " + basePath + " but none could be loaded. " +
                         "Files may be empty, corrupted, or invalid. Found " + result.size() + " file(s) but 0 valid keys.";
                 logger.error(errorMsg);
                 throw new RuntimeException(errorMsg);
             }
 
-            logger.info("KeyManager:init: Successfully loaded " + keyMap.size() + " public keys");
+            // Atomically swap the map — readers picking up keyMapRef.get() will see
+            // either the old complete snapshot or the new complete snapshot, never a torn write.
+            keyMapRef.set(Collections.unmodifiableMap(newMap));
+            logger.info("KeyManager:init: Successfully loaded " + newMap.size() + " public keys");
+        } catch (RuntimeException e) {
+            throw e; // our own validation exceptions — propagate unwrapped
         } catch (Exception e) {
             String errorMsg = "KeyManager:init: Exception in loading public keys base directory: " + e.getMessage();
             logger.error(errorMsg, e);
@@ -93,7 +105,7 @@ public class KeyManager {
      * @return true if at least one key is loaded, false otherwise.
      */
     public static boolean isKeysLoaded() {
-        return !keyMap.isEmpty();
+        return !keyMapRef.get().isEmpty();
     }
 
     /**
@@ -104,15 +116,16 @@ public class KeyManager {
      * @return The KeyData object, or null if not found even after reload.
      */
     public static KeyData getPublicKey(String keyId) {
-        KeyData keyData = keyMap.get(keyId);
+        KeyData keyData = keyMapRef.get().get(keyId);
         if (keyData == null) {
             long now = System.currentTimeMillis();
-            if (now - lastReloadAttemptMs > RELOAD_COOLDOWN_MS) {
-                lastReloadAttemptMs = now;
+            long last = lastReloadAttemptMs.get();
+            if (now - last > RELOAD_COOLDOWN_MS && lastReloadAttemptMs.compareAndSet(last, now)) {
+                // compareAndSet guarantees exactly one thread wins the reload race.
                 logger.info("KeyManager:getPublicKey: Key not found for kid: " + keyId + ", reloading keys from disk");
                 try {
                     init();
-                    keyData = keyMap.get(keyId);
+                    keyData = keyMapRef.get().get(keyId);
                 } catch (Exception e) {
                     logger.error("KeyManager:getPublicKey: Failed to reload keys from disk for kid: " + keyId, e);
                     // Continue gracefully - let AccessTokenValidator handle null keyData

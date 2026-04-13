@@ -28,8 +28,8 @@ public class SyncControllerTest {
   public static void setUp() {
     try {
       // Setup test keys directory before application start
-      testKeysDir = util.KeySetupTest.setupTestKeys();
-      util.KeySetupTest.setTestKeyPath(testKeysDir);
+      testKeysDir = util.KeyTestUtil.setupTestKeys();
+      util.KeyTestUtil.setTestKeyPath(testKeysDir);
 
       application = new GuiceApplicationBuilder()
           .in(Mode.TEST)
@@ -52,7 +52,7 @@ public class SyncControllerTest {
       // Cleanup test keys
       if (testKeysDir != null) {
         try {
-          util.KeySetupTest.cleanupTestKeys(testKeysDir);
+          util.KeyTestUtil.cleanupTestKeys(testKeysDir);
         } catch (Exception e) {
           e.printStackTrace();
         }

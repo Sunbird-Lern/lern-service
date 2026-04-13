@@ -4,23 +4,25 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.UUID;
+import java.util.stream.Stream;
+import org.sunbird.common.PropertiesCache;
 
 /**
  * Utility to setup test public keys for testing KeyManager initialization.
+ * Named KeyTestUtil (not KeyTestUtil*Test*) to avoid Surefire treating it as a test class.
  */
-public class KeySetupTest {
+public class KeyTestUtil {
 
     /**
-     * Creates a temporary directory with test public keys.
+     * Creates a temporary directory with a valid test RSA public key.
      * @return Path to the test keys directory
      */
     public static String setupTestKeys() throws Exception {
-        // Create a temporary directory for test keys
         String testKeysDir = System.getProperty("java.io.tmpdir") + "/sunbird-test-keys-" + UUID.randomUUID();
         Path testKeysDirPath = Paths.get(testKeysDir);
         Files.createDirectories(testKeysDirPath);
 
-        // Create a test public key file (2048-bit RSA public key for testing)
+        // 2048-bit RSA public key for testing
         String testPublicKey = "-----BEGIN PUBLIC KEY-----\n" +
                 "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4f5wg5l2hKsTeNem/V41\n" +
                 "fGnJm6gOdrj8ym3rFkEU/wT8RDtn1tDuWnYLe3bBt7PlJGEe6l0ZCT7bW0oRyUdQ\n" +
@@ -31,7 +33,6 @@ public class KeySetupTest {
                 "bQIDAQAB\n" +
                 "-----END PUBLIC KEY-----";
 
-        // Write test key to file
         Path keyFilePath = testKeysDirPath.resolve("test-key.pem");
         Files.write(keyFilePath, testPublicKey.getBytes());
 
@@ -39,29 +40,32 @@ public class KeySetupTest {
     }
 
     /**
-     * Cleans up test keys directory.
+     * Cleans up the test keys directory.
      * @param testKeysDir Path to the test keys directory
      */
     public static void cleanupTestKeys(String testKeysDir) throws Exception {
         Path testKeysDirPath = Paths.get(testKeysDir);
         if (Files.exists(testKeysDirPath)) {
-            Files.walk(testKeysDirPath)
-                    .sorted((p1, p2) -> p2.compareTo(p1)) // Reverse order to delete files before directories
-                    .forEach(path -> {
-                        try {
-                            Files.delete(path);
-                        } catch (Exception e) {
-                            // Ignore
-                        }
-                    });
+            try (Stream<Path> paths = Files.walk(testKeysDirPath)) {
+                paths.sorted((p1, p2) -> p2.compareTo(p1)) // files before directories
+                        .forEach(path -> {
+                            try {
+                                Files.delete(path);
+                            } catch (Exception e) {
+                                // Ignore individual delete failures during cleanup
+                            }
+                        });
+            }
         }
     }
 
     /**
-     * Sets the KeyManager base path to use test keys.
+     * Injects the test key directory path into PropertiesCache so KeyManager picks it up.
+     * PropertiesCache.getProperty() reads from env vars then its own configProp —
+     * it does NOT read JVM system properties, so System.setProperty() has no effect here.
      * @param testKeysDir Path to the test keys directory
      */
     public static void setTestKeyPath(String testKeysDir) {
-        System.setProperty("sunbird_access_token_publickey_basepath", testKeysDir);
+        PropertiesCache.getInstance().saveConfigProperty("accesstoken.publickey.basepath", testKeysDir);
     }
 }
