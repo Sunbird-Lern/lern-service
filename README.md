@@ -154,8 +154,16 @@ SUNBIRD_KAFKA_URL="localhost:9092"
 ```
 
 ### Step 5 — Build the Project
+
+> **macOS only:** The `application.conf` files are bundled into the distribution at build time. Before building, change `transport` from `"native"` to `"jdk"` in all four module configs — Netty's epoll transport is Linux-only and will fail at startup on macOS:
+> - [modules/lern/service/conf/application.conf](modules/lern/service/conf/application.conf)
+> - [modules/lms/service/conf/application.conf](modules/lms/service/conf/application.conf)
+> - [modules/notification/service/conf/application.conf](modules/notification/service/conf/application.conf)
+> - [modules/userorg/controller/conf/application.conf](modules/userorg/controller/conf/application.conf)
+
 Run the unified build script (recommended):
 ```bash
+chmod +x scripts/build-local.sh
 ./scripts/build-local.sh --service lern
 ```
 > For all build options (CSP, running tests, building other services), see [scripts/README.md](scripts/README.md).
@@ -175,15 +183,7 @@ cd modules/lern/service
 mvn play2:run
 ```
 
-**On macOS** — Netty's native transport (epoll) is Linux-only. Two changes are required:
-
-**1. Change `transport` in all four module configs** from `"native"` to `"jdk"`:
-- [modules/lern/service/conf/application.conf](modules/lern/service/conf/application.conf)
-- [modules/lms/service/conf/application.conf](modules/lms/service/conf/application.conf)
-- [modules/notification/service/conf/application.conf](modules/notification/service/conf/application.conf)
-- [modules/userorg/controller/conf/application.conf](modules/userorg/controller/conf/application.conf)
-
-**2. Run via the built distribution** (the Play2 Maven plugin's file watcher fails on macOS):
+**On macOS** — the Play2 Maven plugin's file watcher fails on macOS; run via the built distribution instead:
 ```bash
 # Run from the project root
 cd modules/lern/service/target
