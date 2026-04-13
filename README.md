@@ -156,10 +156,10 @@ SUNBIRD_KAFKA_URL="localhost:9092"
 ### Step 5 — Build the Project
 
 > **macOS only:** The `application.conf` files are bundled into the distribution at build time. Before building, change `transport` from `"native"` to `"jdk"` in all four module configs — Netty's epoll transport is Linux-only and will fail at startup on macOS:
-> - [modules/lern/service/conf/application.conf](modules/lern/service/conf/application.conf)
-> - [modules/lms/service/conf/application.conf](modules/lms/service/conf/application.conf)
-> - [modules/notification/service/conf/application.conf](modules/notification/service/conf/application.conf)
-> - [modules/userorg/controller/conf/application.conf](modules/userorg/controller/conf/application.conf)
+> - [modules/lern/service/conf/application.conf:376](modules/lern/service/conf/application.conf#L376)
+> - [modules/lms/service/conf/application.conf:278](modules/lms/service/conf/application.conf#L278)
+> - [modules/notification/service/conf/application.conf:83](modules/notification/service/conf/application.conf#L83)
+> - [modules/userorg/controller/conf/application.conf:720](modules/userorg/controller/conf/application.conf#L720)
 
 Run the unified build script (recommended):
 ```bash
