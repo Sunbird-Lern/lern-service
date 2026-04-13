@@ -1,14 +1,79 @@
-# Build and Docker Scripts Documentation
+# Scripts
 
 ## Overview
 
-This directory contains unified build and Docker scripts for all services (lern, userorg, lms, notification). The scripts consolidate service-specific logic into single, parameterized scripts that accept a `--service` parameter.
+This directory contains scripts for local development, CI/CD builds, and Docker image creation. All scripts are designed to be run from the **project root**, not from within this directory.
 
 **Note:** `build-local.sh` is specifically designed for **local development**. It handles Maven builds and Play distribution creation. For **CI/CD pipelines**, refer to `.github/workflows/deploy.yml` which uses the same script but orchestrates the entire build and push process.
 
 ## Scripts
 
-### `build-local.sh` - Local Build Script (Development)
+### `init-yugabyte.sh` — YugabyteDB Schema Initialization
+
+Clones CQL migration scripts from [sunbird-spark-installer](https://github.com/Sunbird-Spark/sunbird-spark-installer) via sparse checkout and applies them to the local YugabyteDB container. Run this **once** after starting the containers for the first time.
+
+**Usage:**
+```bash
+./scripts/init-yugabyte.sh [ENVIRONMENT] [BRANCH]
+```
+
+**Parameters:**
+- `ENVIRONMENT`: Keyspace prefix (default: `dev`)
+- `BRANCH`: Branch of sunbird-spark-installer to use (default: `develop`)
+
+**Example:**
+```bash
+# Initialize with defaults
+./scripts/init-yugabyte.sh
+
+# Initialize with a specific environment prefix and branch
+./scripts/init-yugabyte.sh dev release-6.0.0
+```
+
+**Prerequisites:** Docker must be running with the `yugabyte` container healthy (started via `docker-compose up -d`).
+
+---
+
+### `init-elasticsearch.sh` — Elasticsearch Index Initialization
+
+Clones ES index definitions and mappings from [sunbird-devops](https://github.com/project-sunbird/sunbird-devops) via sparse checkout and applies them to the local Elasticsearch container. Run this **once** after starting the containers for the first time.
+
+**Usage:**
+```bash
+./scripts/init-elasticsearch.sh [BRANCH]
+```
+
+**Parameters:**
+- `BRANCH`: Branch of sunbird-devops to use (default: `release-8.0.0`)
+
+**Example:**
+```bash
+# Initialize with defaults
+./scripts/init-elasticsearch.sh
+
+# Initialize from a specific branch
+./scripts/init-elasticsearch.sh release-7.0.0
+```
+
+**Prerequisites:** Docker must be running with the `sunbird_es` container healthy (started via `docker-compose up -d`).
+
+---
+
+### `env-variables.example` — Environment Variables Template
+
+A fully-annotated template for the `.env` file that configures the service at startup. Copy it to the project root and fill in the values before sourcing.
+
+```bash
+cp scripts/env-variables.example .env
+# Edit .env with your local credentials
+source .env
+```
+
+See the main [README.md](../README.md) for the key variables required for local development.
+
+---
+
+### `build-local.sh` — Local Build Script (Development)
 
 Consolidates the Maven build process for all services. **This is the primary script for local development.**
 
