@@ -8,6 +8,40 @@ This directory contains scripts for local development, CI/CD builds, and Docker 
 
 ## Scripts
 
+### `setup-keycloak.sh` — Keycloak Docker Image Build
+
+Sparse-clones `scripts/keycloak-21.1.2` from [sunbird-spark-installer](https://github.com/Sunbird-Spark/sunbird-spark-installer), generates `sunbird-realm.local.json` from the Helm template, and builds the `sunbird-keycloak:local` Docker image. Run this **once** before starting the stack for the first time.
+
+**Usage:**
+```bash
+./scripts/setup-keycloak.sh [BRANCH]
+```
+
+**Parameters:**
+- `BRANCH`: Branch of sunbird-spark-installer to use (default: `develop`)
+
+**Example:**
+```bash
+# Build with defaults
+./scripts/setup-keycloak.sh
+
+# Build from a specific branch
+./scripts/setup-keycloak.sh release-6.0.0
+```
+
+**What it does:**
+1. Sparse-clones the Keycloak setup directory from `sunbird-spark-installer`
+2. Patches the Dockerfile — corrects the realm import path for Keycloak 21 and enables the `scripts` KC feature
+3. Generates `sunbird-realm.local.json` from the Helm template via `sed` (substitutes domain, secrets, SMTP, tenant values)
+4. Strips Keycloak 21-incompatible JS policies and removes the unrecognized `permissions` field via a Python post-processing step
+5. Copies the custom SPI JAR (`keycloak-email-phone-autthenticator-1.0-SNAPSHOT.jar`)
+6. Builds and tags the image as `sunbird-keycloak:local`
+7. Cleans up all temporary clone and build directories
+
+**Prerequisites:** Docker Desktop must be running.
+
+---
+
 ### `init-yugabyte.sh` — YugabyteDB Schema Initialization
 
 Clones CQL migration scripts from [sunbird-spark-installer](https://github.com/Sunbird-Spark/sunbird-spark-installer) via sparse checkout and applies them to the local YugabyteDB container. Run this **once** after starting the containers for the first time.
@@ -56,6 +90,25 @@ Clones ES index definitions and mappings from [sunbird-devops](https://github.co
 ```
 
 **Prerequisites:** Docker must be running with the `sunbird_es` container healthy (started via `docker-compose up -d`).
+
+---
+
+### `init-keycloak.sh` — Keycloak Public Key Extraction
+
+Waits for Keycloak to be ready, fetches the RSA public key and key ID (`kid`) from the `sunbird` realm, and writes the PEM-formatted key to `keys/{kid}` at the project root. Run this **once** after starting the containers for the first time.
+
+In production, Kubernetes mounts the key as a ConfigMap volume at `/keys/{kid}`. This script replicates that locally so `KeyManager` can load the public key at service startup.
+
+**Usage:**
+```bash
+./scripts/init-keycloak.sh
+```
+
+**Parameters:** None.
+
+**Prerequisites:**
+- Keycloak container is running and the `sunbird` realm is fully imported (`docker-compose ps` shows `keycloak` as healthy)
+- `jq` is installed (`brew install jq` on macOS)
 
 ---
 
