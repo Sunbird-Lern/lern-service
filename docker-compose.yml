@@ -13,6 +13,24 @@ services:
       --tserver_flags=cql_proxy_bind_address=0.0.0.0:9042,pgsql_proxy_bind_address=0.0.0.0:5433
     volumes:
       - yugabyte-data:/home/yugabyte/var
+    healthcheck:
+      test: ["CMD-SHELL", "ysqlsh -h 127.0.0.1 -U yugabyte -c '\\q' 2>/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  # Creates the Keycloak schema database in YugabyteDB on first start.
+  # Runs once and exits — keycloak depends on this completing successfully.
+  yugabyte-init:
+    image: yugabytedb/yugabyte:2025.2.0.1-b1
+    container_name: yugabyte_init
+    depends_on:
+      yugabyte:
+        condition: service_healthy
+    command: >
+      bash -c "ysqlsh -h yugabyte -U yugabyte -c 'CREATE DATABASE keycloak;' 2>/dev/null; exit 0"
+    restart: "no"
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:7.10.2
@@ -39,6 +57,30 @@ services:
       - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
       - KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR=1
       - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+
+  # Build this image once with: ./scripts/setup-keycloak.sh
+  # The image includes the Sunbird realm, custom provider, and is pre-built
+  # for fast startup. On first run, the sunbird realm is imported automatically.
+  keycloak:
+    image: sunbird-keycloak:local
+    container_name: keycloak
+    depends_on:
+      yugabyte-init:
+        condition: service_completed_successfully
+    environment:
+      KC_DB_URL: jdbc:postgresql://yugabyte:5433/keycloak
+      KC_DB_USERNAME: yugabyte
+      KC_DB_PASSWORD: yugabyte
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/auth/health/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 180s
 
   # Redis is optional — start with: docker compose --profile redis up -d
   redis:

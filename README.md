@@ -18,6 +18,7 @@ Sunbird Lern is a comprehensive Play Framework service for learning infrastructu
 7. [Optional Features](#optional-features)
 8. [System Dependencies](#system-dependencies--external-integrations)
 
+
 ---
 
 ## Overview
@@ -95,17 +96,29 @@ git clone https://github.com/sunbird-lern/lern-service.git
 cd lern-service
 ```
 
-### Step 2 — Start Infrastructure
-Spin up YugabyteDB, Elasticsearch, and Kafka using Docker Compose:
+### Step 2 — Set Up Keycloak
+
+The Keycloak Docker image must be built before starting the stack. This script sparse-clones the Keycloak setup from [sunbird-spark-installer](https://github.com/Sunbird-Spark/sunbird-spark-installer), generates the local realm configuration, and builds the image:
+
+```bash
+chmod +x scripts/setup-keycloak.sh
+./scripts/setup-keycloak.sh
+```
+
+> This fetches ~10 MB from GitHub and builds the image — expect a few minutes on the first run. Subsequent builds reuse the Docker layer cache and are much faster. The `develop` branch of the installer is used by default; pass a branch name as the first argument to override.
+
+### Step 3 — Start Infrastructure
+
+Spin up YugabyteDB, Elasticsearch, Kafka, and Keycloak using Docker Compose:
 ```bash
 docker-compose up -d
 docker-compose ps
 ```
-Wait up to 60 seconds for all services to be fully ready, then verify all show `Up` status before proceeding.
+**On first boot, Keycloak takes approximately 4–5 minutes** to run its Liquibase schema migrations against YugabyteDB and import the Sunbird realm. Subsequent starts are much faster (under 30 seconds) since the schema and realm are already persisted. Wait until all services show `Up` before running the init scripts.
 
-### Step 3 — Initialize Database & Elasticsearch
+### Step 4 — Initialize Services
 
-Run these once after the containers are up for the first time. They pull migration scripts from external repos and apply them to your local instances.
+Run these once after the containers are up for the first time.
 
 **YugabyteDB schema migrations:**
 ```bash
@@ -119,9 +132,17 @@ chmod +x scripts/init-elasticsearch.sh
 ./scripts/init-elasticsearch.sh
 ```
 
-> These scripts require Docker to be running with the `yugabyte` and `sunbird_es` containers healthy. You only need to run them once — re-running on an already-initialized instance is safe.
+**Keycloak public key extraction:**
 
-### Step 4 — Configure Environment
+In production, the Keycloak RSA public key is mounted as a Kubernetes ConfigMap volume at `/keys/{kid}`. This script replicates that locally — it waits for Keycloak to be ready, then saves the public key to `keys/{kid}` at the project root:
+```bash
+chmod +x scripts/init-keycloak.sh
+./scripts/init-keycloak.sh
+```
+
+> Requires `jq`. Install with `brew install jq` on macOS. You only need to run all three scripts once — re-running on an already-initialized instance is safe.
+
+### Step 5 — Configure Environment
 Copy the template and fill in your local values:
 ```bash
 cp scripts/env-variables.example .env
@@ -153,7 +174,7 @@ Kafka:
 SUNBIRD_KAFKA_URL="localhost:9092"
 ```
 
-### Step 5 — Build the Project
+### Step 6 — Build the Project
 
 > **macOS only:** The `application.conf` files are bundled into the distribution at build time. Before building, change `transport` from `"native"` to `"jdk"` in all four module configs — Netty's epoll transport is Linux-only and will fail at startup on macOS:
 > - [modules/lern/service/conf/application.conf:376](modules/lern/service/conf/application.conf#L376)
@@ -175,24 +196,25 @@ cd modules/lern/service
 mvn play2:dist
 ```
 
-### Step 6 — Run the Service
+### Step 7 — Run the Service
+
+The service reads its Keycloak public key from the directory set by `accesstoken.publickey.basepath`. This config key contains dots, making it invalid as a bash variable name — use the `env` command to inject it at the OS level:
 
 **On Linux:**
 ```bash
-cd modules/lern/service
-mvn play2:run
+# From the project root
+env "accesstoken.publickey.basepath=$(pwd)/keys/" \
+  mvn -f modules/lern/service/pom.xml play2:run
 ```
 
 **On macOS** — the Play2 Maven plugin's file watcher fails on macOS; run via the built distribution instead:
 ```bash
-# Run from the project root
-cd modules/lern/service/target
-unzip lern-service-impl-1.0-SNAPSHOT-dist.zip
-cd lern-service-impl-1.0-SNAPSHOT
-./start -Dhttp.port=9000
+# From the project root
+DIST="modules/lern/service/target/lern-service-impl-1.0-SNAPSHOT"
+env "accesstoken.publickey.basepath=$(pwd)/keys/" "$DIST/start" -Dhttp.port=9000
 ```
 
-### Step 7 — Verify
+### Step 8 — Verify
 ```bash
 curl http://localhost:9000/health
 ```

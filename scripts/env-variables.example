@@ -80,16 +80,19 @@ export USER_DELETION_BROADCAST_TOPIC="dev.delete.user"
 
 #########################################
 # 7. Identity Provider: Keycloak / SSO
+# Local dev: Keycloak runs in Docker on port 8080 (see docker-compose.yml).
+# The client secret below matches sunbird-realm.local.json.
+# accesstoken.publickey.basepath cannot be set here — dots are invalid in
+# bash variable names. Use env(1) when starting the service (see README Step 7).
 #########################################
-export SUNBIRD_SSO_URL="https://dev.sunbirded.org/auth/"
+export SUNBIRD_SSO_URL="http://localhost:8080/auth/"
 export SUNBIRD_SSO_REALM="sunbird"
 export SUNBIRD_SSO_CLIENT_ID="lms"
-export SUNBIRD_SSO_CLIENT_SECRET="<CLIENT_SECRET>"
+export SUNBIRD_SSO_CLIENT_SECRET="lmslocaldevkey1234"
 export SUNBIRD_SSO_USERNAME="admin"
-export SUNBIRD_SSO_PASSWORD="<SSO_PASSWORD>"
+export SUNBIRD_SSO_PASSWORD="admin"
 export SUNBIRD_SSO_LB_IP="http://localhost:8080/"
 export SUNBIRD_SUBDOMAIN_KEYCLOAK_BASE_URL="/"
-export ACCESSTOKEN_PUBLICKEY_BASEPATH="/keys/"
 export SUNBIRD_KEYCLOAK_USER_FEDERATION_PROVIDER_ID="cassandrafederationid"
 export SUNBIRD_KEYCLOAK_REQUIRED_ACTION_LINK_EXPIRATION_SECONDS=""
 
