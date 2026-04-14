@@ -9,23 +9,11 @@ Sunbird Lern is a comprehensive Play Framework service for learning infrastructu
 ---
 
 ## Table of Contents
-1. [Overview](#overview)
-2. [Key Modules](#key-modules)
-3. [Core Capabilities](#core-capabilities)
-4. [Technical Stack](#technical-stack)
-5. [Prerequisites](#prerequisites)
-6. [Local Development Setup](#local-development-setup)
-7. [Optional Features](#optional-features)
-8. [System Dependencies](#system-dependencies--external-integrations)
-
-
----
-
-## Overview
-
-Sunbird Lern is an enterprise-grade learning infrastructure service designed for high-scale educational ecosystems. It serves as the authoritative engine for managing user identities, orchestrating structured learning journeys, and facilitating data-driven educational workflows within the Sunbird platform.
-
-The service is deployed as part of the **learnbb** umbrella Helm chart, which coordinates Lern alongside supporting infrastructure including Redis caching, Elasticsearch search, Kafka messaging, and YugabyteDB persistence.
+1. [Key Modules](#key-modules)
+2. [Technical Stack & Prerequisites](#technical-stack--prerequisites)
+3. [Local Development Setup](#local-development-setup)
+4. [Optional Features](#optional-features)
+5. [System Dependencies](#system-dependencies--external-integrations)
 
 ---
 
@@ -44,29 +32,17 @@ Shared abstractions across modules reside in **core**: telemetry, Pekko actors, 
 
 ---
 
-## Core Capabilities
+## Technical Stack & Prerequisites
 
-### 1. Identity & Organization Management (UserOrg)
-*   **Identity Lifecycle:** End-to-end management of user accounts, including self-signup, managed users, and bulk onboarding.
-*   **Authentication & SSO:** Native support for OpenID Connect (OIDC), Google SSO, and federated identity providers.
-*   **RBAC & Governance:** Granular Role-Based Access Control (RBAC) across complex organizational hierarchies.
+Lern is engineered using a reactive, non-blocking architecture. Ensure the following are installed before proceeding:
 
-### 2. Learning Management (LMS)
-*   **Batch Orchestration:** Lifecycle management of course batches (Invite-only, Open, and Private).
-*   **Progress & Tracking:** Real-time tracking of content consumption and competency-based progress.
-*   **Credentialing:** Rule-based engine for automated generation and issuance of digital certificates.
+*   **Java 11** (LTS) — `java -version`
+*   **Maven 3.8.0+** — `mvn -version`
+*   **Docker Desktop** — `docker --version` (6 GB RAM minimum recommended)
+*   **Git** — `git --version`
 
-### 3. Notification Engine
-*   **Multi-Channel Delivery:** Orchestrated delivery via Email, SMS, and In-App Activity Feeds.
-*   **Template Management:** Dynamic, localized template engine for transactional communications.
+Runtime and framework details:
 
----
-
-## Technical Stack
-
-Lern is engineered using a reactive, non-blocking architecture:
-
-*   **Runtime:** Java 11 (LTS), Scala 2.13.12
 *   **Web Engine:** Play Framework 3.0.5
 *   **Reactive Core:** Apache Pekko 1.0.3 (Distributed Actor System)
 *   **Data Persistence:**
@@ -74,17 +50,6 @@ Lern is engineered using a reactive, non-blocking architecture:
     *   **Elasticsearch:** Distributed full-text search engine (9200).
     *   **Redis:** Optional distributed cache layer.
 *   **Messaging:** Apache Kafka (9092) for event-driven workflows and notification dispatch.
-*   **Build System:** Maven 3.8.0+
-
----
-
-## Prerequisites
-
-Ensure the following are installed and verified:
-*   **Java 11** — `java -version`
-*   **Maven 3.8.0+** — `mvn -version`
-*   **Docker Desktop** — `docker --version` (6 GB RAM minimum recommended)
-*   **Git** — `git --version`
 
 ---
 
@@ -174,47 +139,49 @@ Kafka:
 SUNBIRD_KAFKA_URL="localhost:9092"
 ```
 
-### Step 6 — Build the Project
+### Step 6 — Build & Run
 
-> **macOS only:** The `application.conf` files are bundled into the distribution at build time. Before building, change `transport` from `"native"` to `"jdk"` in all four module configs — Netty's epoll transport is Linux-only and will fail at startup on macOS:
-> - [modules/lern/service/conf/application.conf:376](modules/lern/service/conf/application.conf#L376)
-> - [modules/lms/service/conf/application.conf:278](modules/lms/service/conf/application.conf#L278)
-> - [modules/notification/service/conf/application.conf:83](modules/notification/service/conf/application.conf#L83)
-> - [modules/userorg/controller/conf/application.conf:720](modules/userorg/controller/conf/application.conf#L720)
+The service reads its Keycloak public key from the directory set by `accesstoken.publickey.basepath`. This config key contains dots, making it invalid as a bash variable name — use the `env` command to inject it at the OS level.
 
-Run the unified build script (recommended):
+#### Linux
+
+**Build:**
 ```bash
 chmod +x scripts/build-local.sh
 ./scripts/build-local.sh --service lern
 ```
 > For all build options (CSP, running tests, building other services), see [scripts/README.md](scripts/README.md).
 
-Or build manually:
-```bash
-mvn clean install -DskipTests -P lern
-cd modules/lern/service
-mvn play2:dist
-```
-
-### Step 7 — Run the Service
-
-The service reads its Keycloak public key from the directory set by `accesstoken.publickey.basepath`. This config key contains dots, making it invalid as a bash variable name — use the `env` command to inject it at the OS level:
-
-**On Linux:**
+**Run:**
 ```bash
 # From the project root
 env "accesstoken.publickey.basepath=$(pwd)/keys/" \
   mvn -f modules/lern/service/pom.xml play2:run
 ```
 
-**On macOS** — the Play2 Maven plugin's file watcher fails on macOS; run via the built distribution instead:
+#### macOS
+
+The `application.conf` files are bundled into the distribution at build time. Before building, change `transport` from `"native"` to `"jdk"` in all four module configs — Netty's epoll transport is Linux-only and will fail at startup on macOS:
+- [modules/lern/service/conf/application.conf:376](modules/lern/service/conf/application.conf#L376)
+- [modules/lms/service/conf/application.conf:278](modules/lms/service/conf/application.conf#L278)
+- [modules/notification/service/conf/application.conf:83](modules/notification/service/conf/application.conf#L83)
+- [modules/userorg/controller/conf/application.conf:720](modules/userorg/controller/conf/application.conf#L720)
+
+**Build:**
+```bash
+chmod +x scripts/build-local.sh
+./scripts/build-local.sh --service lern
+```
+> For all build options (CSP, running tests, building other services), see [scripts/README.md](scripts/README.md).
+
+**Run** — the Play2 Maven plugin's file watcher fails on macOS; run via the built distribution instead:
 ```bash
 # From the project root
 DIST="modules/lern/service/target/lern-service-impl-1.0-SNAPSHOT"
 env "accesstoken.publickey.basepath=$(pwd)/keys/" "$DIST/start" -Dhttp.port=9000
 ```
 
-### Step 8 — Verify
+### Step 7 — Verify
 ```bash
 curl http://localhost:9000/health
 ```
