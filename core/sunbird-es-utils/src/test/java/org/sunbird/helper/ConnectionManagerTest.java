@@ -1,13 +1,10 @@
 package org.sunbird.helper;
 
-import org.elasticsearch.action.bulk.BulkProcessor;
-import org.elasticsearch.action.get.GetRequestBuilder;
-import org.elasticsearch.action.support.master.AcknowledgedResponse;
-import org.elasticsearch.client.RestHighLevelClient;
-import org.elasticsearch.common.util.concurrent.FutureUtils;
-import org.elasticsearch.search.SearchHit;
-import org.elasticsearch.search.SearchHits;
-import org.elasticsearch.search.aggregations.Aggregations;
+import org.opensearch.action.bulk.BulkProcessor;
+import org.opensearch.client.RestHighLevelClient;
+import org.opensearch.search.SearchHit;
+import org.opensearch.search.SearchHits;
+import org.opensearch.search.aggregations.Aggregations;
 import org.junit.Assert;
 import org.junit.FixMethodOrder;
 import org.junit.Test;
@@ -32,10 +29,7 @@ import org.powermock.modules.junit4.PowerMockRunner;
 })
 @PrepareForTest({
   ConnectionManager.class,
-  AcknowledgedResponse.class,
-  GetRequestBuilder.class,
   BulkProcessor.class,
-  FutureUtils.class,
   SearchHit.class,
   SearchHits.class,
   Aggregations.class

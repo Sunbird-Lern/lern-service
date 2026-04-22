@@ -4,7 +4,7 @@
 [![Target](https://img.shields.io/badge/Target-Java%2011-orange.svg)](https://www.oracle.com/java/technologies/javase-jdk11-downloads.html)
 [![Framework](https://img.shields.io/badge/Framework-Play%203.0.5-green.svg)](https://www.playframework.com/)
 
-Sunbird Lern is a comprehensive Play Framework service for learning infrastructure. It provides REST APIs for managing user identities, learning workflows, and notifications within the Sunbird ecosystem. The service integrates with YugabyteDB, Elasticsearch, Kafka, and Redis to deliver high-scale educational capabilities.
+Sunbird Lern is a comprehensive Play Framework service for learning infrastructure. It provides REST APIs for managing user identities, learning workflows, and notifications within the Sunbird ecosystem. The service integrates with YugabyteDB, OpenSearch, Kafka, and Redis to deliver high-scale educational capabilities.
 
 ---
 
@@ -47,7 +47,7 @@ Runtime and framework details:
 *   **Reactive Core:** Apache Pekko 1.0.3 (Distributed Actor System)
 *   **Data Persistence:**
     *   **YugabyteDB:** Dual-driver architecture — Cassandra (9042) for document stores, Postgres (5433) for relational data.
-    *   **Elasticsearch:** Distributed full-text search engine (9200).
+    *   **OpenSearch:** Distributed full-text search engine (9200).
     *   **Redis:** Optional distributed cache layer.
 *   **Messaging:** Apache Kafka (9092) for event-driven workflows and notification dispatch.
 
@@ -74,7 +74,7 @@ chmod +x scripts/setup-keycloak.sh
 
 ### Step 3 — Start Infrastructure
 
-Spin up YugabyteDB, Elasticsearch, Kafka, and Keycloak using Docker Compose:
+Spin up YugabyteDB, OpenSearch, Kafka, and Keycloak using Docker Compose:
 ```bash
 docker-compose up -d
 docker-compose ps
@@ -91,10 +91,10 @@ chmod +x scripts/init-yugabyte.sh
 ./scripts/init-yugabyte.sh
 ```
 
-**Elasticsearch index setup:**
+**OpenSearch index setup:**
 ```bash
-chmod +x scripts/init-elasticsearch.sh
-./scripts/init-elasticsearch.sh
+chmod +x scripts/init-opensearch.sh
+./scripts/init-opensearch.sh
 ```
 
 **Keycloak public key extraction:**
@@ -119,7 +119,7 @@ source .env
 
 The service reads all configuration from environment variables at startup. Key variables to verify:
 
-Elasticsearch — these must be **lowercase**:
+OpenSearch — these must be **lowercase**:
 ```bash
 sunbird_es_host="localhost"
 sunbird_es_port="9200"
@@ -198,7 +198,7 @@ Expected response:
         { "name": "Learner service", "healthy": true },
         { "name": "Actor service", "healthy": true },
         { "name": "Cassandra service", "healthy": true },
-        { "name": "Elastic search service", "healthy": true }
+        { "name": "OpenSearch service", "healthy": true }
       ],
       "healthy": true,
       "name": "Complete health check api"
@@ -267,7 +267,7 @@ export SUNBIRD_CONTENT_CLOUD_STORAGE_CONTAINER=your-gcs-bucket-name
 Lern integrates with the following external systems, configured via environment variables (see `scripts/env-variables.example`):
 
 *   **Primary Data Store:** YugabyteDB with dual-driver support (Cassandra for document-oriented workloads, Postgres for relational).
-*   **Search & Analytics:** Elasticsearch (9200) for full-text indexing and aggregated queries.
+*   **Search & Analytics:** OpenSearch (9200) for full-text indexing and aggregated queries.
 *   **Event Streaming:** Apache Kafka (9092) for asynchronous notifications, certificate issuance, and audit trails.
 *   **Caching Layer:** Redis (optional, 6379) for session storage and query result caching.
 *   **Identity Provider:** Keycloak for OIDC/SAML federation and secure authentication.

@@ -18,26 +18,26 @@ import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.lucene.search.join.ScoreMode;
 import org.apache.pekko.util.Timeout;
-import org.elasticsearch.action.search.SearchRequestBuilder;
-import org.elasticsearch.action.search.SearchResponse;
-import org.elasticsearch.client.transport.TransportClient;
-import org.elasticsearch.index.query.BoolQueryBuilder;
-import org.elasticsearch.index.query.ExistsQueryBuilder;
-import org.elasticsearch.index.query.MatchQueryBuilder;
-import org.elasticsearch.index.query.QueryBuilder;
-import org.elasticsearch.index.query.QueryBuilders;
-import org.elasticsearch.index.query.RangeQueryBuilder;
-import org.elasticsearch.index.query.TermQueryBuilder;
-import org.elasticsearch.index.query.TermsQueryBuilder;
-import org.elasticsearch.common.unit.Fuzziness;
-import org.elasticsearch.search.SearchHit;
-import org.elasticsearch.search.SearchHits;
-import org.elasticsearch.search.aggregations.AggregationBuilders;
-import org.elasticsearch.search.aggregations.bucket.histogram.DateHistogramInterval;
-import org.elasticsearch.search.aggregations.bucket.histogram.Histogram;
-import org.elasticsearch.search.aggregations.bucket.terms.Terms;
-import org.elasticsearch.search.aggregations.bucket.terms.Terms.Bucket;
-import org.elasticsearch.search.sort.SortOrder;
+import org.opensearch.action.search.SearchRequestBuilder;
+import org.opensearch.action.search.SearchResponse;
+import org.opensearch.client.transport.TransportClient;
+import org.opensearch.index.query.BoolQueryBuilder;
+import org.opensearch.index.query.ExistsQueryBuilder;
+import org.opensearch.index.query.MatchQueryBuilder;
+import org.opensearch.index.query.QueryBuilder;
+import org.opensearch.index.query.QueryBuilders;
+import org.opensearch.index.query.RangeQueryBuilder;
+import org.opensearch.index.query.TermQueryBuilder;
+import org.opensearch.index.query.TermsQueryBuilder;
+import org.opensearch.common.unit.Fuzziness;
+import org.opensearch.search.SearchHit;
+import org.opensearch.search.SearchHits;
+import org.opensearch.search.aggregations.AggregationBuilders;
+import org.opensearch.search.aggregations.bucket.histogram.DateHistogramInterval;
+import org.opensearch.search.aggregations.bucket.histogram.Histogram;
+import org.opensearch.search.aggregations.bucket.terms.Terms;
+import org.opensearch.search.aggregations.bucket.terms.Terms.Bucket;
+import org.opensearch.search.sort.SortOrder;
 import org.sunbird.keys.JsonKey;
 import org.sunbird.logging.LoggerUtil;
 import org.sunbird.dto.SearchDTO;
@@ -156,6 +156,7 @@ public class ElasticSearchHelper {
     return searchRequestBuilder;
   }
 
+
   /**
    * Extracts soft constraints from the SearchDTO.
    *
@@ -181,6 +182,7 @@ public class ElasticSearchHelper {
       TransportClient client, String[] index) {
     return client.prepareSearch().setIndices(index).setTypes(_DOC);
   }
+
 
   /**
    * Adds additional search criteria such as filters, exists, nested filters to the query.
