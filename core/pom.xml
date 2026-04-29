@@ -93,7 +93,7 @@
         <!-- Scala Dependencies -->
         <scala.version>2.13.12</scala.version>
         <scalatest.version>3.1.2</scalatest.version>
-        <scalamock.version>4.4.0</scalamock.version>
+        <scalamock.version>7.5.5</scalamock.version>
         <scala-maven-plugin.version>4.4.0</scala-maven-plugin.version>
     </properties>
 
