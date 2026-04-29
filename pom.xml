@@ -27,7 +27,7 @@
         <play2.version>3.0.5</play2.version>
         <scala.major.version>2.13</scala.major.version>
         <scala.version>2.13.12</scala.version>
-        <pekko.version>1.0.3</pekko.version>
+        <pekko.version>1.5.0</pekko.version>
         <jackson.version>2.18.6</jackson.version>
         <c3p0.version>0.12.0</c3p0.version>
         <mchange-commons-java.version>0.4.0</mchange-commons-java.version>

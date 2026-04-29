@@ -38,7 +38,7 @@
         <httpcomponents.httpmime.version>4.5.14</httpcomponents.httpmime.version>
 
         <!--  Apache Pekko -->
-        <pekko.version>1.0.3</pekko.version>
+        <pekko.version>1.5.0</pekko.version>
         
         <!-- Apache Kafka -->
         <kafka.version>3.7.1</kafka.version>
