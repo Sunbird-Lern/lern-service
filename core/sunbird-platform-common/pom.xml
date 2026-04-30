@@ -253,11 +253,11 @@
         <!-- CSP runtime jar is supplied by a Maven profile (-Pazure / -Paws / -Pgcp / -Poci).
              Default profile is 'azure'. See <profiles> section at the bottom of this file. -->
 
-        <!-- Elasticsearch Dependencies -->
+        <!-- OpenSearch Dependencies -->
         <dependency>
-            <groupId>org.elasticsearch.client</groupId>
-            <artifactId>elasticsearch-rest-high-level-client</artifactId>
-            <version>${elasticsearch.version}</version>
+            <groupId>org.opensearch.client</groupId>
+            <artifactId>opensearch-rest-high-level-client</artifactId>
+            <version>${opensearch.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.apache.httpcomponents</groupId>
