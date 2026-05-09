@@ -103,6 +103,8 @@ public class KeyCloakServiceImpl implements SSOManager {
       List userSessions = userResource.getUserSessions();
       for (Object userSession : userSessions)
         userSessions.remove(userSession);
+      logger.info(context, "KeyCloakServiceImpl:removePII: Clearing user cache for realm: " + KeyCloakConnectionProvider.SSO_REALM);
+      keycloak.realm(KeyCloakConnectionProvider.SSO_REALM).clearUserCache();
       return true;
     } catch (Exception e) {
       logger.error(context, "KeyCloakServiceImpl:removePII: Exception occurred: ", e);
@@ -132,6 +134,8 @@ public class KeyCloakServiceImpl implements SSOManager {
         logger.info(context, "KeyCloakServiceImpl:removeUser: Resource found: " + resource.toRepresentation());
         resource.remove();
       }
+      logger.info(context, "KeyCloakServiceImpl:removeUser: Clearing user cache for realm: " + KeyCloakConnectionProvider.SSO_REALM);
+      keycloak.realm(KeyCloakConnectionProvider.SSO_REALM).clearUserCache();
     } catch (Exception ex) {
       logger.error(context, "KeyCloakServiceImpl:removeUser: Error occurred: ", ex);
       String exMsg =
