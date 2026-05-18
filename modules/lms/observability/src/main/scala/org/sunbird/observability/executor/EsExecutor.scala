@@ -1,12 +1,12 @@
 package org.sunbird.observability.executor
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import org.elasticsearch.action.search.SearchRequest
-import org.elasticsearch.client.RequestOptions
-import org.elasticsearch.index.query.QueryBuilders
-import org.elasticsearch.search.aggregations.AggregationBuilders
-import org.elasticsearch.search.aggregations.bucket.histogram.{DateHistogramInterval, LongBounds, ParsedDateHistogram}
-import org.elasticsearch.search.builder.SearchSourceBuilder
+import org.opensearch.action.search.SearchRequest
+import org.opensearch.client.RequestOptions
+import org.opensearch.index.query.QueryBuilders
+import org.opensearch.search.aggregations.AggregationBuilders
+import org.opensearch.search.aggregations.bucket.histogram.{DateHistogramInterval, LongBounds, ParsedDateHistogram}
+import org.opensearch.search.builder.SearchSourceBuilder
 import org.sunbird.common.ProjectUtil
 import org.sunbird.exception.ProjectCommonException
 import org.sunbird.helper.ConnectionManager

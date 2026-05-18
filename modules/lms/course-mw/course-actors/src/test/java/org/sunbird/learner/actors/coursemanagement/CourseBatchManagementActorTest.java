@@ -70,9 +70,12 @@ public class CourseBatchManagementActorTest {
     Whitebox.setInternalState(ServiceFactory.class, "operation", mockCassandraOperation);
 
     PowerMockito.spy(CourseBatchUtil.class);
-    PowerMockito.doNothing().when(CourseBatchUtil.class, "syncCourseBatchForeground", null, null, null);
-    PowerMockito.doReturn(new HashMap<>()).when(CourseBatchUtil.class, "validateCourseBatch", null, null, null);
-    PowerMockito.doReturn(new HashMap<>()).when(CourseBatchUtil.class, "validateTemplate", null, null);
+    PowerMockito.doNothing().when(CourseBatchUtil.class, "syncCourseBatchForeground",
+        Mockito.any(), Mockito.any(), Mockito.any());
+    PowerMockito.doReturn(new HashMap<>()).when(CourseBatchUtil.class, "validateCourseBatch",
+        Mockito.any(), Mockito.any(), Mockito.any());
+    PowerMockito.doReturn(new HashMap<>()).when(CourseBatchUtil.class, "validateTemplate",
+        Mockito.any(), Mockito.any());
 
     PowerMockito.mockStatic(ContentUtil.class);
   }

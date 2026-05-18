@@ -12,9 +12,6 @@ import org.sunbird.dto.SearchDTO;
  */
 public interface ElasticSearchService {
   
-  /** Elasticsearch document type constant for compatibility. */
-  String _DOC = "_doc";
-
   /**
    * Saves a new document in Elasticsearch.
    * The identifier becomes the document _id in ES.
