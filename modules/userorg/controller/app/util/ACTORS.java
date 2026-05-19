@@ -25,6 +25,7 @@ import org.sunbird.actor.systemsettings.SystemSettingsActor;
 import org.sunbird.actor.tenantpreference.TenantPreferenceManagementActor;
 import org.sunbird.actor.user.*;
 import org.sunbird.actor.userconsent.UserConsentActor;
+import org.sunbird.actor.device.DeviceRegisterActor;
 import org.sunbird.util.search.SearchTelemetryGenerator;
 
 public enum ACTORS {
@@ -104,7 +105,9 @@ public enum ACTORS {
   BACKGROUND_JOB_MANAGER_ACTOR(BackgroundJobManager.class, "background_job_manager_actor"),
   USER_DELETION_BACKGROUND_JOB_ACTOR(
       UserDeletionBackgroundJobActor.class, "user_deletion_background_job_actor"),
-  USER_OWNERSHIP_TRANSFER_ACTOR(UserOwnershipTransferActor.class,"user_ownership_transfer_actor");
+  USER_OWNERSHIP_TRANSFER_ACTOR(UserOwnershipTransferActor.class,"user_ownership_transfer_actor"),
+  // Device Registration Actor
+  DEVICE_REGISTER_ACTOR(DeviceRegisterActor.class, "device_register_actor");
 
   ACTORS(Class clazz, String name) {
     actorClass = clazz;
