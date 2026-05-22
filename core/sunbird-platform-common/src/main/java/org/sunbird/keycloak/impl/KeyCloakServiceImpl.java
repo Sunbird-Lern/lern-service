@@ -100,9 +100,10 @@ public class KeyCloakServiceImpl implements SSOManager {
       user.setEnabled(false);
       logger.info(context, "KeyCloakServiceImpl:removePII: Removing PII for userId: " + fedUserId);
       userResource.update(user);
-      List userSessions = userResource.getUserSessions();
-      for (Object userSession : userSessions)
-        userSessions.remove(userSession);
+      logger.info(context, "KeyCloakServiceImpl:removePII: Terminating all sessions for userId: " + fedUserId);
+      userResource.logout();
+      logger.info(context, "KeyCloakServiceImpl:removePII: Clearing user cache for realm: " + KeyCloakConnectionProvider.SSO_REALM);
+      keycloak.realm(KeyCloakConnectionProvider.SSO_REALM).clearUserCache();
       return true;
     } catch (Exception e) {
       logger.error(context, "KeyCloakServiceImpl:removePII: Exception occurred: ", e);
@@ -129,9 +130,11 @@ public class KeyCloakServiceImpl implements SSOManager {
       UserResource resource =
           keycloak.realm(KeyCloakConnectionProvider.SSO_REALM).users().get(fedUserId);
       if (null != (resource)) {
-        logger.info(context, "KeyCloakServiceImpl:removeUser: Resource found: " + resource.toRepresentation());
+        logger.info(context, "KeyCloakServiceImpl:removeUser: Removing Keycloak user for federated userId: " + fedUserId);
         resource.remove();
       }
+      logger.info(context, "KeyCloakServiceImpl:removeUser: Clearing user cache for realm: " + KeyCloakConnectionProvider.SSO_REALM);
+      keycloak.realm(KeyCloakConnectionProvider.SSO_REALM).clearUserCache();
     } catch (Exception ex) {
       logger.error(context, "KeyCloakServiceImpl:removeUser: Error occurred: ", ex);
       String exMsg =
