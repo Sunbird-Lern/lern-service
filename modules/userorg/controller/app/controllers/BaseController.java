@@ -11,6 +11,7 @@ import org.apache.pekko.pattern.PatternsCS;
 import org.apache.pekko.util.Timeout;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.sunbird.utils.JsonUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.File;
 import java.io.UnsupportedEncodingException;
@@ -61,7 +62,7 @@ public class BaseController extends Controller {
 
   protected static final LoggerUtil logger = new LoggerUtil(BaseController.class);
 
-  private static final ObjectMapper objectMapper = new ObjectMapper();
+  private static final ObjectMapper objectMapper = JsonUtil.MAPPER;
   public static final int PEKKO_WAIT_TIME = 30;
   private static final String version = "v1";
   protected Timeout timeout = new Timeout(PEKKO_WAIT_TIME, TimeUnit.SECONDS);
@@ -405,7 +406,7 @@ public class BaseController extends Controller {
     String value = null;
     try {
       if (response.getResult() != null) {
-        String json = new ObjectMapper().writeValueAsString(response.getResult());
+        String json = JsonUtil.MAPPER.writeValueAsString(response.getResult());
         value = getResponseSize(json);
       }
     } catch (Exception e) {
