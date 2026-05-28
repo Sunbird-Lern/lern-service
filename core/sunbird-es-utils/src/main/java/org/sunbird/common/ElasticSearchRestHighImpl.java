@@ -59,6 +59,8 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
 
   private static final String ERROR = "ERROR";
   private static final LoggerUtil logger = new LoggerUtil(ElasticSearchRestHighImpl.class);
+  private static final int MAX_ES_RESULT_SIZE = 10000;
+  private static final int DEFAULT_ES_RESULT_SIZE = 200;
 
 
   /**
@@ -75,7 +77,7 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
     long startTime = System.currentTimeMillis();
     Promise<String> promise = Futures.promise();
 
-    logger.debug(requestContext, "ElasticSearchRestHighImpl:save: method started at ==" + startTime + " for Index " + index);
+    logger.debug(requestContext, "ElasticSearchRestHighImpl:save: method started at =={} for Index {}", startTime, index);
     
     if (StringUtils.isBlank(identifier) || StringUtils.isBlank(index)) {
       logger.info(requestContext, "ElasticSearchRestHighImpl:save: Identifier or Index value is null or empty, identifier : " 
@@ -92,14 +94,14 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
       ActionListener<IndexResponse> listener = new ActionListener<IndexResponse>() {
         @Override
         public void onResponse(IndexResponse indexResponse) {
-          logger.info(requestContext, "ElasticSearchRestHighImpl:save: Success for index : " + index + ", identifier :" + identifier);
+          logger.info(requestContext, "ElasticSearchRestHighImpl:save: Success for index : {}, identifier :{}", index, identifier);
           promise.success(indexResponse.getId());
           logEndTime(startTime, index, requestContext);
         }
 
         @Override
         public void onFailure(Exception e) {
-          logger.error(requestContext, "ElasticSearchRestHighImpl:save: Error while saving " + index + " id : " + identifier, e);
+          logger.error(requestContext, "ElasticSearchRestHighImpl:save: Error while saving {} id : {}", index, identifier, e);
           promise.failure(e);
           logEndTime(startTime, index, requestContext);
         }
@@ -131,11 +133,11 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
     long startTime = System.currentTimeMillis();
     Promise<Boolean> promise = Futures.promise();
 
-    logger.debug(requestContext, "ElasticSearchRestHighImpl:update: method started at ==" + startTime + " for Index " + index);
+    logger.debug(requestContext, "ElasticSearchRestHighImpl:update: method started at =={} for Index {}", startTime, index);
 
     if (StringUtils.isBlank(index) || StringUtils.isBlank(identifier) || data == null) {
-      logger.info(requestContext, "ElasticSearchRestHighImpl:update: Invalid parameters - index: " + index 
-          + ", identifier: " + identifier + ", data: " + (data == null ? "null" : "present"));
+      logger.info(requestContext, "ElasticSearchRestHighImpl:update: Invalid parameters - index: {}, identifier: {}, data: {}",
+          index, identifier, (data == null ? "null" : "present"));
       promise.failure(ProjectUtil.createClientException(ResponseCode.invalidData));
       return promise.future();
     }
@@ -147,8 +149,7 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
       ActionListener<UpdateResponse> listener = new ActionListener<UpdateResponse>() {
         @Override
         public void onResponse(UpdateResponse updateResponse) {
-          logger.info(requestContext, "ElasticSearchRestHighImpl:update: Success with " + updateResponse.getResult()
-              + " response from Elasticsearch for index: " + index + ", identifier: " + identifier);
+          logger.info(requestContext, "ElasticSearchRestHighImpl:update: Success with {} response from Elasticsearch for index: {}, identifier: {}", updateResponse.getResult(), index, identifier);
           promise.success(true);
           logUpdateEndTime(startTime, index, requestContext);
         }
@@ -187,12 +188,11 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
     long startTime = System.currentTimeMillis();
     Promise<Map<String, Object>> promise = Futures.promise();
 
-    logger.debug(requestContext, "ElasticSearchRestHighImpl:getDataByIdentifier: method started at ==" + startTime 
-        + " for Index " + index);
+    logger.debug(requestContext, "ElasticSearchRestHighImpl:getDataByIdentifier: method started at =={} for Index {}", startTime, index);
 
     if (StringUtils.isBlank(index) || StringUtils.isBlank(identifier)) {
-      logger.info(requestContext, "ElasticSearchRestHighImpl:getDataByIdentifier: Invalid parameters - index: " 
-          + index + ", identifier: " + identifier);
+      logger.info(requestContext, "ElasticSearchRestHighImpl:getDataByIdentifier: Invalid parameters - index: {}, identifier: {}",
+          index, identifier);
       promise.failure(ProjectUtil.createClientException(ResponseCode.invalidData));
       return promise.future();
     }
@@ -256,7 +256,7 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
     long startTime = System.currentTimeMillis();
     Promise<Boolean> promise = Futures.promise();
 
-    logger.debug(requestContext, "ElasticSearchRestHighImpl:delete: method started at ==" + startTime);
+    logger.debug(requestContext, "ElasticSearchRestHighImpl:delete: method started at =={}", startTime);
 
     if (StringUtils.isBlank(index) || StringUtils.isBlank(identifier)) {
       logger.info(requestContext, "ElasticSearchRestHighImpl:delete: Invalid parameters - index: " 
@@ -319,7 +319,7 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
     long startTime = System.currentTimeMillis();
     Promise<Map<String, Object>> promise = Futures.promise();
 
-    logger.debug(requestContext, "ElasticSearchRestHighImpl:search: method started at ==" + startTime);
+    logger.debug(requestContext, "ElasticSearchRestHighImpl:search: method started at =={}", startTime);
 
     try {
       SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
@@ -377,10 +377,10 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
         searchSourceBuilder.from(searchDTO.getOffset());
       }
 
-      // Set limit
-      if (searchDTO.getLimit() != null) {
-        searchSourceBuilder.size(searchDTO.getLimit());
-      }
+      // Set limit with bounds checking
+      int requestedSize = (searchDTO.getLimit() != null && searchDTO.getLimit() > 0)
+          ? searchDTO.getLimit() : DEFAULT_ES_RESULT_SIZE;
+      searchSourceBuilder.size(Math.min(requestedSize, MAX_ES_RESULT_SIZE));
 
       // Apply additional properties
       if (searchDTO.getAdditionalProperties() != null && !searchDTO.getAdditionalProperties().isEmpty()) {
@@ -404,7 +404,7 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
         searchSourceBuilder = addAggregations(searchSourceBuilder, searchDTO.getFacets(), requestContext);
       }
 
-      logger.info(requestContext, "ElasticSearchRestHighImpl:search: calling search for index " + index 
+      logger.info(requestContext, "ElasticSearchRestHighImpl:search: calling search for index {} 
           + ", with query = " + searchSourceBuilder.toString());
 
       searchRequest.source(searchSourceBuilder);
@@ -428,7 +428,7 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
 
         @Override
         public void onFailure(Exception e) {
-          logger.error(requestContext, "ElasticSearchRestHighImpl:search: Search failed for index: " + index, e);
+          logger.error(requestContext, "ElasticSearchRestHighImpl:search: Search failed for index: {}", index, e);
           promise.failure(e);
           logSearchEndTime(startTime, index, requestContext);
         }
@@ -437,7 +437,7 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
       ConnectionManager.getRestClient().searchAsync(searchRequest, RequestOptions.DEFAULT, listener);
 
     } catch (Exception e) {
-      logger.error(requestContext, "ElasticSearchRestHighImpl:search: Failed to prepare/submit search request for index: " + index, e);
+      logger.error(requestContext, "ElasticSearchRestHighImpl:search: Failed to prepare/submit search request for index: {}", index, e);
       promise.failure(e);
       logSearchEndTime(startTime, index, requestContext);
     }
@@ -464,7 +464,7 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
         @Override
         public void onResponse(Boolean getResponse) {
           promise.success(getResponse != null ? getResponse : false);
-          logger.info("ElasticSearchRestHighImpl:healthCheck: Health check successful, index exists: " + getResponse);
+          logger.info("ElasticSearchRestHighImpl:healthCheck: Health check successful, index exists: {}", getResponse);
         }
 
         @Override
@@ -497,11 +497,11 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
     long startTime = System.currentTimeMillis();
     Promise<Boolean> promise = Futures.promise();
 
-    logger.debug(requestContext, "ElasticSearchRestHighImpl:bulkInsert: method started at ==" + startTime + " for Index " + index);
+    logger.debug(requestContext, "ElasticSearchRestHighImpl:bulkInsert: method started at =={} for Index {}", startTime, index);
 
     if (StringUtils.isBlank(index) || dataList == null || dataList.isEmpty()) {
-      logger.info(requestContext, "ElasticSearchRestHighImpl:bulkInsert: Invalid parameters - index: " + index 
-          + ", dataList size: " + (dataList == null ? "null" : dataList.size()));
+      logger.info(requestContext, "ElasticSearchRestHighImpl:bulkInsert: Invalid parameters - index: {}, dataList size: {}",
+          index, (dataList == null ? "null" : dataList.size()));
       promise.failure(ProjectUtil.createClientException(ResponseCode.invalidData));
       return promise.future();
     }
@@ -545,7 +545,7 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
 
         @Override
         public void onFailure(Exception e) {
-          logger.error(requestContext, "ElasticSearchRestHighImpl:bulkInsert: Bulk upload failed for index: " + index, e);
+          logger.error(requestContext, "ElasticSearchRestHighImpl:bulkInsert: Bulk upload failed for index: {}", index, e);
           promise.success(false);
           logBulkInsertEndTime(startTime, index, requestContext);
         }
@@ -554,7 +554,7 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
       ConnectionManager.getRestClient().bulkAsync(request, RequestOptions.DEFAULT, listener);
 
     } catch (Exception e) {
-      logger.error(requestContext, "ElasticSearchRestHighImpl:bulkInsert: Failed to prepare/submit bulk request for index: " + index, e);
+      logger.error(requestContext, "ElasticSearchRestHighImpl:bulkInsert: Failed to prepare/submit bulk request for index: {}", index, e);
       promise.success(false);
       logBulkInsertEndTime(startTime, index, requestContext);
     }
@@ -575,7 +575,7 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
                                                      List<Map<String, String>> facets, 
                                                      RequestContext requestContext) {
     long startTime = System.currentTimeMillis();
-    logger.debug(requestContext, "ElasticSearchRestHighImpl:addAggregations: method started at ==" + startTime);
+    logger.debug(requestContext, "ElasticSearchRestHighImpl:addAggregations: method started at =={}", startTime);
     
     if (CollectionUtils.isNotEmpty(facets)) {
       Map<String, String> map = facets.get(0);
@@ -614,11 +614,11 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
     long startTime = System.currentTimeMillis();
     Promise<Boolean> promise = Futures.promise();
 
-    logger.debug(requestContext, "ElasticSearchRestHighImpl:upsert: method started at ==" + startTime + " for Index " + index);
+    logger.debug(requestContext, "ElasticSearchRestHighImpl:upsert: method started at =={} for Index {}", startTime, index);
 
     if (StringUtils.isBlank(index) || StringUtils.isBlank(identifier) || data == null || data.isEmpty()) {
-      logger.info(requestContext, "ElasticSearchRestHighImpl:upsert: Invalid parameters - index: " + index 
-          + ", identifier: " + identifier + ", data: " + (data == null ? "null" : "size=" + data.size()));
+      logger.info(requestContext, "ElasticSearchRestHighImpl:upsert: Invalid parameters - index: {}, identifier: {}, data: {}",
+          index, identifier, (data == null ? "null" : "size=" + data.size()));
       promise.failure(ProjectUtil.createClientException(ResponseCode.invalidData));
       return promise.future();
     }
@@ -672,7 +672,7 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
                                                                           String index, RequestContext requestContext) {
     Promise<Map<String, Map<String, Object>>> promise = Futures.promise();
 
-    logger.debug(requestContext, "ElasticSearchRestHighImpl:getEsResultByListOfIds: method started for index " + index);
+    logger.debug(requestContext, "ElasticSearchRestHighImpl:getEsResultByListOfIds: method started for index {}", index);
 
     if (ids == null || ids.isEmpty() || StringUtils.isBlank(index)) {
       logger.info(requestContext, "ElasticSearchRestHighImpl:getEsResultByListOfIds: Invalid parameters - index: " + index 
@@ -704,11 +704,11 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
             + resultMap.size() + " documents for index " + index);
       } else {
         promise.success(new HashMap<>());
-        logger.info(requestContext, "ElasticSearchRestHighImpl:getEsResultByListOfIds: No documents found for index " + index);
+        logger.info(requestContext, "ElasticSearchRestHighImpl:getEsResultByListOfIds: No documents found for index {}", index);
       }
 
     } catch (Exception e) {
-      logger.error(requestContext, "ElasticSearchRestHighImpl:getEsResultByListOfIds: Failed to retrieve documents for index: " + index, e);
+      logger.error(requestContext, "ElasticSearchRestHighImpl:getEsResultByListOfIds: Failed to retrieve documents for index: {}", index, e);
       promise.success(new HashMap<>());
     }
 

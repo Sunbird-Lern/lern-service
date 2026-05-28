@@ -9,7 +9,6 @@ import org.sunbird.operations.lms.ActorOperations;
 import org.sunbird.keys.JsonKey;
 import org.sunbird.logging.LoggerEnum;
 import org.sunbird.logging.LoggerUtil;
-import org.sunbird.logging.ProjectLogger;
 import org.sunbird.request.Request;
 import org.sunbird.response.ResponseCode;
 
@@ -19,8 +18,8 @@ public class CacheManagementActor extends BaseActor {
 
   @Override
   public void onReceive(Request request) throws Throwable {
-    System.out.println(
-        "Actor dispatcher parent=>" + getContext().getParent().path() + ", self=>" + self().path());
+    logger.debug(request.getRequestContext(), "Actor dispatcher parent=>{}, self=>{}", 
+        getContext().getParent().path(), self().path());
     if (request.getOperation().equalsIgnoreCase(ActorOperations.CLEAR_CACHE.getValue())) {
       clearCache(request);
     } else {
@@ -30,7 +29,7 @@ public class CacheManagementActor extends BaseActor {
 
   private void clearCache(Request request) {
     String mapName = (String) request.getContext().get(JsonKey.MAP_NAME);
-    logger.info(request.getRequestContext(), "CacheManagementActor:clearCache: mapName = " + mapName);
+    logger.info(request.getRequestContext(), "CacheManagementActor:clearCache: mapName = {}", mapName);
     try {
       if (cache == null) {
         logger.info(request.getRequestContext(), "CacheManagementActor:clearCache: Redis disabled, skipping cache clear for mapName = " + mapName);
@@ -45,8 +44,8 @@ public class CacheManagementActor extends BaseActor {
 
       sender().tell(response, self());
     } catch (Exception e) {
-      logger.error(request.getRequestContext(), "CacheManagementActor:clearCache: Error occurred for mapName = "
-              + mapName + " error = " + e.getMessage(), e);
+      logger.error(request.getRequestContext(), "CacheManagementActor:clearCache: Error occurred for mapName = {} error = {}", 
+              mapName, e.getMessage(), e);
       sender().tell(e, self());
     }
   }

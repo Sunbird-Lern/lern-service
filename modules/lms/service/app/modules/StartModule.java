@@ -1,6 +1,8 @@
 package modules;
 
 import com.google.inject.AbstractModule;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.sunbird.cache.util.RedisCacheUtil;
 import org.sunbird.common.ProjectUtil;
 
@@ -11,9 +13,11 @@ import org.sunbird.common.ProjectUtil;
  * @author Jaikumar Soundara Rajan
  */
 public class StartModule extends AbstractModule {
+    private static final Logger logger = LoggerFactory.getLogger(StartModule.class);
+
     @Override
     protected void configure() {
-        System.out.println("StartModule:configure: Start");
+        logger.info("StartModule:configure: Start");
         try {
             bind(ApplicationStart.class).asEagerSingleton();
             if (Boolean.parseBoolean(ProjectUtil.getConfigValue("redis.enabled"))) {
@@ -23,7 +27,7 @@ public class StartModule extends AbstractModule {
             e.printStackTrace();
             throw e;
         }
-        System.out.println("StartModule:configure: End");
+        logger.info("StartModule:configure: End");
 
     }
 }
