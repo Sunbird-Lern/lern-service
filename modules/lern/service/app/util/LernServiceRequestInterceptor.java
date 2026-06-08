@@ -129,6 +129,9 @@ public class LernServiceRequestInterceptor {
     apiHeaderIgnoreMap.put("/v1/notification/send/sync", var);
     apiHeaderIgnoreMap.put("/v2/notification/send", var);
     apiHeaderIgnoreMap.put("/v1/notification/send", var);
+
+    // From Device Management (public endpoint - mobile devices before login)
+    apiHeaderIgnoreMap.put("/v1/device/register", var);
   }
 
   /**

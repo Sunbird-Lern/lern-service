@@ -146,7 +146,8 @@ public enum ActorOperations {
   ADD_ENCRYPTION_KEY("addEncryptionKey", "ADENCKEY"),
   USER_CURRENT_LOGIN("userCurrentLogin", "USRLOG"),
   DELETE_USER("deleteUser", "USRDLT"),
-  USER_OWNERSHIP_TRANSFER("userOwnershipTransfer", "UOWNTRANS");
+  USER_OWNERSHIP_TRANSFER("userOwnershipTransfer", "UOWNTRANS"),
+  REGISTER_DEVICE("registerDevice", "DEVREG");
 
   private final String value;
   private final String operationCode;
