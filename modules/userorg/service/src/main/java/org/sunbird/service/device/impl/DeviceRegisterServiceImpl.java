@@ -106,7 +106,7 @@ public class DeviceRegisterServiceImpl implements DeviceRegisterService {
       // Build the flat JSON event (same format as Obsrv)
       Map<String, Object> event = new HashMap<>(profile);
 
-      String topic = ProjectUtil.getConfigValue("kafka_topics_deviceprofile");
+      String topic = ProjectUtil.getConfigValue("kafka_topics_device_events");
       String payload = MAPPER.writeValueAsString(event);
       KafkaClient.send(payload, topic);
 
