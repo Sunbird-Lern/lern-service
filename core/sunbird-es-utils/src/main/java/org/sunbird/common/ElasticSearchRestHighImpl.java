@@ -11,33 +11,33 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.pekko.dispatch.Futures;
-import org.elasticsearch.action.ActionListener;
-import org.elasticsearch.action.DocWriteResponse;
-import org.elasticsearch.action.admin.indices.get.GetIndexRequest;
-import org.elasticsearch.action.support.IndicesOptions;
-import org.elasticsearch.action.bulk.BulkItemResponse;
-import org.elasticsearch.action.bulk.BulkRequest;
-import org.elasticsearch.action.bulk.BulkResponse;
-import org.elasticsearch.action.delete.DeleteRequest;
-import org.elasticsearch.action.delete.DeleteResponse;
-import org.elasticsearch.action.get.GetRequest;
-import org.elasticsearch.action.get.GetResponse;
-import org.elasticsearch.action.index.IndexRequest;
-import org.elasticsearch.action.index.IndexResponse;
-import org.elasticsearch.action.search.SearchRequest;
-import org.elasticsearch.action.search.SearchResponse;
-import org.elasticsearch.action.update.UpdateRequest;
-import org.elasticsearch.action.update.UpdateResponse;
-import org.elasticsearch.client.RequestOptions;
-import org.elasticsearch.index.query.BoolQueryBuilder;
-import org.elasticsearch.index.query.QueryBuilders;
-import org.elasticsearch.index.query.SimpleQueryStringBuilder;
-import org.elasticsearch.index.query.TermQueryBuilder;
-import org.elasticsearch.search.aggregations.AggregationBuilders;
-import org.elasticsearch.search.aggregations.bucket.histogram.DateHistogramInterval;
-import org.elasticsearch.search.builder.SearchSourceBuilder;
-import org.elasticsearch.search.sort.FieldSortBuilder;
-import org.elasticsearch.search.sort.SortMode;
+import org.opensearch.core.action.ActionListener;
+import org.opensearch.action.DocWriteResponse;
+import org.opensearch.client.indices.GetIndexRequest;
+import org.opensearch.action.support.IndicesOptions;
+import org.opensearch.action.bulk.BulkItemResponse;
+import org.opensearch.action.bulk.BulkRequest;
+import org.opensearch.action.bulk.BulkResponse;
+import org.opensearch.action.delete.DeleteRequest;
+import org.opensearch.action.delete.DeleteResponse;
+import org.opensearch.action.get.GetRequest;
+import org.opensearch.action.get.GetResponse;
+import org.opensearch.action.index.IndexRequest;
+import org.opensearch.action.index.IndexResponse;
+import org.opensearch.action.search.SearchRequest;
+import org.opensearch.action.search.SearchResponse;
+import org.opensearch.action.update.UpdateRequest;
+import org.opensearch.action.update.UpdateResponse;
+import org.opensearch.client.RequestOptions;
+import org.opensearch.index.query.BoolQueryBuilder;
+import org.opensearch.index.query.QueryBuilders;
+import org.opensearch.index.query.SimpleQueryStringBuilder;
+import org.opensearch.index.query.TermQueryBuilder;
+import org.opensearch.search.aggregations.AggregationBuilders;
+import org.opensearch.search.aggregations.bucket.histogram.DateHistogramInterval;
+import org.opensearch.search.builder.SearchSourceBuilder;
+import org.opensearch.search.sort.FieldSortBuilder;
+import org.opensearch.search.sort.SortMode;
 import org.sunbird.common.inf.ElasticSearchService;
 import org.sunbird.keys.JsonKey;
 import org.sunbird.logging.LoggerUtil;
@@ -87,7 +87,7 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
     try {
       data.put(JsonKey.IDENTIFIER, identifier);
 
-      IndexRequest indexRequest = new IndexRequest(index, _DOC, identifier).source(data);
+      IndexRequest indexRequest = new IndexRequest(index).id(identifier).source(data);
 
       ActionListener<IndexResponse> listener = new ActionListener<IndexResponse>() {
         @Override
@@ -142,7 +142,7 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
 
     try {
       data.put(JsonKey.IDENTIFIER, identifier);
-      UpdateRequest updateRequest = new UpdateRequest(index, _DOC, identifier).doc(data);
+      UpdateRequest updateRequest = new UpdateRequest(index, identifier).doc(data);
 
       ActionListener<UpdateResponse> listener = new ActionListener<UpdateResponse>() {
         @Override
@@ -198,7 +198,7 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
     }
 
     try {
-      GetRequest getRequest = new GetRequest(index, _DOC, identifier);
+      GetRequest getRequest = new GetRequest(index, identifier);
 
       ActionListener<GetResponse> listener = new ActionListener<GetResponse>() {
         @Override
@@ -266,7 +266,7 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
     }
 
     try {
-      DeleteRequest delRequest = new DeleteRequest(index, _DOC, identifier);
+      DeleteRequest delRequest = new DeleteRequest(index, identifier);
       
       ActionListener<DeleteResponse> listener = new ActionListener<DeleteResponse>() {
         @Override
@@ -324,7 +324,6 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
     try {
       SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
       SearchRequest searchRequest = new SearchRequest(index);
-      // Note: types() is deprecated in Elasticsearch 7.x, document type is now always "_doc"
 
       // Check mode and set constraints
       Map<String, Float> constraintsMap = ElasticSearchHelper.getConstraints(searchDTO);
@@ -456,8 +455,9 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
     Promise<Boolean> promise = Futures.promise();
     
     try {
-      GetIndexRequest indexRequest = new GetIndexRequest()
-          .indices(ProjectUtil.EsType.courseBatch.getTypeName(), ProjectUtil.EsType.user.getTypeName())
+      GetIndexRequest indexRequest = new GetIndexRequest(
+          ProjectUtil.EsType.courseBatch.getTypeName(),
+          ProjectUtil.EsType.user.getTypeName())
           .indicesOptions(IndicesOptions.fromOptions(true, true, true, false));
       
       ActionListener<Boolean> listener = new ActionListener<Boolean>() {
@@ -513,7 +513,7 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
         String id = (String) data.get(JsonKey.ID);
         if (StringUtils.isNotBlank(id)) {
           data.put(JsonKey.IDENTIFIER, id);
-          request.add(new IndexRequest(index, _DOC, id).source(data));
+          request.add(new IndexRequest(index).id(id).source(data));
         } else {
           logger.warn(requestContext, "ElasticSearchRestHighImpl:bulkInsert: Skipping document without ID", null);
         }
@@ -625,8 +625,8 @@ public class ElasticSearchRestHighImpl implements ElasticSearchService {
 
     try {
       data.put(JsonKey.IDENTIFIER, identifier);
-      IndexRequest indexRequest = new IndexRequest(index, _DOC, identifier).source(data);
-      UpdateRequest updateRequest = new UpdateRequest(index, _DOC, identifier).upsert(indexRequest).doc(indexRequest);
+      IndexRequest indexRequest = new IndexRequest(index).id(identifier).source(data);
+      UpdateRequest updateRequest = new UpdateRequest(index, identifier).upsert(indexRequest).doc(indexRequest);
 
       ActionListener<UpdateResponse> listener = new ActionListener<UpdateResponse>() {
         @Override
