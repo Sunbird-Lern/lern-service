@@ -22,7 +22,7 @@
         <scala.maj.version>2.13.12</scala.maj.version>
         <pekko.version>1.0.3</pekko.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <scoverage.plugin.version>1.4.1</scoverage.plugin.version>
+        <scoverage.plugin.version>2.1.5</scoverage.plugin.version>
     </properties>
 
     <dependencies>
