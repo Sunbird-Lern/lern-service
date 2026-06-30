@@ -382,13 +382,7 @@
 
     <profiles>
         <!-- CSP profiles: activated at build time via -P<id>.
-             Each profile bundles exactly one CSP runtime jar so the resulting dist ZIP
-             (and Docker image) contains only the SDK for the chosen cloud provider.
-             Build examples:
-               mvn clean install -DskipTests -Pazure   (default)
-               mvn clean install -DskipTests -Paws
-               mvn clean install -DskipTests -Pgcp
-               mvn clean install -DskipTests -Poci     -->
+             Each profile bundles exactly one CSP runtime jar. -->
         <profile>
             <id>azure</id>
             <activation>
