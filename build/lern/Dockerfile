@@ -43,7 +43,9 @@ ARG DHI_IMAGE_RUNTIME=dhi.io/eclipse-temurin:11-jre-alpine
 FROM dhi.io/busybox:1.38.0-alpine3.24 as shell
 
 FROM ${DHI_IMAGE_DEV} AS builder
-RUN apk update && apk add unzip
+RUN apk update \
+    && apk add unzip curl "zlib>=1.3.2-r0"
+
 WORKDIR /app
 COPY modules/lern/service/target/lern-service-impl-1.0-SNAPSHOT-dist.zip .
 RUN unzip lern-service-impl-1.0-SNAPSHOT-dist.zip
@@ -51,6 +53,9 @@ RUN unzip lern-service-impl-1.0-SNAPSHOT-dist.zip
 # Stage 2: Runtime
 FROM ${DHI_IMAGE_RUNTIME}
 COPY --from=shell /bin/busybox /bin/sh
+COPY --from=builder /usr/bin/curl /usr/bin/curl
+COPY --from=builder /usr/lib/libcurl* /usr/lib/
+COPY --from=builder /lib/libz* /lib/
 
 # Cloud Storage Provider selection — pass --build-arg CSP=<azure|aws|gcloud|oci> at build time.
 # Defaults to azure. The Maven build must have been run with the matching profile (-P <csp>).
@@ -60,8 +65,8 @@ ARG CSP=azure
 ENV sunbird_cloud_service_provider=${CSP}
 ENV sunbird_cloud_storage_auth_type=OIDC
 
-RUN apk upgrade --no-cache \
-    && apk add --no-cache curl "zlib>=1.3.2-r0"
+# RUN apk upgrade --no-cache \
+#     && apk add --no-cache curl "zlib>=1.3.2-r0"
 
 USER nonroot
 COPY --from=builder --chown=nonroot:nonroot /app/lern-service-impl-1.0-SNAPSHOT /home/sunbird/lern-service-impl-1.0-SNAPSHOT
