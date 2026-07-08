@@ -57,6 +57,8 @@ COPY --from=builder /usr/bin/curl /usr/bin/curl
 COPY --from=builder /usr/lib/libcurl* /usr/lib/
 COPY --from=builder /lib/libz* /lib/
 
+ENTRYPOINT []
+
 # Cloud Storage Provider selection — pass --build-arg CSP=<azure|aws|gcloud|oci> at build time.
 # Defaults to azure. The Maven build must have been run with the matching profile (-P <csp>).
 # cloud_storage_auth_type defaults to OIDC (Kubernetes Workload Identity).
