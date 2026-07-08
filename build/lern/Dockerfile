@@ -40,6 +40,8 @@
 ARG DHI_IMAGE_DEV=dhi.io/alpine-base:3.22-dev
 ARG DHI_IMAGE_RUNTIME=dhi.io/eclipse-temurin:11-jre-alpine
 
+FROM dhi.io/busybox:1.38.0-alpine3.24 as shell
+
 FROM ${DHI_IMAGE_DEV} AS builder
 RUN apk update && apk add unzip
 WORKDIR /app
@@ -48,6 +50,7 @@ RUN unzip lern-service-impl-1.0-SNAPSHOT-dist.zip
 
 # Stage 2: Runtime
 FROM ${DHI_IMAGE_RUNTIME}
+COPY --from=shell /bin/busybox /bin/sh
 
 # Cloud Storage Provider selection — pass --build-arg CSP=<azure|aws|gcloud|oci> at build time.
 # Defaults to azure. The Maven build must have been run with the matching profile (-P <csp>).
