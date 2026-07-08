@@ -57,6 +57,8 @@ COPY --from=builder /usr/bin/curl /usr/bin/curl
 COPY --from=builder /usr/lib/libcurl* /usr/lib/
 COPY --from=builder /lib/libz* /lib/
 
+ENTRYPOINT []
+
 # Cloud Storage Provider selection — pass --build-arg CSP=<azure|aws|gcloud|oci> at build time.
 # Defaults to azure. The Maven build must have been run with the matching profile (-P <csp>).
 # cloud_storage_auth_type defaults to OIDC (Kubernetes Workload Identity).
@@ -70,7 +72,7 @@ COPY --from=builder --chown=nonroot:nonroot /app/lern-service-impl-1.0-SNAPSHOT 
 COPY modules/lern/service/conf/logback.xml /home/sunbird/lern-service-impl-1.0-SNAPSHOT/conf/logback.xml
 WORKDIR /home/sunbird/
 
-CMD -XX:+PrintFlagsFinal $JAVA_OPTIONS \
+CMD java -XX:+PrintFlagsFinal $JAVA_OPTIONS \
   -Dlog4j2.formatMsgNoLookups=true \
   -Dplay.server.http.idleTimeout=180s \
   -Dlogback.configurationFile=/home/sunbird/lern-service-impl-1.0-SNAPSHOT/conf/logback.xml \
