@@ -102,3 +102,6 @@ keys/
 
 # Claude
 .claude/
+# viewer migration scripts kept local-only
+modules/viewer/migrations/viewer.cql
+modules/viewer/migrations/viewer-test-keyspace.cql
