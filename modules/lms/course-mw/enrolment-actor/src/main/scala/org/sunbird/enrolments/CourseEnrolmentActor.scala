@@ -44,6 +44,9 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
     var courseBatchDao: CourseBatchDao = new CourseBatchDaoImpl()
     var userCoursesDao: UserCoursesDao = new UserCoursesDaoImpl()
     var groupDao: GroupDaoImpl = new GroupDaoImpl()
+    private lazy val cassandraOperation = org.sunbird.helper.ServiceFactory.getInstance
+    private val jsonMapper = new ObjectMapper()
+    private def isViewerEnabled: Boolean = java.lang.Boolean.parseBoolean(ProjectUtil.getConfigValue("viewer_enabled"))
     private val redisEnabled: Boolean = RedisCacheUtil.isRedisEnabled
     val isCacheEnabled = redisEnabled && (if (StringUtils.isNotBlank(ProjectUtil.getConfigValue("user_enrolments_response_cache_enable")))
         (ProjectUtil.getConfigValue("user_enrolments_response_cache_enable")).toBoolean else true)
@@ -74,6 +77,7 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
 
         request.getOperation match {
             case "enrol" => enroll(request)
+            case "systemEnrol" => systemEnroll(request)
             case "unenrol" => unEnroll(request)
             case "listEnrol" => list(request)
             case _ => ProjectCommonException.throwClientErrorException(ResponseCode.invalidRequestData,
@@ -90,6 +94,9 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
         validateEnrolment(batchData, enrolmentData, true)
         val data: java.util.Map[String, AnyRef] = createUserEnrolmentMap(userId, courseId, batchId, enrolmentData, request.getContext.getOrDefault(JsonKey.REQUEST_ID, "").asInstanceOf[String])
         upsertEnrollment(userId, courseId, batchId, data, (null == enrolmentData), request.getRequestContext)
+        // viewer.enabled: also enrol the trackable descendant nodes (best-effort, never fails the root enrol)
+        if (isViewerEnabled)
+            enrolTrackableDescendants(userId, courseId, batchId, request.getContext.getOrDefault(JsonKey.REQUEST_ID, "").asInstanceOf[String], request.getRequestContext)
         if (isCacheEnabled) {
             logger.info(request.getRequestContext, "CourseEnrolmentActor :: enroll :: Deleting redis for key " + getCacheKey(userId))
             cacheUtil.delete(getCacheKey(userId))
@@ -97,6 +104,28 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
         sender().tell(successResponse(), self)
         generateTelemetryAudit(userId, courseId, batchId, data, "enrol", JsonKey.CREATE, request.getContext)
         notifyUser(userId, batchData, JsonKey.ADD)
+    }
+
+    /**
+     * System-driven enrol (the `doEnrol` seam) — used by LP progression to open a course.
+     * Reuses the SAME verified write path as `enroll` (createUserEnrolmentMap + upsertEnrollment +
+     * cache-clear + telemetry audit), so LP auto-enrolments are first-class. Differences: `addedBy =
+     * system-lp`, notifications SUPPRESSED (no per-auto-enrol spam), no descendant fan-out (this is a
+     * single course), and idempotent (already-enrolled -> success no-op). Called via the
+     * ProgressionEnroller gateway: in-JVM (monolith) or HTTP (distributed).
+     */
+    def systemEnroll(request: Request): Unit = {
+        val courseId: String = request.get(JsonKey.COURSE_ID).asInstanceOf[String]
+        val userId: String = request.get(JsonKey.USER_ID).asInstanceOf[String]
+        val batchId: String = request.get(JsonKey.BATCH_ID).asInstanceOf[String]
+        val enrolmentData: UserCourses = userCoursesDao.read(request.getRequestContext, userId, courseId, batchId)
+        if (null != enrolmentData) { sender().tell(successResponse(), self); return } // idempotent
+        val data: java.util.Map[String, AnyRef] = createUserEnrolmentMap(userId, courseId, batchId, enrolmentData, "system-lp")
+        upsertEnrollment(userId, courseId, batchId, data, true, request.getRequestContext)
+        if (isCacheEnabled) cacheUtil.delete(getCacheKey(userId))
+        sender().tell(successResponse(), self)
+        generateTelemetryAudit(userId, courseId, batchId, data, "enrol", JsonKey.CREATE, request.getContext)
+        // notifications intentionally suppressed for system-lp; no enrolTrackableDescendants (single course).
     }
     
     
@@ -262,6 +291,62 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
                 put(JsonKey.COURSE_PROGRESS, 0.asInstanceOf[AnyRef])
             }
         }}
+
+    /**
+     * viewer.enabled: on root enrol, also create a user_enrolments row for every TRACKABLE descendant
+     * (trackable.enabled == "Yes") so nested-node progress has an enrolment to land in. Batch ids are
+     * chained to the nearest trackable ancestor (`parentBatch:nodeId`); the matching course_batch rows
+     * are created out of band (manual / batch-create API with an explicit batchId). Best-effort: any
+     * failure is logged, never fails the root enrol. Creates NO batches and skips non-trackable nodes.
+     * ponytail: reads full hierarchy JSON per enrol, no cache — add a TTL cache if enrol throughput needs it.
+     */
+    private def enrolTrackableDescendants(userId: String, rootId: String, rootBatchId: String, requestedBy: String, ctx: RequestContext): Unit = {
+        try {
+            val hierarchy = readCollectionHierarchy(rootId, ctx)
+            if (hierarchy == null) { logger.info(ctx, s"enrolTrackableDescendants: no hierarchy for $rootId"); return }
+            val acc = scala.collection.mutable.ListBuffer[(String, String)]()
+            collectTrackable(hierarchy, rootBatchId, acc)
+            acc.foreach { case (nodeId, nodeBatch) =>
+                if (null == userCoursesDao.read(ctx, userId, nodeId, nodeBatch)) {
+                    val data = createUserEnrolmentMap(userId, nodeId, nodeBatch, null, requestedBy)
+                    upsertEnrollment(userId, nodeId, nodeBatch, data, true, ctx)
+                    logger.info(ctx, s"enrolTrackableDescendants: enrolled node=$nodeId batch=$nodeBatch user=$userId")
+                }
+            }
+        } catch {
+            case ex: Exception => logger.error(ctx, s"enrolTrackableDescendants failed root=$rootId user=$userId: ${ex.getMessage}", ex)
+        }
+    }
+
+    private def readCollectionHierarchy(rootId: String, ctx: RequestContext): java.util.Map[String, AnyRef] = {
+        val keyspace = Option(ProjectUtil.getConfigValue("hierarchy_store_keyspace")).filter(StringUtils.isNotBlank).getOrElse("dev_hierarchy_store")
+        val table = Option(ProjectUtil.getConfigValue("content_hierarchy_table")).filter(StringUtils.isNotBlank).getOrElse("content_hierarchy")
+        val filters = new java.util.HashMap[String, AnyRef]() {{ put("identifier", rootId) }}
+        val rows = cassandraOperation.getRecordsByProperties(keyspace, table, filters.asInstanceOf[java.util.Map[String, AnyRef]], ctx)
+          .getResult.getOrDefault(JsonKey.RESPONSE, new java.util.ArrayList[java.util.Map[String, AnyRef]])
+          .asInstanceOf[java.util.List[java.util.Map[String, AnyRef]]]
+        if (rows.isEmpty) return null
+        val json = rows.get(0).get("hierarchy").asInstanceOf[String]
+        if (StringUtils.isBlank(json)) null else jsonMapper.readValue(json, classOf[java.util.Map[String, AnyRef]])
+    }
+
+    /** Recurse children: a trackable node -> (id, parentBatch:id) and becomes the parent batch for its subtree; non-trackable nodes are transparent structure. */
+    private def collectTrackable(node: java.util.Map[String, AnyRef], effParentBatch: String, acc: scala.collection.mutable.ListBuffer[(String, String)]): Unit = {
+        val children = node.get("children")
+        if (children == null) return
+        children.asInstanceOf[java.util.List[java.util.Map[String, AnyRef]]].asScala.foreach { child =>
+            val id = child.get("identifier").asInstanceOf[String]
+            val trackable = child.get("trackable").asInstanceOf[java.util.Map[String, AnyRef]]
+            val enabled = trackable != null && "Yes".equalsIgnoreCase(String.valueOf(trackable.get("enabled")))
+            if (enabled && StringUtils.isNotBlank(id)) {
+                val nodeBatch = effParentBatch + ":" + id
+                acc += ((id, nodeBatch))
+                collectTrackable(child, nodeBatch, acc)
+            } else {
+                collectTrackable(child, effParentBatch, acc)
+            }
+        }
+    }
 
     def notifyUser(userId: String, batchData: CourseBatch, operationType: String): Unit = {
         val isNotifyUser = java.lang.Boolean.parseBoolean(PropertiesCache.getInstance().getProperty(JsonKey.SUNBIRD_COURSE_BATCH_NOTIFICATIONS_ENABLED))
