@@ -6,6 +6,8 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.sunbird.actor.base.BaseActor;
+import org.sunbird.cassandra.CassandraOperation;
+import org.sunbird.helper.ServiceFactory;
 import org.sunbird.common.ElasticSearchHelper;
 import org.sunbird.exception.ProjectCommonException;
 import org.sunbird.common.factory.EsClientFactory;
@@ -43,6 +45,10 @@ import java.util.stream.Collectors;
 public class CourseBatchManagementActor extends BaseActor {
 
   private CourseBatchDao courseBatchDao = new CourseBatchDaoImpl();
+  private CassandraOperation cassandraOperation = ServiceFactory.getInstance();
+  // Context key carrying the top-level (root) batch id down the auto-create recursion, so every
+  // chained descendant batch is one level under the root (`rootBatch:courseId`), never deep-chained.
+  private static final String ROOT_BATCH_ID = "rootBatchId";
   private UserOrgService userOrgService = UserOrgServiceImpl.getInstance();
   private UserCoursesService userCoursesService = new UserCoursesService();
   private ElasticSearchService esService = EsClientFactory.getInstance();
@@ -82,7 +88,11 @@ public class CourseBatchManagementActor extends BaseActor {
     Map<String, Object> request = actorMessage.getRequest();
     Map<String, Object> targetObject;
     List<Map<String, Object>> correlatedObject = new ArrayList<>();
-    String courseBatchId = ProjectUtil.getUniqueIdFromTimestamp(actorMessage.getEnv());
+    // Use a client-supplied batchId when present (e.g. chained trackable-node batch ids); else generate.
+    String requestedBatchId = (String) request.get(JsonKey.BATCH_ID);
+    String courseBatchId = StringUtils.isNotBlank(requestedBatchId)
+        ? requestedBatchId
+        : ProjectUtil.getUniqueIdFromTimestamp(actorMessage.getEnv());
     Map<String, String> headers = (Map<String, String>) actorMessage.getContext().get(JsonKey.HEADER);
     String requestedBy = (String) actorMessage.getContext().get(JsonKey.REQUESTED_BY);
 
@@ -127,6 +137,76 @@ public class CourseBatchManagementActor extends BaseActor {
     if (courseNotificationActive()) {
       batchOperationNotifier(actorMessage, courseBatch, null);
     }
+    // A trackable collection whose trackablenodes contain other trackable collections auto-creates a
+    // batch for each trackable child by re-triggering this same actor; every child batch is one level
+    // under the root batch (`rootBatch:courseId`). A collection with no trackablenodes ⇒ no-op.
+    // Best-effort — the batch response is already sent above.
+    String rootBatchId = (String) actorMessage.getContext().getOrDefault(ROOT_BATCH_ID, courseBatchId);
+    triggerChildBatchCreation(actorMessage, courseId, rootBatchId);
+  }
+
+  /**
+   * Fan out child-batch creation for a trackable collection. Reads {@code trackablenodes} for
+   * {@code parentCourseId}; for each trackable child, re-sends a {@code createBatch} to this actor
+   * with a flat root-prefixed batchId ({@code rootBatchId:childCourseId}). The root batch id is
+   * threaded through unchanged so deeper nesting stays one level (never {@code root:parent:child}).
+   * The existence guard makes it idempotent, so a child already reached via the flat trackablenodes
+   * list is not re-created when its parent recurses.
+   */
+  private void triggerChildBatchCreation(Request parent, String parentCourseId, String rootBatchId) {
+    RequestContext ctx = parent.getRequestContext();
+    try {
+      for (String childCourseId : getTrackableNodes(parentCourseId, ctx)) {
+        if (StringUtils.equalsIgnoreCase(childCourseId, parentCourseId)) continue;  // guard: self-reference
+        String childBatchId = rootBatchId + ":" + childCourseId;
+        if (batchExists(childCourseId, childBatchId, ctx)) continue;                 // idempotent: safe re-run / gap-fill
+        Request child = new Request(ctx);
+        child.setOperation("createBatch");
+        child.getContext().putAll(parent.getContext());
+        child.getContext().put(ROOT_BATCH_ID, rootBatchId);                          // keep root prefix through recursion
+        Map<String, Object> childReq = new HashMap<>(parent.getRequest());
+        childReq.put(JsonKey.COURSE_ID, childCourseId);
+        childReq.put(JsonKey.BATCH_ID, childBatchId);
+        // Child batches must NOT inherit the LP root's certificate template (that template is the LP cert).
+        // Course certs are controlled by `courseCertificates` (per-LP, default off); when enabled a course's
+        // own cert template is attached separately. Always strip the inherited template so the default is
+        // "LP cert only" and a course never wrongly issues the LP certificate.
+        childReq.remove("certTemplates");
+        childReq.remove("cert_templates");
+        child.setRequest(childReq);
+        logger.info(ctx, "triggerChildBatchCreation: creating batch " + childBatchId + " for course " + childCourseId);
+        self().tell(child, ActorRef.noSender());
+      }
+    } catch (Exception ex) {
+      logger.error(ctx, "triggerChildBatchCreation failed for course=" + parentCourseId + ": " + ex.getMessage(), ex);
+    }
+  }
+
+  /** Non-throwing existence check for a course_batch (readById throws when absent). */
+  private boolean batchExists(String courseId, String batchId, RequestContext ctx) {
+    try {
+      courseBatchDao.readById(courseId, batchId, ctx);
+      return true;
+    } catch (ProjectCommonException e) {
+      return false;
+    }
+  }
+
+  /** Reads the ordered trackable course ids from the `hierarchy_relations` row emitted at publish. */
+  @SuppressWarnings("unchecked")
+  private List<String> getTrackableNodes(String rootId, RequestContext ctx) {
+    String keyspace = Optional.ofNullable(ProjectUtil.getConfigValue("hierarchy_store_keyspace"))
+        .filter(StringUtils::isNotBlank).orElse("dev_hierarchy_store");
+    String table = Optional.ofNullable(ProjectUtil.getConfigValue("hierarchy_relations_table"))
+        .filter(StringUtils::isNotBlank).orElse("hierarchy_relations");
+    Map<String, Object> filters = new HashMap<>();
+    filters.put("relationship_key", rootId + ":" + rootId + ":trackablenodes");
+    List<Map<String, Object>> rows = (List<Map<String, Object>>) cassandraOperation
+        .getRecordsByProperties(keyspace, table, filters, ctx)
+        .getResult().getOrDefault(JsonKey.RESPONSE, new ArrayList<>());
+    if (rows.isEmpty()) return Collections.emptyList();
+    List<String> nodeIds = (List<String>) rows.get(0).get("node_ids");
+    return nodeIds == null ? Collections.emptyList() : nodeIds;
   }
 
   private boolean courseNotificationActive() {
