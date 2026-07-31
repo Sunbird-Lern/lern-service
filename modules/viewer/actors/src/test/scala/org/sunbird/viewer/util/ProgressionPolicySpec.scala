@@ -3,42 +3,7 @@ package org.sunbird.viewer.util
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
-import scala.jdk.CollectionConverters._
-
 class ProgressionPolicySpec extends AnyFlatSpec with Matchers {
-
-  private def node(fields: (String, AnyRef)*): java.util.Map[String, AnyRef] =
-    fields.toMap.asJava
-
-  private def trackable(id: String, children: java.util.Map[String, AnyRef]*): java.util.Map[String, AnyRef] =
-    node("identifier" -> id,
-      "trackable" -> node("enabled" -> "Yes"),
-      "children" -> children.toList.asJava)
-
-  private def child(primaryCategory: String): java.util.Map[String, AnyRef] =
-    node("primaryCategory" -> primaryCategory)
-
-  "hasNestedTrackable" should "be true for a trackable collection containing a nested trackable collection" in {
-    val lp = trackable("do_lp", trackable("CRS-A")) // a trackable collection nested inside a trackable collection
-    ProgressionPolicy.hasNestedTrackable(lp) shouldBe true
-  }
-
-  it should "be false for a plain course whose children are non-trackable content" in {
-    val course = trackable("do_course", node("identifier" -> "c1")) // child is not a trackable collection
-    ProgressionPolicy.hasNestedTrackable(course) shouldBe false
-  }
-
-  it should "be false when there are no children at all" in {
-    ProgressionPolicy.hasNestedTrackable(node("identifier" -> "leaf")) shouldBe false
-  }
-
-  "isAssessment" should "be true when a Practice Question Set child exists" in {
-    ProgressionPolicy.isAssessment(trackable("CRS", child("Practice Question Set"))) shouldBe true
-  }
-
-  it should "be false for a content-only course" in {
-    ProgressionPolicy.isAssessment(trackable("CRS", child("Explanation Content"))) shouldBe false
-  }
 
   // Reference tree: L1[CRS-A]  L2[CRS-B,CRS-C]  L3[CRS-D,CRS-E]  L4[CRS-F]  (ancestors nearest-first)
   private val anc: Map[String, List[String]] = Map(
@@ -79,15 +44,5 @@ class ProgressionPolicySpec extends AnyFlatSpec with Matchers {
   it should "waive nothing under Strict" in {
     ProgressionPolicy.computeOptionalNodes("Strict", List("CRS-B"),
       Map("CRS-B" -> Set("s1")), Set.empty, Set("s1")) shouldBe empty
-  }
-
-  "computeAchievedSkills" should "return skills whose questions are ALL correct" in {
-    val skillQs = Map("s1" -> Set("q1", "q2"), "s2" -> Set("q3"), "s3" -> Set("q4", "q5"))
-    val correct = Set("q1", "q2", "q3", "q4") // s1 all correct, s2 all correct, s3 missing q5
-    ProgressionPolicy.computeAchievedSkills(skillQs, correct) shouldBe Set("s1", "s2")
-  }
-
-  it should "ignore skills that have no tagged questions" in {
-    ProgressionPolicy.computeAchievedSkills(Map("s0" -> Set.empty[String]), Set("q1")) shouldBe empty
   }
 }

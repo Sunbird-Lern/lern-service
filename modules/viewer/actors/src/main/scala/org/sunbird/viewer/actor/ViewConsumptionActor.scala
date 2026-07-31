@@ -218,7 +218,7 @@ class ViewConsumptionActor @Inject() (
     aggRequest.setRequestContext(ctx)
     aggRequest.put(JsonKey.USER_ID, key.get("userid"))
     aggRequest.put("collectionId", key.get("collectionid"))
-    aggRequest.put(JsonKey.BATCH_ID, key.get("contextid"))
+    aggRequest.put("contextId", key.get("contextid"))
     // Async, fire-and-forget: the rollup + LP progression run in the background on the aggregator
     // (per-user serialized). The hot path does not wait for it — the change from before is ask -> tell.
     viewerAggregatorActor.tell(aggRequest, ActorRef.noSender)

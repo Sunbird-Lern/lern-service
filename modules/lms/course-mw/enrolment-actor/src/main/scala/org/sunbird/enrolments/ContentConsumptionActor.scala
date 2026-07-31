@@ -514,7 +514,6 @@ class ContentConsumptionActor @Inject() (
                     put("contentId", contentId)
                     put("collectionId", collectionId)
                     put("contextId", c.get(JsonKey.BATCH_ID))
-                    put(JsonKey.BATCH_ID, c.get(JsonKey.BATCH_ID))
                     put(JsonKey.USER_ID, userId)
                     Option(c.get("progressdetails")).orElse(Option(c.get("progressDetails"))).foreach(pd => put("progressDetails", pd))
                 }}
