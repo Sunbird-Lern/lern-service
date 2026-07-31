@@ -189,7 +189,7 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
   // VERIFY-ON-DEPLOY: per-course skills (se_skills) + assessment flag via /v3/search.
   private def courseMeta(trackable: List[String], ctx: RequestContext): Map[String, (Set[String], Boolean)] =
     trackable.map(c => c -> (Set.empty[String], isAssessmentCourse(c, ctx))).toMap
-  // VERIFY-ON-DEPLOY: best-attempt assessment_aggregator scores × se_skills tags -> ProgressionPolicy.computeAchievedSkills.
+  // VERIFY-ON-DEPLOY: derive from best-attempt assessment_aggregator scores × se_skills tags (skill achieved = all its questions correct).
   private def skillsFromAssessment(userId: String, rootId: String, courseId: String, ctx: RequestContext): Set[String] = Set.empty
 
   private def isComplete(userId: String, courseId: String, rootBatchId: String, ctx: RequestContext): Boolean =
