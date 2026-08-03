@@ -1,10 +1,13 @@
 package org.sunbird.activity.util
 
+import org.apache.commons.lang3.StringUtils
+import org.sunbird.cache.util.RedisCacheUtil
 import org.sunbird.cassandra.CassandraOperation
 import org.sunbird.common.ProjectUtil
 import org.sunbird.keys.JsonKey
 import org.sunbird.logging.LoggerUtil
 import org.sunbird.request.RequestContext
+import org.sunbird.utils.JsonUtil
 
 import java.util
 import scala.collection.JavaConverters._
@@ -16,7 +19,35 @@ class HierarchyRelationsUtil(cassandraOperation: CassandraOperation) {
   private val keyspace = Option(ProjectUtil.getConfigValue("hierarchy_store_keyspace")).getOrElse("dev_hierarchy_store")
   private val tableName = Option(ProjectUtil.getConfigValue("hierarchy_relations_table")).getOrElse("hierarchy_relations")
 
+  private lazy val redisCacheUtil: RedisCacheUtil = new RedisCacheUtil()
+  private lazy val hierarchyRelationsRedisIndex: Int =
+    Option(ProjectUtil.getConfigValue("hierarchy_relations_redis_index")).map(_.toInt).getOrElse(10)
+  private def redisEnabled: Boolean = RedisCacheUtil.isRedisEnabled
+
   def readFromDB(key: String, requestContext: RequestContext): List[String] = {
+    if (redisEnabled) readFromRedis(key, requestContext) else readFromCassandra(key, requestContext)
+  }
+
+  private def readFromRedis(key: String, requestContext: RequestContext): List[String] = {
+    try {
+      val jedis = redisCacheUtil.getConnection(hierarchyRelationsRedisIndex)
+      try {
+        val value = jedis.get(key)
+        if (StringUtils.isNotBlank(value))
+          JsonUtil.deserialize(value, classOf[java.util.List[String]]).asScala.toList
+        else {
+          logger.info(requestContext, s"HierarchyRelationsUtil: No data found in Redis for key: $key")
+          List.empty
+        }
+      } finally jedis.close()
+    } catch {
+      case ex: Exception =>
+        logger.error(requestContext, s"HierarchyRelationsUtil: Error reading from Redis for key: $key", ex)
+        List.empty
+    }
+  }
+
+  private def readFromCassandra(key: String, requestContext: RequestContext): List[String] = {
     logger.info(requestContext, s"HierarchyRelationsUtil.readFromDB: key: $key, keyspace: $keyspace, table: $tableName")
     try {
       val queryMap = new util.HashMap[String, AnyRef]()
