@@ -265,7 +265,8 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
     def upsertEnrollment(userId: String, courseId: String, batchId: String, data: java.util.Map[String, AnyRef], isNew: Boolean, requestContext: RequestContext): Unit = {
         val dataMap = CassandraUtil.changeCassandraColumnMapping(data)
         if(isNew) {
-            userCoursesDao.insertV2(requestContext, dataMap)
+            // viewer: remap courseid->collectionid, batchid->contextid on the insert row (no-op when disabled).
+            userCoursesDao.insertV2(requestContext, Util.toCollectionColumns(dataMap))
         } else {
             userCoursesDao.updateV2(requestContext, userId, courseId, batchId, dataMap)
         }

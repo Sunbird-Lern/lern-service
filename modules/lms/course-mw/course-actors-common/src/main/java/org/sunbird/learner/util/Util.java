@@ -99,6 +99,29 @@ public final class Util {
     initializeDBProperty();
   }
 
+  /**
+   * When viewer_enabled the shared course tables are GENERALISED to a collection identity —
+   * courseid -> collectionid, batchid -> contextid on course_batch / user_enrolments /
+   * user_content_consumption. The legacy course DAOs still address these tables by courseid/batchid,
+   * so this remaps the identifier keys (camelCase JsonKey or physical column form) to the generalised
+   * column names in a query/attribute map. No-op when viewer is disabled (legacy schema).
+   */
+  public static final boolean VIEWER_ENABLED =
+      Boolean.parseBoolean(ProjectUtil.getConfigValue("viewer_enabled"));
+
+  public static Map<String, Object> toCollectionColumns(Map<String, Object> map) {
+    if (!VIEWER_ENABLED || map == null) return map;
+    moveKey(map, JsonKey.COURSE_ID, "collectionid");     // "courseId"
+    moveKey(map, JsonKey.COURSE_ID_KEY, "collectionid"); // "courseid"
+    moveKey(map, JsonKey.BATCH_ID, "contextid");         // "batchId"
+    moveKey(map, JsonKey.BATCH_ID_KEY, "contextid");     // "batchid"
+    return map;
+  }
+
+  private static void moveKey(Map<String, Object> map, String from, String to) {
+    if (map.containsKey(from)) map.put(to, map.remove(from));
+  }
+
   private Util() {}
 
   /** This method will initialize the cassandra data base property */
