@@ -1,13 +1,11 @@
 package org.sunbird.activity.util
 
-import org.apache.commons.lang3.StringUtils
 import org.sunbird.cache.util.RedisCacheUtil
 import org.sunbird.cassandra.CassandraOperation
 import org.sunbird.common.ProjectUtil
 import org.sunbird.keys.JsonKey
 import org.sunbird.logging.LoggerUtil
 import org.sunbird.request.RequestContext
-import org.sunbird.utils.JsonUtil
 
 import java.util
 import scala.collection.JavaConverters._
@@ -30,16 +28,9 @@ class HierarchyRelationsUtil(cassandraOperation: CassandraOperation) {
 
   private def readFromRedis(key: String, requestContext: RequestContext): List[String] = {
     try {
-      val jedis = redisCacheUtil.getConnection(hierarchyRelationsRedisIndex)
-      try {
-        val value = jedis.get(key)
-        if (StringUtils.isNotBlank(value))
-          JsonUtil.deserialize(value, classOf[java.util.List[String]]).asScala.toList
-        else {
-          logger.info(requestContext, s"HierarchyRelationsUtil: No data found in Redis for key: $key")
-          List.empty
-        }
-      } finally jedis.close()
+      val nodes = redisCacheUtil.getList(key, hierarchyRelationsRedisIndex)
+      if (nodes.isEmpty) logger.info(requestContext, s"HierarchyRelationsUtil: No data found in Redis for key: $key")
+      nodes
     } catch {
       case ex: Exception =>
         logger.error(requestContext, s"HierarchyRelationsUtil: Error reading from Redis for key: $key", ex)
