@@ -54,7 +54,7 @@ public class CourseBatchUtil {
       ProjectCommonException.throwClientErrorException(ResponseCode.CLIENT_ERROR, "No such batchId exists");
     }
     if (StringUtils.isNotBlank(courseId)
-        && !StringUtils.equals(courseId, (String) result.get("collectionId"))) {
+        && !StringUtils.equals(courseId, (String) result.get(Util.VIEWER_ENABLED ? "collectionId" : JsonKey.COURSE_ID))) {
       ProjectCommonException.throwClientErrorException(ResponseCode.CLIENT_ERROR, "batchId is not linked with courseId");
     }
     return result;
@@ -212,9 +212,11 @@ public class CourseBatchUtil {
     });
 
     esCourseMap.put(CourseJsonKey.CERTIFICATE_TEMPLATES_COLUMN, courseBatch.getCertTemplates());
-    // courseBatch ES index uses generalised identity fields: courseId -> collectionId, batchId -> contextId
-    if (esCourseMap.containsKey(JsonKey.COURSE_ID)) esCourseMap.put("collectionId", esCourseMap.remove(JsonKey.COURSE_ID));
-    if (esCourseMap.containsKey(JsonKey.BATCH_ID)) esCourseMap.put("contextId", esCourseMap.remove(JsonKey.BATCH_ID));
+    // viewer.enabled: courseBatch ES index uses generalised identity fields (courseId->collectionId, batchId->contextId)
+    if (Util.VIEWER_ENABLED) {
+      if (esCourseMap.containsKey(JsonKey.COURSE_ID)) esCourseMap.put("collectionId", esCourseMap.remove(JsonKey.COURSE_ID));
+      if (esCourseMap.containsKey(JsonKey.BATCH_ID)) esCourseMap.put("contextId", esCourseMap.remove(JsonKey.BATCH_ID));
+    }
     return esCourseMap;
   }
 

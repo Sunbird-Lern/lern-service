@@ -215,7 +215,8 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
         val batchDetails = searchBatchDetails(batchIds, request)
         if(CollectionUtils.isNotEmpty(batchDetails)){
             batchDetails.foreach(batch => CourseBatchUtil.enrichBatchStatusFromDates(batch))
-        val batchMap = batchDetails.map(b => b.get("contextId").asInstanceOf[String] -> b).toMap
+        val batchField = if (Util.VIEWER_ENABLED) "contextId" else JsonKey.BATCH_ID
+        val batchMap = batchDetails.map(b => b.get(batchField).asInstanceOf[String] -> b).toMap
             enrolmentList.map(enrolment => {
                 enrolment.put(JsonKey.BATCH, batchMap.getOrElse(enrolment.get(JsonKey.BATCH_ID).asInstanceOf[String], new java.util.HashMap[String, AnyRef]()))
                 //To Do : A temporary change to support updation of completed course remove in next release
