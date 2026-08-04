@@ -18,12 +18,14 @@ class HierarchyRelationsUtil(cassandraOperation: CassandraOperation) {
   private val tableName = Option(ProjectUtil.getConfigValue("hierarchy_relations_table")).getOrElse("hierarchy_relations")
 
   private lazy val redisCacheUtil: RedisCacheUtil = new RedisCacheUtil()
+  private lazy val hierarchyRelationsRedisIndex: Int =
+    Option(ProjectUtil.getConfigValue("hierarchy_relations_redis_index")).map(_.toInt).getOrElse(10)
   private def redisEnabled: Boolean = RedisCacheUtil.isRedisEnabled
 
   def readFromDB(key: String, requestContext: RequestContext): List[String] = {
     if (redisEnabled) {
       try {
-        val nodes = redisCacheUtil.getList(key)
+        val nodes = redisCacheUtil.getList(key, hierarchyRelationsRedisIndex)
         if (nodes.isEmpty) logger.info(requestContext, s"HierarchyRelationsUtil: No data found in Redis for key: $key")
         nodes
       } catch {
