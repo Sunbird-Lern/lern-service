@@ -160,6 +160,11 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
 
     def getActiveEnrollments(userId: String, courseIdList: java.util.List[String], requestContext: RequestContext): java.util.List[java.util.Map[String, AnyRef]] = {
         val enrolments: java.util.List[java.util.Map[String, AnyRef]] = userCoursesDao.listEnrolments(requestContext, userId, courseIdList)
+        // viewer.enabled: enrolment rows read back as collectionId/contextId; restore the API contract courseId/batchId
+        if (Util.VIEWER_ENABLED) enrolments.forEach(e => {
+          if (e.containsKey("collectionId")) e.put(JsonKey.COURSE_ID, e.remove("collectionId"))
+          if (e.containsKey("contextId")) e.put(JsonKey.BATCH_ID, e.remove("contextId"))
+        })
         if (CollectionUtils.isNotEmpty(enrolments)) {
             val activeEnrolments = enrolments.filter(e => e.getOrDefault(JsonKey.ACTIVE, false.asInstanceOf[AnyRef]).asInstanceOf[Boolean])
             val sortedEnrolment = activeEnrolments.filter(ae => ae.get(JsonKey.COURSE_ENROLL_DATE)!=null).toList.sortBy(_.get(JsonKey.COURSE_ENROLL_DATE).asInstanceOf[Date])(Ordering[Date].reverse).toList
