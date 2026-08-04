@@ -21,50 +21,46 @@ class HierarchyRelationsUtil(cassandraOperation: CassandraOperation) {
   private def redisEnabled: Boolean = RedisCacheUtil.isRedisEnabled
 
   def readFromDB(key: String, requestContext: RequestContext): List[String] = {
-    if (redisEnabled) readFromRedis(key, requestContext) else readFromCassandra(key, requestContext)
-  }
-
-  private def readFromRedis(key: String, requestContext: RequestContext): List[String] = {
-    try {
-      val nodes = redisCacheUtil.getList(key)
-      if (nodes.isEmpty) logger.info(requestContext, s"HierarchyRelationsUtil: No data found in Redis for key: $key")
-      nodes
-    } catch {
-      case ex: Exception =>
-        logger.error(requestContext, s"HierarchyRelationsUtil: Error reading from Redis for key: $key", ex)
-        List.empty
-    }
-  }
-
-  private def readFromCassandra(key: String, requestContext: RequestContext): List[String] = {
-    logger.info(requestContext, s"HierarchyRelationsUtil.readFromDB: key: $key, keyspace: $keyspace, table: $tableName")
-    try {
-      val queryMap = new util.HashMap[String, AnyRef]()
-      queryMap.put("relationship_key", key)
-      val response = cassandraOperation.getRecordsByProperties(keyspace, tableName, queryMap, requestContext)
-      if (response != null && response.getResult != null) {
-        val result = response.getResult.get(JsonKey.RESPONSE).asInstanceOf[util.List[util.Map[String, AnyRef]]]
-        if (result != null && !result.isEmpty) {
-          val row = result.get(0)
-          val nodeIds = row.get("node_ids")
-          if (nodeIds != null) {
-            nodeIds.asInstanceOf[util.List[String]].asScala.toList
+    if (redisEnabled) {
+      try {
+        val nodes = redisCacheUtil.getList(key)
+        if (nodes.isEmpty) logger.info(requestContext, s"HierarchyRelationsUtil: No data found in Redis for key: $key")
+        nodes
+      } catch {
+        case ex: Exception =>
+          logger.error(requestContext, s"HierarchyRelationsUtil: Error reading from Redis for key: $key", ex)
+          List.empty
+      }
+    } else {
+      logger.info(requestContext, s"HierarchyRelationsUtil.readFromDB: key: $key, keyspace: $keyspace, table: $tableName")
+      try {
+        val queryMap = new util.HashMap[String, AnyRef]()
+        queryMap.put("relationship_key", key)
+        val response = cassandraOperation.getRecordsByProperties(keyspace, tableName, queryMap, requestContext)
+        if (response != null && response.getResult != null) {
+          val result = response.getResult.get(JsonKey.RESPONSE).asInstanceOf[util.List[util.Map[String, AnyRef]]]
+          if (result != null && !result.isEmpty) {
+            val row = result.get(0)
+            val nodeIds = row.get("node_ids")
+            if (nodeIds != null) {
+              nodeIds.asInstanceOf[util.List[String]].asScala.toList
+            } else {
+              logger.info(requestContext, s"HierarchyRelationsUtil: No node_ids found for key: $key")
+              List.empty
+            }
           } else {
-            logger.info(requestContext, s"HierarchyRelationsUtil: No node_ids found for key: $key")
+            logger.info(requestContext, s"HierarchyRelationsUtil: No data found in DB for key: $key")
             List.empty
           }
         } else {
-          logger.info(requestContext, s"HierarchyRelationsUtil: No data found in DB for key: $key")
+          logger.info(requestContext, s"HierarchyRelationsUtil: Null response from DB for key: $key")
           List.empty
         }
-      } else {
-        logger.info(requestContext, s"HierarchyRelationsUtil: Null response from DB for key: $key")
-        List.empty
+      } catch {
+        case ex: Exception =>
+          logger.error(requestContext, s"HierarchyRelationsUtil: Error reading from DB for key: $key", ex)
+          List.empty
       }
-    } catch {
-      case ex: Exception =>
-        logger.error(requestContext, s"HierarchyRelationsUtil: Error reading from DB for key: $key", ex)
-        List.empty
     }
   }
 
