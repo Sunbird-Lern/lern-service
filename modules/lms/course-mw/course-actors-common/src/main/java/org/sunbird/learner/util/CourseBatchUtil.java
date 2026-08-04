@@ -37,8 +37,21 @@ public class CourseBatchUtil {
 
   private CourseBatchUtil() {}
 
+  /**
+   * viewer.enabled: courseBatch ES docs use generalised identity fields (courseId->collectionId,
+   * batchId->contextId). Idempotent + no-op when viewer disabled, so it is safe to call on every
+   * courseBatch ES write path (create/update via esCourseMapping already renamed; cert/background
+   * writers pass a raw batch map and rely on this).
+   */
+  public static void toEsCollectionFields(Map<String, Object> esMap) {
+    if (!Util.VIEWER_ENABLED || esMap == null) return;
+    if (esMap.containsKey(JsonKey.COURSE_ID)) esMap.put("collectionId", esMap.remove(JsonKey.COURSE_ID));
+    if (esMap.containsKey(JsonKey.BATCH_ID)) esMap.put("contextId", esMap.remove(JsonKey.BATCH_ID));
+  }
+
   public static void syncCourseBatchForeground(RequestContext requestContext, String uniqueId, Map<String, Object> req) {
     logger.info(requestContext, "CourseBatchManagementActor: syncCourseBatchForeground called for course batch ID = " + uniqueId);
+    toEsCollectionFields(req); // unify all courseBatch ES writes on collectionId/contextId
     req.put(JsonKey.ID, uniqueId);
     req.put(JsonKey.IDENTIFIER, uniqueId);
     Future<String> esResponseF = esUtil.save(ProjectUtil.EsType.courseBatch.getTypeName(), uniqueId, req, requestContext);

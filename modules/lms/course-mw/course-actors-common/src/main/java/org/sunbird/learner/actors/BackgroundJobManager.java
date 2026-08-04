@@ -16,6 +16,7 @@ import org.sunbird.request.RequestContext;
 import org.sunbird.response.ResponseCode;
 import org.sunbird.learner.actors.coursebatch.service.UserCoursesService;
 import org.sunbird.learner.util.CourseBatchSchedulerUtil;
+import org.sunbird.learner.util.CourseBatchUtil;
 import org.sunbird.learner.util.Util;
 import scala.concurrent.Future;
 
@@ -107,6 +108,7 @@ public class BackgroundJobManager extends BaseActor {
   @SuppressWarnings("unchecked")
   private void updateCourseBatchInfoToEs(Request actorMessage) {
     Map<String, Object> batch = (Map<String, Object>) actorMessage.getRequest().get(JsonKey.BATCH);
+    CourseBatchUtil.toEsCollectionFields(batch); // unify courseBatch ES writes on collectionId/contextId (viewer)
     updateDataToElastic(actorMessage.getRequestContext(), ProjectUtil.EsIndex.sunbird.getIndexName(),
         ProjectUtil.EsType.courseBatch.getTypeName(),
         (String) batch.get(JsonKey.ID),
