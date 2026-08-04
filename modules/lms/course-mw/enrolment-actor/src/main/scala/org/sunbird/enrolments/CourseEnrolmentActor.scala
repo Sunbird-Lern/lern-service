@@ -163,10 +163,13 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
         val enrolments: java.util.List[java.util.Map[String, AnyRef]] = userCoursesDao.listEnrolments(requestContext, userId, courseIdList)
         logger.info(requestContext, "getActiveEnrollments :: userId=" + userId + " viewerEnabled=" + Util.VIEWER_ENABLED + " rawEnrolments=" + (if (enrolments == null) "null" else enrolments.size.toString) + " firstRowKeys=" + (if (CollectionUtils.isNotEmpty(enrolments)) enrolments.get(0).keySet.toString else "[]"))
         if (CollectionUtils.isNotEmpty(enrolments)) {
-            // viewer.enabled: enrolment rows read back as collectionId/contextId; restore the API contract courseId/batchId
+            // viewer.enabled: enrolment rows read back as collectionId/contextId (camelCase when the column-mapping
+            // properties are deployed, else lowercase collectionid/contextid); restore the API contract courseId/batchId.
             if (Util.VIEWER_ENABLED) enrolments.forEach(e => {
               if (e.containsKey("collectionId")) e.put(JsonKey.COURSE_ID, e.remove("collectionId"))
+              else if (e.containsKey("collectionid")) e.put(JsonKey.COURSE_ID, e.remove("collectionid"))
               if (e.containsKey("contextId")) e.put(JsonKey.BATCH_ID, e.remove("contextId"))
+              else if (e.containsKey("contextid")) e.put(JsonKey.BATCH_ID, e.remove("contextid"))
             })
             logger.info(requestContext, "getActiveEnrollments :: after viewer remap :: firstRow courseId=" + enrolments.get(0).get(JsonKey.COURSE_ID) + " batchId=" + enrolments.get(0).get(JsonKey.BATCH_ID) + " active=" + enrolments.get(0).get(JsonKey.ACTIVE))
             val activeEnrolments = enrolments.filter(e => e.getOrDefault(JsonKey.ACTIVE, false.asInstanceOf[AnyRef]).asInstanceOf[Boolean])
