@@ -120,6 +120,15 @@ public class SearchHandlerActor extends BaseActor {
       if (EsType.courseBatch.getTypeName().equalsIgnoreCase(filterObjectType)) {
         List<Map<String, Object>> courseBatchList = (List<Map<String, Object>>) result.get(JsonKey.CONTENT);
 
+        // viewer.enabled: courseBatch docs are stored with collectionId/contextId; map back to the API
+        // contract (courseId/batchId) so clients and downstream (participants, status) are unchanged.
+        if (Util.VIEWER_ENABLED && CollectionUtils.isNotEmpty(courseBatchList)) {
+          courseBatchList.forEach(b -> {
+            if (b.containsKey("collectionId")) b.put(JsonKey.COURSE_ID, b.remove("collectionId"));
+            if (b.containsKey("contextId")) b.put(JsonKey.BATCH_ID, b.remove("contextId"));
+          });
+        }
+
         // Recompute status from dates for all search results to handle stale cached values
         if (CollectionUtils.isNotEmpty(courseBatchList)) {
           courseBatchList.forEach(batch -> CourseBatchUtil.enrichBatchStatusFromDates(batch));
