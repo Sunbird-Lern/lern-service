@@ -98,7 +98,11 @@ public class CourseBatchController extends BaseController {
       if (reqObj.getRequest().containsKey(JsonKey.FILTERS)
           && reqObj.getRequest().get(JsonKey.FILTERS) != null
           && reqObj.getRequest().get(JsonKey.FILTERS) instanceof Map) {
-        ((Map) (reqObj.getRequest().get(JsonKey.FILTERS))).put(JsonKey.OBJECT_TYPE, esObjectType);
+        Map<String, Object> f = (Map) reqObj.getRequest().get(JsonKey.FILTERS);
+        // courseBatch ES index uses generalised identity fields; translate client filter keys
+        if (f.containsKey(JsonKey.COURSE_ID)) f.put("collectionId", f.remove(JsonKey.COURSE_ID));
+        if (f.containsKey(JsonKey.BATCH_ID)) f.put("contextId", f.remove(JsonKey.BATCH_ID));
+        f.put(JsonKey.OBJECT_TYPE, esObjectType);
       } else {
         Map<String, Object> filtermap = new HashMap<>();
         Map<String, Object> dataMap = new HashMap<>();
