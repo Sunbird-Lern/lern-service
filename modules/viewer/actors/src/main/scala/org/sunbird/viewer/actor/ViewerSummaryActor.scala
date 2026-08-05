@@ -2,12 +2,14 @@ package org.sunbird.viewer.actor
 
 import org.apache.commons.collections4.CollectionUtils
 import org.apache.commons.lang3.StringUtils
+import org.sunbird.common.ProjectUtil
 import org.sunbird.enrolments.BaseEnrolmentActor
 import org.sunbird.helper.ServiceFactory
 import org.sunbird.keys.JsonKey
 import org.sunbird.learner.util.Util
 import org.sunbird.request.{Request, RequestContext}
 import org.sunbird.response.Response
+import org.sunbird.utils.CloudStorageUtil
 
 import java.util
 import scala.collection.JavaConverters._
@@ -84,9 +86,28 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
     val enrolments = getRecords(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, filters, ctx)
     val response = new Response
     response.put("format", format)
-    if (format == "csv") response.put("content", toCsv(enrolments))
+    if (format == "csv") response.put("url", uploadSummaryCsv(userId, toCsv(enrolments)))
     else response.put(JsonKey.RESPONSE, enrolments)
     sender().tell(response, self)
+  }
+
+  /**
+   * Write the summary CSV to a temp file and upload it to cloud storage; return the object URL.
+   * Provider-agnostic via CloudStorageUtil (StorageServiceFactory). All config-driven, nothing hardcoded:
+   *   sunbird_cloud_service_provider (provider), sunbird_content_cloud_storage_container (existing container),
+   *   viewer_summary_upload_path (object-key prefix; blank = container root). Object = <prefix>/<userId>_viewer_summary.csv
+   */
+  private def uploadSummaryCsv(userId: String, csv: String): String = {
+    val storageType = ProjectUtil.getConfigValue("sunbird_cloud_service_provider")
+    val container = ProjectUtil.getConfigValue("sunbird_content_cloud_storage_container")
+    val prefix = Option(ProjectUtil.getConfigValue("viewer_summary_upload_path")).getOrElse("").trim.stripSuffix("/")
+    val objectKey = (if (StringUtils.isNotBlank(prefix)) prefix + "/" else "") + userId + "_viewer_summary.csv"
+    val tmp = java.io.File.createTempFile(userId + "_viewer_summary", ".csv")
+    try {
+      val w = new java.io.PrintWriter(tmp, "UTF-8")
+      try w.write(csv) finally w.close()
+      CloudStorageUtil.upload(storageType, container, objectKey, tmp.getAbsolutePath)
+    } finally tmp.delete()
   }
 
   // (csv header, result-row key) — getRecords/createResponse returns camelCase field names
