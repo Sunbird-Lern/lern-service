@@ -89,11 +89,15 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
     sender().tell(response, self)
   }
 
-  private val csvCols = List("courseid", "batchid", "progress", "status", "completionpercentage", "completedon")
+  // (csv header, result-row key) — getRecords/createResponse returns camelCase field names
+  // (courseid->courseId, completionpercentage->completionPercentage, ...), so read those keys.
+  private val csvCols = List(
+    ("courseid", "courseId"), ("batchid", "batchId"), ("progress", "progress"),
+    ("status", "status"), ("completionpercentage", "completionPercentage"), ("completedon", "completedOn"))
   private def toCsv(rows: util.List[util.Map[String, AnyRef]]): String = {
-    val sb = new StringBuilder(csvCols.mkString(",")).append("\n")
+    val sb = new StringBuilder(csvCols.map(_._1).mkString(",")).append("\n")
     rows.asScala.foreach { r =>
-      sb.append(csvCols.map(c => Option(r.get(c)).map(_.toString.replace(",", " ")).getOrElse("")).mkString(",")).append("\n")
+      sb.append(csvCols.map { case (_, key) => Option(r.get(key)).map(_.toString.replace(",", " ")).getOrElse("") }.mkString(",")).append("\n")
     }
     sb.toString
   }
