@@ -36,19 +36,19 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
     }
   }
 
-  /** Per-enrolment progress/status from user_enrolments (identified by collectionId). */
+  /** Per-enrolment progress/status from user_enrolments (identified by courseId). */
   private def summaryRead(request: Request): Unit = {
     val ctx = request.getRequestContext
     val userId = request.get(JsonKey.USER_ID).asInstanceOf[String]
-    val collectionId = ViewerRequestKeys.collectionId(request).orNull
-    val batchId = ViewerRequestKeys.contextId(request).orNull
+    val courseId = ViewerRequestKeys.courseId(request).orNull
+    val batchId = ViewerRequestKeys.batchId(request).orNull
 
-    // Identified by collectionId (courseid). user_enrolments carries progress/status/completionpercentage
+    // Identified by courseId (courseid). user_enrolments carries progress/status/completionpercentage
     // + per-content contentstatus for the enrolment — no activity_type needed.
     val enrolFilters = new util.HashMap[String, AnyRef]()
     enrolFilters.put("userid", userId)
-    if (StringUtils.isNotBlank(collectionId)) enrolFilters.put("collectionid", collectionId)
-    if (StringUtils.isNotBlank(batchId)) enrolFilters.put("contextid", batchId)
+    if (StringUtils.isNotBlank(courseId)) enrolFilters.put("courseid", courseId)
+    if (StringUtils.isNotBlank(batchId)) enrolFilters.put("batchid", batchId)
     val enrolments = getRecords(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, enrolFilters, ctx)
 
     val response = new Response
@@ -89,7 +89,7 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
     sender().tell(response, self)
   }
 
-  private val csvCols = List("collectionid", "contextid", "progress", "status", "completionpercentage", "completedon")
+  private val csvCols = List("courseid", "batchid", "progress", "status", "completionpercentage", "completedon")
   private def toCsv(rows: util.List[util.Map[String, AnyRef]]): String = {
     val sb = new StringBuilder(csvCols.mkString(",")).append("\n")
     rows.asScala.foreach { r =>
@@ -103,25 +103,25 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
     val ctx = request.getRequestContext
     val userId = Option(request.get(JsonKey.USER_ID).asInstanceOf[String])
       .getOrElse(request.get("userId").asInstanceOf[String])
-    val collectionId = ViewerRequestKeys.collectionId(request).orNull
-    val batchId = ViewerRequestKeys.contextId(request).orNull
+    val courseId = ViewerRequestKeys.courseId(request).orNull
+    val batchId = ViewerRequestKeys.batchId(request).orNull
 
-    if (StringUtils.isBlank(collectionId)) {
+    if (StringUtils.isBlank(courseId)) {
       // delete all: fetch keys then delete each row
       val rows = getRecords(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName,
         new util.HashMap[String, AnyRef]() {{ put("userid", userId) }}, ctx)
-      rows.asScala.foreach(r => deleteEnrolment(userId, strOrNull(r.get("collectionid")), strOrNull(r.get("contextid")), ctx))
+      rows.asScala.foreach(r => deleteEnrolment(userId, strOrNull(r.get("courseid")), strOrNull(r.get("batchid")), ctx))
     } else {
-      deleteEnrolment(userId, collectionId, batchId, ctx)
+      deleteEnrolment(userId, courseId, batchId, ctx)
     }
     sender().tell(successResponse(), self)
   }
 
-  private def deleteEnrolment(userId: String, collectionId: String, batchId: String, ctx: RequestContext): Unit = {
+  private def deleteEnrolment(userId: String, courseId: String, batchId: String, ctx: RequestContext): Unit = {
     val key = new util.HashMap[String, String]()
     key.put("userid", userId)
-    if (StringUtils.isNotBlank(collectionId)) key.put("collectionid", collectionId)
-    if (StringUtils.isNotBlank(batchId)) key.put("contextid", batchId)
+    if (StringUtils.isNotBlank(courseId)) key.put("courseid", courseId)
+    if (StringUtils.isNotBlank(batchId)) key.put("batchid", batchId)
     cassandraOperation.deleteRecord(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, key, ctx)
   }
 

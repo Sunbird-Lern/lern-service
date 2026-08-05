@@ -20,7 +20,7 @@ import scala.collection.JavaConverters._
  * Sync, in-request recursive rollup for the viewer module. Invoked from viewEnd (per-userId serialized).
  *
  * REUSE: all aggregation math is ActivityAggregateUtil (same calls ActivityAggregatorActor uses).
- * The util treats collectionId as the activity_id slot and batchId as the context slot — it does not
+ * The util treats courseId as the activity_id slot and batchId as the context slot — it does not
  * care about the names. Viewer deltas vs ActivityAggregatorActor:
  *   - optionality is PER-USER: `optional_nodes` from user_enrolments (NOT hierarchy getOptionalNodes).
  *     required = collectionLeafNodes.diff(userOpt) at leaf AND every ancestor level.
@@ -57,55 +57,55 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
   private def aggregate(request: Request): Unit = {
     val ctx = request.getRequestContext
     val userId = request.get(JsonKey.USER_ID).asInstanceOf[String]
-    // accept collectionId (else legacy courseId) / contextId (else legacy batchId)
-    val collectionId = ViewerRequestKeys.collectionId(request).orNull
-    val batchId = ViewerRequestKeys.contextId(request).orNull
-    if (userId == null || collectionId == null) {
-      logger.warn(ctx, s"ViewerAggregatorActor: missing userId/collectionId, skipping", null)
+    // accept courseId (else legacy courseId) / batchId (else legacy batchId)
+    val courseId = ViewerRequestKeys.courseId(request).orNull
+    val batchId = ViewerRequestKeys.batchId(request).orNull
+    if (userId == null || courseId == null) {
+      logger.warn(ctx, s"ViewerAggregatorActor: missing userId/courseId, skipping", null)
       return
     }
 
     // trackablenodes non-empty => this root is a Learning Path (structural detection; §Step 2/5).
-    val trackable = hierarchyRelationsUtil.getTrackableNodes(collectionId, ctx)
+    val trackable = hierarchyRelationsUtil.getTrackableNodes(courseId, ctx)
 
     // 1. Read this user's consumption for the (root) collection+context from viewer ucc, build status map
-    val rows = readConsumption(userId, collectionId, batchId, ctx)
+    val rows = readConsumption(userId, courseId, batchId, ctx)
     if (CollectionUtils.isEmpty(rows)) {
       // No consumption yet. For an LP, still advance (bootstrap: open the first required course).
-      if (trackable.nonEmpty) advanceLp(userId, collectionId, batchId, trackable, ctx)
-      else logger.info(ctx, s"ViewerAggregatorActor: no consumption for userId=$userId collectionId=$collectionId")
+      if (trackable.nonEmpty) advanceLp(userId, courseId, batchId, trackable, ctx)
+      else logger.info(ctx, s"ViewerAggregatorActor: no consumption for userId=$userId courseId=$courseId")
       return
     }
     val contentStatusMap: Map[String, ContentStatus] = activityAggUtil.getContentStatusFromContents(rows)
-    val uc = UserContentConsumption(userId, batchId, collectionId, contentStatusMap)
+    val uc = UserContentConsumption(userId, batchId, courseId, contentStatusMap)
 
     // 2. Per-learner optional COURSES from user_enrolments.optional_nodes (LP policy; course-level).
-    val perLearnerOptionalCourses: List[String] = readOptionalNodes(userId, collectionId, batchId, ctx)
+    val perLearnerOptionalCourses: List[String] = readOptionalNodes(userId, courseId, batchId, ctx)
 
     // 3. Root leaves + the tree's nodes (via ancestors) — needed before computing effectiveOptional.
-    val leafNodes = hierarchyRelationsUtil.getLeafNodes(collectionId, collectionId, ctx)
+    val leafNodes = hierarchyRelationsUtil.getLeafNodes(courseId, courseId, ctx)
     if (leafNodes.isEmpty) {
-      logger.warn(ctx, s"ViewerAggregatorActor: no leafNodes for collectionId=$collectionId; is hierarchy_relations published?", null)
+      logger.warn(ctx, s"ViewerAggregatorActor: no leafNodes for courseId=$courseId; is hierarchy_relations published?", null)
       return
     }
     val ancestors: Map[String, List[String]] = uc.contents.map { case (contentId, content) =>
-      (contentId, hierarchyRelationsUtil.getAncestors(collectionId, content.contentId, ctx))
+      (contentId, hierarchyRelationsUtil.getAncestors(courseId, content.contentId, ctx))
     }.toMap
-    val childCollections = ancestors.values.flatten.filter(_ != collectionId).toList.distinct
+    val childCollections = ancestors.values.flatten.filter(_ != courseId).toList.distinct
 
     // effectiveOptional LEAVES (§5.1) = author-marked hierarchy `optionalnodes` (content-level, all nodes)
     //   ∪ leaves of per-learner optional courses (course-level, expanded to leaves so the leaf-vs-leaf diff works).
-    val treeNodes = collectionId :: childCollections
-    val hierarchyOptionalLeaves = treeNodes.flatMap(n => hierarchyRelationsUtil.getOptionalNodes(collectionId, n, ctx)).distinct
-    val optionalCourseLeaves = perLearnerOptionalCourses.flatMap(c => hierarchyRelationsUtil.getLeafNodes(collectionId, c, ctx)).distinct
+    val treeNodes = courseId :: childCollections
+    val hierarchyOptionalLeaves = treeNodes.flatMap(n => hierarchyRelationsUtil.getOptionalNodes(courseId, n, ctx)).distinct
+    val optionalCourseLeaves = perLearnerOptionalCourses.flatMap(c => hierarchyRelationsUtil.getLeafNodes(courseId, c, ctx)).distinct
     val effectiveOptional: List[String] = (hierarchyOptionalLeaves ++ optionalCourseLeaves).distinct
 
     // 4. Aggregates: root + every ancestor node; required per node = its leafNodes − effectiveOptional.
     val courseAgg = activityAggUtil.computeCourseActivityAgg(uc, leafNodes, effectiveOptional, ctx)
     val collectionsWithLeafNodes: Map[String, List[String]] = childCollections.map { col =>
-      (col, hierarchyRelationsUtil.getLeafNodes(collectionId, col, ctx).diff(effectiveOptional))
+      (col, hierarchyRelationsUtil.getLeafNodes(courseId, col, ctx).diff(effectiveOptional))
     }.toMap
-    val moduleAggs = activityAggUtil.computeModuleActivityAgg(uc, collectionId, ancestors, collectionsWithLeafNodes, ctx)
+    val moduleAggs = activityAggUtil.computeModuleActivityAgg(uc, courseId, ancestors, collectionsWithLeafNodes, ctx)
 
     val allAggs: List[UserEnrolmentAgg] = courseAgg.toList ++ moduleAggs
 
@@ -114,16 +114,16 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
 
     // 6. Per-node progress: nodeId -> (completedCount, requiredLeaves) for root + every trackable ancestor.
     val nodeProgress = scala.collection.mutable.LinkedHashMap[String, (Int, List[String])]()
-    courseAgg.foreach(a => nodeProgress(collectionId) = (completedCountOf(a), leafNodes.diff(effectiveOptional)))
+    courseAgg.foreach(a => nodeProgress(courseId) = (completedCountOf(a), leafNodes.diff(effectiveOptional)))
     moduleAggs.foreach(a => nodeProgress(a.activityAgg.activity_id) =
       (completedCountOf(a), collectionsWithLeafNodes.getOrElse(a.activityAgg.activity_id, Nil)))
 
     // 7. Update user_enrolments status for EVERY enrolled node in this tree (approach #1: key off the
     //    child enrolment rows that already exist; root included). Cert fires once, on transition to complete.
-    writeAllNodeEnrolments(userId, collectionId, batchId, nodeProgress.toMap, contentStatusMap, ctx)
+    writeAllNodeEnrolments(userId, courseId, batchId, nodeProgress.toMap, contentStatusMap, ctx)
 
     // 8. LP progression (only when this root is an LP): optionality once, open next course(s), credit at completion.
-    if (trackable.nonEmpty) advanceLp(userId, collectionId, batchId, trackable, ctx)
+    if (trackable.nonEmpty) advanceLp(userId, courseId, batchId, trackable, ctx)
   }
 
   private def completedCountOf(a: UserEnrolmentAgg): Int =
@@ -195,16 +195,16 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
   private def isComplete(userId: String, courseId: String, rootBatchId: String, ctx: RequestContext): Boolean =
     enrolStatus(userId, courseId, rootBatchId + ":" + courseId, ctx).contains(2)
 
-  private def enrolStatus(userId: String, collectionId: String, contextId: String, ctx: RequestContext): Option[Int] = {
-    val filters = new util.HashMap[String, AnyRef]() {{ put("userid", userId); put("collectionid", collectionId); put("contextid", contextId) }}
+  private def enrolStatus(userId: String, courseId: String, batchId: String, ctx: RequestContext): Option[Int] = {
+    val filters = new util.HashMap[String, AnyRef]() {{ put("userid", userId); put("courseid", courseId); put("batchid", batchId) }}
     val rows = cassandraOperation.getRecords(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName,
       filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)
       .getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]]).asInstanceOf[util.List[util.Map[String, AnyRef]]]
     if (CollectionUtils.isNotEmpty(rows)) Option(rows.get(0).get("status")).map(_.asInstanceOf[Number].intValue()) else None
   }
 
-  private def isEnrolled(userId: String, collectionId: String, contextId: String, ctx: RequestContext): Boolean =
-    enrolStatus(userId, collectionId, contextId, ctx).isDefined
+  private def isEnrolled(userId: String, courseId: String, batchId: String, ctx: RequestContext): Boolean =
+    enrolStatus(userId, courseId, batchId, ctx).isDefined
 
   /**
    * Internal (system-driven) enrol via the ProgressionEnroller gateway — the FULL enrol op (`doEnrol`),
@@ -214,12 +214,12 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
    */
   private def isMonolith: Boolean = !"distributed".equalsIgnoreCase(ProjectUtil.getConfigValue("deployment_mode")) // default monolith
 
-  private def internalEnrol(userId: String, collectionId: String, contextId: String, ctx: RequestContext): Unit = {
+  private def internalEnrol(userId: String, courseId: String, batchId: String, ctx: RequestContext): Unit = {
     if (isMonolith) {
       val req = new Request()
       req.setRequestContext(ctx)
       req.setOperation("systemEnrol")
-      req.put(JsonKey.USER_ID, userId); req.put(JsonKey.COURSE_ID, collectionId); req.put(JsonKey.BATCH_ID, contextId)
+      req.put(JsonKey.USER_ID, userId); req.put(JsonKey.COURSE_ID, courseId); req.put(JsonKey.BATCH_ID, batchId)
       // VERIFY-ON-DEPLOY: bound path of the enrolment actor in the monolith actor system.
       val path = Option(ProjectUtil.getConfigValue("enrolment_actor_path")).filter(_.nonEmpty).getOrElse("/user/course-enrolment-actor")
       // noSender: fire-and-forget; the enrol actor's success reply must NOT bounce back to this actor
@@ -229,7 +229,7 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
       // DISTRIBUTED: call the enrolment service over HTTP (full enrol op).
       // VERIFY-ON-DEPLOY: use a system-enrol endpoint (not the public one that fans out/notifies) + forward auth token.
       val base = Option(ProjectUtil.getConfigValue("enrolment_service_base_url")).filter(_.nonEmpty).getOrElse("http://lern-service:9000")
-      val body = s"""{"request":{"userId":"$userId","courseId":"$collectionId","batchId":"$contextId"}}"""
+      val body = s"""{"request":{"userId":"$userId","courseId":"$courseId","batchId":"$batchId"}}"""
       val headers = new util.HashMap[String, String]() {{
         put("Content-Type", "application/json")
         // System-driven enrol: authenticate with the configured system token (else 401 in distributed mode).
@@ -238,11 +238,11 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
       }}
       HttpClientUtil.post(base + "/v1/course/enroll", body, headers, ctx)
     }
-    logger.info(ctx, s"ViewerAggregatorActor: system-enrol requested course=$collectionId ctx=$contextId user=$userId mode=${ProjectUtil.getConfigValue("deployment_mode")}")
+    logger.info(ctx, s"ViewerAggregatorActor: system-enrol requested course=$courseId ctx=$batchId user=$userId mode=${ProjectUtil.getConfigValue("deployment_mode")}")
   }
 
   private def writeOptionalNodes(userId: String, rootId: String, batchId: String, optional: Set[String], ctx: RequestContext): Unit = {
-    val selectMap = new util.HashMap[String, AnyRef]() {{ put("userid", userId); put("collectionid", rootId); put("contextid", batchId) }}
+    val selectMap = new util.HashMap[String, AnyRef]() {{ put("userid", userId); put("courseid", rootId); put("batchid", batchId) }}
     val updateMap = new util.HashMap[String, AnyRef]() {{ put("optional_nodes", optional.asJava) }}
     cassandraOperation.updateRecordV2(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, selectMap, updateMap, true, ctx)
     ViewerAggregatorActor.markOptionalityComputed(userId, rootId, batchId) // remember empty results too (no DB column)
@@ -283,7 +283,7 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
 
   /**
    * Approach #1: update user_enrolments status for every node in this tree that has an enrolment row.
-   * Matches each row on collectionid ∈ tree AND this LP's contextid (§4: standalone enrolments untouched).
+   * Matches each row on courseid ∈ tree AND this LP's batchid (§4: standalone enrolments untouched).
    * Cert fires once, only on the transition to complete (status != 2 -> 2).
    */
   private def writeAllNodeEnrolments(userId: String, rootId: String, batchId: String,
@@ -295,9 +295,9 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
       .getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]])
       .asInstanceOf[util.List[util.Map[String, AnyRef]]]
     enrolRows.asScala.foreach { row =>
-      val nodeId = Option(row.get("collectionid")).map(_.toString).orNull
-      val nodeCtx = Option(row.get("contextid")).map(_.toString).orNull
-      // This LP only (root=batchId, child=batchId:childId); a standalone enrolment's contextid differs (§4).
+      val nodeId = Option(row.get("courseid")).map(_.toString).orNull
+      val nodeCtx = Option(row.get("batchid")).map(_.toString).orNull
+      // This LP only (root=batchId, child=batchId:childId); a standalone enrolment's batchid differs (§4).
       val expectedCtx = if (nodeId == rootId) batchId else batchId + ":" + nodeId
       nodeProgress.get(nodeId).filter(_ => nodeCtx == expectedCtx).foreach { case (completedCount, requiredLeaves) =>
         val required = requiredLeaves.size
@@ -306,7 +306,7 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
         val currentStatus = Option(row.get("status")).map(_.asInstanceOf[Number].intValue()).getOrElse(0)
         val nodeContentStatus = requiredLeaves.flatMap(l => contentStatusMap.get(l).map(cs => l -> Integer.valueOf(cs.status))).toMap
         val selectMap = new util.HashMap[String, AnyRef]() {{
-          put("userid", userId); put("collectionid", nodeId); put("contextid", nodeCtx)
+          put("userid", userId); put("courseid", nodeId); put("batchid", nodeCtx)
         }}
         val updateMap = new util.HashMap[String, AnyRef]() {{
           put("progress", Integer.valueOf(completedCount))
@@ -317,7 +317,7 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
         }}
         cassandraOperation.updateRecordV2(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, selectMap, updateMap, true, ctx)
         if (status == 2 && currentStatus != 2) {
-          logger.info(ctx, s"ViewerAggregatorActor: node completed userId=$userId collectionId=$nodeId; issuing cert")
+          logger.info(ctx, s"ViewerAggregatorActor: node completed userId=$userId courseId=$nodeId; issuing cert")
           certificateUtil.publishCertificateIssueEvent(userId, nodeId, nodeCtx, ctx)
         }
       }
@@ -326,15 +326,15 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
 
   /**
    * Read this user's ucc rows for the collection, scoped to the context.
-   * (userid, collectionid, contextid) is a clustering-prefix slice on PK
-   * (userid, collectionid, contextid, contentid) -> efficient, no scan.
-   * contextId omitted only when absent (no-context viewer), falling back to collection-wide read.
+   * (userid, courseid, batchid) is a clustering-prefix slice on PK
+   * (userid, courseid, batchid, contentid) -> efficient, no scan.
+   * batchId omitted only when absent (no-context viewer), falling back to collection-wide read.
    */
-  private def readConsumption(userId: String, collectionId: String, contextId: String, ctx: RequestContext): util.List[util.Map[String, AnyRef]] = {
+  private def readConsumption(userId: String, courseId: String, batchId: String, ctx: RequestContext): util.List[util.Map[String, AnyRef]] = {
     val filters = new util.HashMap[String, AnyRef]() {{
       put("userid", userId)
-      put("collectionid", collectionId)
-      if (contextId != null) put("contextid", contextId)
+      put("courseid", courseId)
+      if (batchId != null) put("batchid", batchId)
     }}
     val response = cassandraOperation.getRecords(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE,
       filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)
@@ -343,11 +343,11 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
   }
 
   /** Per-user optional_nodes from user_enrolments (empty for strict policy). */
-  private def readOptionalNodes(userId: String, collectionId: String, batchId: String, ctx: RequestContext): List[String] = {
+  private def readOptionalNodes(userId: String, courseId: String, batchId: String, ctx: RequestContext): List[String] = {
     val filters = new util.HashMap[String, AnyRef]() {{
       put("userid", userId)
-      put("collectionid", collectionId)
-      put("contextid", batchId)
+      put("courseid", courseId)
+      put("batchid", batchId)
     }}
     val response = cassandraOperation.getRecords(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName,
       filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)

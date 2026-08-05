@@ -70,8 +70,6 @@ public final class RequestValidator {
                     ERROR_CODE);
           }
         }
-        String courseId = map.containsKey(JsonKey.COURSE_ID) ? JsonKey.COURSE_ID : JsonKey.COLLECTION_ID;
-        map.put(JsonKey.COURSE_ID, map.get(courseId));
         if (StringUtils.isBlank((String) map.get(JsonKey.COURSE_ID))) {
           throw new ProjectCommonException(
                   ResponseCode.courseIdRequired,
@@ -162,7 +160,7 @@ public final class RequestValidator {
       }
       // Validation for enrolment sync
       if(CollectionUtils.isEmpty(list) && CollectionUtils.isEmpty(assessmentData)) {
-        contentRequestDto.getRequest().put(JsonKey.COURSE_ID, contentRequestDto.getOrDefault(JsonKey.COURSE_ID, contentRequestDto.getOrDefault(JsonKey.COLLECTION_ID, "")));
+        contentRequestDto.getRequest().put(JsonKey.COURSE_ID, contentRequestDto.getOrDefault(JsonKey.COURSE_ID, ""));
         if (StringUtils.isBlank((String) contentRequestDto.getOrDefault(JsonKey.COURSE_ID, ""))) {
           throw new ProjectCommonException(
                   ResponseCode.courseIdRequired,

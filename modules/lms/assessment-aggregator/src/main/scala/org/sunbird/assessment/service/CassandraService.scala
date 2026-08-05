@@ -18,13 +18,9 @@ class CassandraService(optionalDao: Option[CassandraOperation] = None) {
   private val activityTable = Option(ProjectUtil.getConfigValue("user_activity_agg_table")).getOrElse("user_activity_agg")
   private lazy val questionType: UserType = dao.getUDTType(keyspace, Option(ProjectUtil.getConfigValue("assessment_question_udt_type")).getOrElse("question"))
 
-  // assessment_aggregator identity columns are gated by viewer_enabled: viewer ON -> generalised names
-  // (table migrated), viewer OFF -> legacy names (un-migrated table). Lets the legacy /v1/assessment/agg
-  // path keep working on the old schema when the viewer is disabled. (user_activity_agg.context_id below
-  // is a DIFFERENT column and is NOT gated.)
-  private def viewerEnabled: Boolean = java.lang.Boolean.parseBoolean(ProjectUtil.getConfigValue("viewer_enabled"))
-  private def collectionCol: String = if (viewerEnabled) "collection_id" else "course_id"
-  private def contextCol: String = if (viewerEnabled) "context_id" else "batch_id"
+  // assessment_aggregator identity columns. (user_activity_agg.context_id below is a DIFFERENT column.)
+  private val collectionCol: String = "course_id"
+  private val contextCol: String = "batch_id"
 
   def getAssessment(aid: String, uid: String, cid: String, bid: String, contId: String, ctx: RequestContext): Option[ExistingAssessment] = {
     try {

@@ -7,7 +7,6 @@ import org.sunbird.common.factory.EsClientFactory
 import org.sunbird.common.inf.ElasticSearchService
 import org.sunbird.keys.JsonKey
 import org.sunbird.common.ProjectUtil
-import org.sunbird.learner.util.Util
 import org.sunbird.request.RequestContext
 import org.sunbird.dto.SearchDTO
 
@@ -20,8 +19,7 @@ abstract class BaseEnrolmentActor extends BaseActor {
     def getBatches(requestContext: RequestContext, batchIds: java.util.List[String], requestedFields: java.util.List[String]): java.util.List[java.util.Map[String, AnyRef]] = {
         val dto = new SearchDTO
         dto.setLimit(batchIds.size())
-        val batchField = if (Util.VIEWER_ENABLED) "contextId" else JsonKey.BATCH_ID
-        dto.getAdditionalProperties().put(JsonKey.FILTERS, new java.util.HashMap[String, AnyRef](){{ put(batchField, batchIds)}})
+        dto.getAdditionalProperties().put(JsonKey.FILTERS, new java.util.HashMap[String, AnyRef](){{ put(JsonKey.BATCH_ID, batchIds)}})
         if(CollectionUtils.isNotEmpty(requestedFields))
             dto.setFields(requestedFields)
         val future = esService.search(dto, ProjectUtil.EsType.courseBatch.getTypeName, requestContext)

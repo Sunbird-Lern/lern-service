@@ -43,12 +43,12 @@ public class ViewAggregateController extends BaseController {
 
     private void validate(Request request) {
         String userId = (String) request.get(JsonKey.USER_ID);
-        Object collectionId = request.get("collectionId") != null ? request.get("collectionId") : request.get(JsonKey.COURSE_ID);
+        Object courseId = request.get(JsonKey.COURSE_ID);
         if (userId == null || userId.trim().isEmpty()
-                || collectionId == null || collectionId.toString().trim().isEmpty()) {
+                || courseId == null || courseId.toString().trim().isEmpty()) {
             throw new ProjectCommonException(
                 ResponseCode.mandatoryParamsMissing.getErrorCode(),
-                "userId and collectionId (or courseId) are mandatory",
+                "userId and courseId are mandatory",
                 ResponseCode.CLIENT_ERROR.getResponseCode());
         }
     }

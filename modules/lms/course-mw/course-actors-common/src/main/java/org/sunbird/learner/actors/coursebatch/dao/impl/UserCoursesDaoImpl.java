@@ -35,7 +35,6 @@ public class UserCoursesDaoImpl implements UserCoursesDao {
     Map<String, Object> primaryKey = new HashMap<>();
     primaryKey.put(JsonKey.BATCH_ID, batchId);
     primaryKey.put(JsonKey.USER_ID, userId);
-    Util.toCollectionColumns(primaryKey); // viewer: batchid->contextid (no-op when disabled)
     Response response = cassandraOperation.getRecordByIdentifier(KEYSPACE_NAME, TABLE_NAME, primaryKey, null, requestContext);
     List<Map<String, Object>> userCoursesList =
         (List<Map<String, Object>>) response.get(JsonKey.RESPONSE);
@@ -55,7 +54,6 @@ public class UserCoursesDaoImpl implements UserCoursesDao {
     Map<String, Object> primaryKey = new HashMap<>();
     primaryKey.put(JsonKey.BATCH_ID, batchId);
     primaryKey.put(JsonKey.USER_ID, userId);
-    Util.toCollectionColumns(primaryKey); // viewer: batchid->contextid (no-op when disabled)
     Map<String, Object> updateList = new HashMap<>();
     updateList.putAll(updateAttributes);
     updateList.remove(JsonKey.BATCH_ID);
@@ -89,7 +87,6 @@ public class UserCoursesDaoImpl implements UserCoursesDao {
     primaryKey.put(JsonKey.USER_ID, userId);
     primaryKey.put(JsonKey.COURSE_ID, courseId);
     primaryKey.put(JsonKey.BATCH_ID, batchId);
-    Util.toCollectionColumns(primaryKey); // viewer: courseid->collectionid, batchid->contextid (no-op when disabled)
     Map<String, Object> updateList = new HashMap<>();
     updateList.putAll(updateAttributes);
     updateList.remove(JsonKey.BATCH_ID_KEY);
@@ -104,7 +101,6 @@ public class UserCoursesDaoImpl implements UserCoursesDao {
     primaryKey.put(JsonKey.USER_ID, userId);
     primaryKey.put(JsonKey.COURSE_ID, courseId);
     primaryKey.put(JsonKey.BATCH_ID, batchId);
-    Util.toCollectionColumns(primaryKey); // viewer: courseid->collectionid, batchid->contextid (no-op when disabled)
     Response response = cassandraOperation.getRecordByIdentifier(KEYSPACE_NAME, USER_ENROLMENTS, primaryKey, null, requestContext);
     List<Map<String, Object>> userCoursesList =
             (List<Map<String, Object>>) response.get(JsonKey.RESPONSE);
@@ -123,9 +119,7 @@ public class UserCoursesDaoImpl implements UserCoursesDao {
     Map<String, Object> queryMap = new HashMap<>();
     queryMap.put(JsonKey.BATCH_ID, batchId);
     Response response =
-            // viewer: user_enrolments is indexed on collectionid (batchid->contextid has NO index in the
-            // generalised schema) — this by-batch query needs a contextid index added to work under viewer.
-            cassandraOperation.getRecordsByIndexedProperty(KEYSPACE_NAME, USER_ENROLMENTS, Util.VIEWER_ENABLED ? "contextid" : "batchid", batchId, requestContext);
+            cassandraOperation.getRecordsByIndexedProperty(KEYSPACE_NAME, USER_ENROLMENTS, "batchid", batchId, requestContext);
         /*cassandraOperation.getRecords(
                 requestContext, KEYSPACE_NAME, USER_ENROLMENTS, queryMap, Arrays.asList(JsonKey.USER_ID, JsonKey.ACTIVE));*/
     List<Map<String, Object>> userCoursesList =
@@ -147,7 +141,6 @@ public class UserCoursesDaoImpl implements UserCoursesDao {
     if(!CollectionUtils.isEmpty(courseIdList)){
       primaryKey.put(JsonKey.COURSE_ID_KEY, courseIdList);
     }
-    Util.toCollectionColumns(primaryKey); // viewer: courseid->collectionid (no-op when disabled)
     Response response = cassandraOperation.getRecordByIdentifier(KEYSPACE_NAME, USER_ENROLMENTS, primaryKey, null, requestContext);
     List<Map<String, Object>> userCoursesList = (List<Map<String, Object>>) response.get(JsonKey.RESPONSE);
     if (CollectionUtils.isEmpty(userCoursesList)) {

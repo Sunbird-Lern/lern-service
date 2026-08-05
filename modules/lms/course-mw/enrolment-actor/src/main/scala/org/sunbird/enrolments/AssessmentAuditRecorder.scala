@@ -49,12 +49,9 @@ object AssessmentAuditRecorder {
 
   private def createRecordMap(m: util.Map[String, AnyRef], aid: String, uid: String, cid: String, ts: Long, ctx: RequestContext): util.Map[String, AnyRef] = {
     val rec = new util.HashMap[String, AnyRef]()
-    // assessment_aggregator identity columns gated by viewer_enabled (new names when migrated / viewer on,
-    // legacy names when off) — keeps the legacy assessment path writing the un-migrated schema.
-    val viewerEnabled = java.lang.Boolean.parseBoolean(ProjectUtil.getConfigValue("viewer_enabled"))
     rec.put("user_id", uid)
-    rec.put(if (viewerEnabled) "collection_id" else "course_id", m.get(JsonKey.COURSE_ID))
-    rec.put(if (viewerEnabled) "context_id" else "batch_id", m.get(JsonKey.BATCH_ID))
+    rec.put("course_id", m.get(JsonKey.COURSE_ID))
+    rec.put("batch_id", m.get(JsonKey.BATCH_ID))
     rec.put("content_id", cid)
     rec.put("attempt_id", aid)
     logger.info(ctx, s"AssessmentAuditRecorder: Recording attemptId=$aid with last_attempted_on=$ts")

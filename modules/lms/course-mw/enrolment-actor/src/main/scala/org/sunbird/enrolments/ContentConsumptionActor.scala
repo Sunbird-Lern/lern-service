@@ -207,8 +207,7 @@ class ContentConsumptionActor @Inject() (
                     userContents.foreach(entry => {
                         val userId = entry._1
                         if(validUserIds.contains(userId)) {
-                            val courseId = if (entry._2.head.containsKey(JsonKey.COURSE_ID)) entry._2.head.getOrDefault(JsonKey.COURSE_ID, "").asInstanceOf[String] else entry._2.head.getOrDefault(JsonKey.COLLECTION_ID, "").asInstanceOf[String]
-                            if(entry._2.head.containsKey(JsonKey.COLLECTION_ID)) entry._2.head.remove(JsonKey.COLLECTION_ID)
+                            val courseId = entry._2.head.getOrDefault(JsonKey.COURSE_ID, "").asInstanceOf[String]
                             val contentIds = entry._2.map(e => e.getOrDefault(JsonKey.CONTENT_ID, "").asInstanceOf[String]).distinct.asJava
                             val existingContents = getContentsConsumption(userId, courseId, contentIds, batchId, requestContext).groupBy(x => x.get("contentId").asInstanceOf[String]).map(e => e._1 -> e._2.toList.head).toMap
                             val contents:List[java.util.Map[String, AnyRef]] = entry._2.toList.map(inputContent => {
@@ -508,12 +507,12 @@ class ContentConsumptionActor @Inject() (
             val contentId = c.get(JsonKey.CONTENT_ID).asInstanceOf[String]
             try {
                 val status = c.getOrDefault(JsonKey.STATUS, 0.asInstanceOf[AnyRef]).asInstanceOf[Number].intValue()
-                val collectionId = Option(c.get(JsonKey.COLLECTION_ID)).getOrElse(c.get(JsonKey.COURSE_ID)).asInstanceOf[String]
+                val courseId = c.get(JsonKey.COURSE_ID).asInstanceOf[String]
                 val (op, api) = if (status >= 2) ("viewEnd", "/v1/view/end") else ("viewStart", "/v1/view/start")
                 val body = new java.util.HashMap[String, AnyRef]() {{
                     put("contentId", contentId)
-                    put("collectionId", collectionId)
-                    put("contextId", c.get(JsonKey.BATCH_ID))
+                    put("courseId", courseId)
+                    put("batchId", c.get(JsonKey.BATCH_ID))
                     put(JsonKey.USER_ID, userId)
                     Option(c.get("progressdetails")).orElse(Option(c.get("progressDetails"))).foreach(pd => put("progressDetails", pd))
                 }}
@@ -543,12 +542,12 @@ class ContentConsumptionActor @Inject() (
         assessmentEvents.asScala.foreach(a => {
             val batchId = a.getOrDefault(JsonKey.BATCH_ID, "").asInstanceOf[String]
             try {
-                val collectionId = Option(a.get(JsonKey.COLLECTION_ID)).getOrElse(a.get(JsonKey.COURSE_ID)).asInstanceOf[String]
+                val courseId = a.get(JsonKey.COURSE_ID).asInstanceOf[String]
                 val events = a.getOrDefault(JsonKey.ASSESSMENT_EVENTS_KEY, new java.util.ArrayList[java.util.Map[String, AnyRef]]())
                 val body = new java.util.HashMap[String, AnyRef]() {{
                     put("contentId", a.get(JsonKey.CONTENT_ID))
-                    put("collectionId", collectionId)
-                    put("contextId", batchId)
+                    put("courseId", courseId)
+                    put("batchId", batchId)
                     put(JsonKey.USER_ID, userId)
                     put(JsonKey.ASSESSMENT_EVENTS, events)
                 }}
@@ -573,8 +572,8 @@ class ContentConsumptionActor @Inject() (
         val token = originalRequest.getContext.get(JsonKey.X_AUTH_TOKEN).asInstanceOf[String]
         val body = new java.util.HashMap[String, AnyRef]() {{
             put(JsonKey.USER_ID, userId)
-            put("collectionId", courseId)
-            put("contextId", batchId)
+            put("courseId", courseId)
+            put("batchId", batchId)
             if (CollectionUtils.isNotEmpty(contentIds)) put("contentId", contentIds)
         }}
         try viewerRead("view-consumption-actor", "/v1/view/read", "viewRead", body, token, ctx)
@@ -650,9 +649,8 @@ class ContentConsumptionActor @Inject() (
         val filters = new java.util.HashMap[String, AnyRef]() {
             {
                 put("user_id", userId)
-                // gated by viewer_enabled: new names when the assessment table is migrated, legacy otherwise
-                put(if (isViewerEnabled) "collection_id" else "course_id", courseId)
-                put(if (isViewerEnabled) "context_id" else "batch_id", batchId)
+                put("course_id", courseId)
+                put("batch_id", batchId)
                 put("content_id", contentId)
             }
         }

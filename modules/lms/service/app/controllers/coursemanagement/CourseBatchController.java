@@ -7,7 +7,6 @@ import controllers.BaseController;
 import controllers.coursemanagement.validator.CourseBatchRequestValidator;
 import org.sunbird.operations.lms.ActorOperations;
 import org.sunbird.keys.JsonKey;
-import org.sunbird.learner.util.Util;
 import org.sunbird.common.ProjectUtil.EsType;
 import org.sunbird.request.Request;
 import play.mvc.Http;
@@ -40,8 +39,6 @@ public class CourseBatchController extends BaseController {
         httpRequest.body().asJson(),
         (request) -> {
           Request req = (Request) request;
-          String courseId = req.getRequest().containsKey(JsonKey.COURSE_ID) ? JsonKey.COURSE_ID : JsonKey.COLLECTION_ID;
-          req.getRequest().put(JsonKey.COURSE_ID, req.getRequest().get(courseId));
           new CourseBatchRequestValidator().validateCreateCourseBatchRequest(req);
           return null;
         },
@@ -70,8 +67,6 @@ public class CourseBatchController extends BaseController {
         httpRequest.body().asJson(),
         (request) -> {
           Request req = (Request) request;
-          String courseId = req.getRequest().containsKey(JsonKey.COURSE_ID) ? JsonKey.COURSE_ID : JsonKey.COLLECTION_ID;
-          req.getRequest().put(JsonKey.COURSE_ID, req.getRequest().get(courseId));
           new CourseBatchRequestValidator().validateUpdateCourseBatchRequest(req);
           return null;
         },
@@ -100,11 +95,6 @@ public class CourseBatchController extends BaseController {
           && reqObj.getRequest().get(JsonKey.FILTERS) != null
           && reqObj.getRequest().get(JsonKey.FILTERS) instanceof Map) {
         Map<String, Object> f = (Map) reqObj.getRequest().get(JsonKey.FILTERS);
-        // viewer.enabled: courseBatch ES index uses generalised identity fields; translate client filter keys
-        if (Util.VIEWER_ENABLED) {
-          if (f.containsKey(JsonKey.COURSE_ID)) f.put("collectionId", f.remove(JsonKey.COURSE_ID));
-          if (f.containsKey(JsonKey.BATCH_ID)) f.put("contextId", f.remove(JsonKey.BATCH_ID));
-        }
         f.put(JsonKey.OBJECT_TYPE, esObjectType);
       } else {
         Map<String, Object> filtermap = new HashMap<>();
