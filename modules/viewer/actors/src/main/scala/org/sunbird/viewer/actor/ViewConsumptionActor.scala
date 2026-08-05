@@ -39,6 +39,24 @@ class ViewConsumptionActor @Inject() (
   private var cassandraOperation = ServiceFactory.getInstance
   private val consumptionDBInfo = Util.dbInfoMap.get(JsonKey.LEARNER_CONTENT_DB)
   private val CONSUMPTION_TABLE = "user_content_consumption"
+  private val enrolmentDBInfo = Util.dbInfoMap.get(JsonKey.LEARNER_COURSE_DB)
+
+  /**
+   * Stamp the enrolment's last-content-access on every view op (mirrors standard content-consumption):
+   * user_enrolments.lastcontentaccesstime/lastreadcontentid/lastreadcontentstatus. Keyed by the ucc
+   * primary key (userid, courseid, batchid). This is what summary/list surfaces as access time.
+   */
+  private def touchEnrolmentAccess(key: util.HashMap[String, AnyRef], status: Int, ctx: RequestContext): Unit = {
+    val selectMap = new util.HashMap[String, AnyRef]() {{
+      put("userid", key.get("userid")); put("courseid", key.get("courseid")); put("batchid", key.get("batchid"))
+    }}
+    val updateMap = new util.HashMap[String, AnyRef]() {{
+      put("lastcontentaccesstime", new java.util.Date())
+      put("lastreadcontentid", key.get("contentid"))
+      put("lastreadcontentstatus", Integer.valueOf(status))
+    }}
+    cassandraOperation.updateRecordV2(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, selectMap, updateMap, true, ctx)
+  }
 
   // Assessment scoring reuses the assessment-aggregator services in-process (same math + persistence
   // the legacy AssessmentAggregatorActor uses). ContentService is only touched if metadata validation
@@ -104,6 +122,7 @@ class ViewConsumptionActor @Inject() (
     row.put("last_completed_time", ProjectUtil.getTimeStamp)
     row.put("last_updated_time", ProjectUtil.getTimeStamp)
     cassandraOperation.upsertRecord(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
+    touchEnrolmentAccess(key, 2, ctx)
     triggerAggregation(request, ctx)
 
     val out = new Response(); out.put(contentId, JsonKey.SUCCESS); sender().tell(out, self)
@@ -176,6 +195,7 @@ class ViewConsumptionActor @Inject() (
       cassandraOperation.upsertRecord(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
     }
     // present -> already started, no-op
+    touchEnrolmentAccess(key, 1, ctx)
     sender().tell(successResponse(), self)
   }
 
@@ -193,6 +213,7 @@ class ViewConsumptionActor @Inject() (
       cassandraOperation.upsertRecord(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
     }
     // absent -> update only if exists (ignore); already completed -> revisit ignored
+    touchEnrolmentAccess(key, math.max(1, if (existing != null) statusOf(existing) else 1), ctx)
     sender().tell(successResponse(), self)
   }
 
@@ -205,6 +226,7 @@ class ViewConsumptionActor @Inject() (
     row.put("last_completed_time", ProjectUtil.getTimeStamp)
     row.put("last_updated_time", ProjectUtil.getTimeStamp)
     cassandraOperation.upsertRecord(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
+    touchEnrolmentAccess(key, 2, ctx)
     // Async rollup: fire-and-forget tell to the aggregator; respond immediately (does not wait).
     triggerAggregation(request, ctx)
     sender().tell(successResponse(), self)

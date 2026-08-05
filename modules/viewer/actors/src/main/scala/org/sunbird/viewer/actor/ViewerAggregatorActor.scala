@@ -295,8 +295,10 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
       .getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]])
       .asInstanceOf[util.List[util.Map[String, AnyRef]]]
     enrolRows.asScala.foreach { row =>
-      val nodeId = Option(row.get("courseid")).map(_.toString).orNull
-      val nodeCtx = Option(row.get("batchid")).map(_.toString).orNull
+      // createResponse maps columns to camelCase field names (courseid->courseId, batchid->batchId via
+      // cassandratablecolumn.properties), so read camelCase (lowercase fallback for safety).
+      val nodeId = Option(row.get("courseId")).orElse(Option(row.get("courseid"))).map(_.toString).orNull
+      val nodeCtx = Option(row.get("batchId")).orElse(Option(row.get("batchid"))).map(_.toString).orNull
       // This LP only (root=batchId, child=batchId:childId); a standalone enrolment's batchid differs (§4).
       val expectedCtx = if (nodeId == rootId) batchId else batchId + ":" + nodeId
       nodeProgress.get(nodeId).filter(_ => nodeCtx == expectedCtx).foreach { case (completedCount, requiredLeaves) =>
