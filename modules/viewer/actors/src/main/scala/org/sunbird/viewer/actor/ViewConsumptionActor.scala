@@ -50,6 +50,11 @@ class ViewConsumptionActor @Inject() (
     val selectMap = new util.HashMap[String, AnyRef]() {{
       put("userid", key.get("userid")); put("courseid", key.get("courseid")); put("batchid", key.get("batchid"))
     }}
+    // Only stamp an EXISTING enrolment. updateRecordV2's ifExists is a no-op (plain UPDATE upserts in
+    // Cassandra), so without this guard a no-context/unenrolled view would fabricate a phantom enrolment row.
+    val existing = cassandraOperation.getRecordByIdentifier(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, selectMap, null, ctx)
+      .getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]]).asInstanceOf[util.List[util.Map[String, AnyRef]]]
+    if (existing.isEmpty) return
     val updateMap = new util.HashMap[String, AnyRef]() {{
       put("lastcontentaccesstime", new java.util.Date())
       put("lastreadcontentid", key.get("contentid"))

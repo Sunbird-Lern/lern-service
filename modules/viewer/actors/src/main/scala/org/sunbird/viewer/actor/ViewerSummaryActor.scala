@@ -72,10 +72,8 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
   }
 
   /**
-   * Exhaust download of a user's enrolment summaries. format=json (default) returns the rows;
-   * format=csv returns a CSV string under "content". ponytail: inline export (no cloud upload / signed
-   * URL) — fine for per-user summaries; switch to cloud-storage-sdk + a returned URL if exhaust grows
-   * large or needs a stored artifact.
+   * Download a user's enrolment summaries. format=json (default) returns the rows under "response";
+   * format=csv uploads the CSV to cloud storage (generic CloudStorageUtil) and returns its "url".
    */
   private def summaryDownload(request: Request): Unit = {
     val ctx = request.getRequestContext
@@ -135,7 +133,7 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
       // delete all: fetch keys then delete each row
       val rows = getRecords(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName,
         new util.HashMap[String, AnyRef]() {{ put("userid", userId) }}, ctx)
-      rows.asScala.foreach(r => deleteEnrolment(userId, strOrNull(r.get("courseid")), strOrNull(r.get("batchid")), ctx))
+      rows.asScala.foreach(r => deleteEnrolment(userId, strOrNull(r.get("courseId")), strOrNull(r.get("batchId")), ctx))
     } else {
       deleteEnrolment(userId, courseId, batchId, ctx)
     }

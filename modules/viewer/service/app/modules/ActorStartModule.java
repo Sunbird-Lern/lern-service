@@ -32,7 +32,8 @@ public class ActorStartModule extends AbstractModule implements PekkoGuiceSuppor
         bindActor(
             actor.getActorClass(),
             actor.getActorName(),
-            props -> props.withRouter(new ConsistentHashingPool(8).withHashMapper(userIdHashMapper)));
+            props -> props.withRouter(new ConsistentHashingPool(8).withHashMapper(userIdHashMapper))
+                .withDispatcher("pekko.actor.viewer-dispatcher"));
       } else {
         bindActor(actor.getActorClass(), actor.getActorName(), props -> props.withRouter(config));
       }

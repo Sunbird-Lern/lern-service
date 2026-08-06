@@ -139,14 +139,20 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
 
   private def advanceLp(userId: String, rootId: String, batchId: String,
                         trackable: List[String], ctx: RequestContext): Unit = {
-    ensureOptionalityComputed(userId, rootId, batchId, trackable, ctx)
+    // One read of this user's enrolments, reused for every completion/enrolment check below. Safe because
+    // advanceLp runs AFTER writeAllNodeEnrolments has committed this pass's statuses, so the snapshot is
+    // current; collapses the LP's former O(courses) single-row status reads into a single query.
+    val status = enrolStatusSnapshot(userId, ctx)
+    val childBatchOf = (c: String) => batchId + ":" + c
+    val courseComplete = (c: String) => status.get((c, childBatchOf(c))).contains(2)
+
+    ensureOptionalityComputed(userId, rootId, batchId, trackable, courseComplete, ctx)
     val optional = readOptionalNodes(userId, rootId, batchId, ctx).toSet
     val ancestorsOf = (n: String) => hierarchyRelationsUtil.getAncestors(rootId, n, ctx)
     val levels = ProgressionPolicy.orderedLevels(trackable, ancestorsOf, rootId)
 
     // Level complete = all its required (non-optional) courses complete (empty required set = complete, §5).
     // Derived from persisted enrolment status only, so it's recompute-safe (force-sync repairs identically).
-    def courseComplete(c: String): Boolean = enrolStatus(userId, c, batchId + ":" + c, ctx).contains(2)
     def levelComplete(level: String): Boolean =
       ProgressionPolicy.coursesOfLevel(level, trackable, ancestorsOf, rootId).filterNot(optional.contains).forall(courseComplete)
 
@@ -155,8 +161,8 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
       val courses = ProgressionPolicy.coursesOfLevel(level, trackable, ancestorsOf, rootId)
       val nextRequired = courses.filterNot(optional.contains).find(c => !courseComplete(c))
       (courses.filter(optional.contains) ++ nextRequired.toList).foreach { c =>
-        val childBatch = batchId + ":" + c
-        if (!isEnrolled(userId, c, childBatch, ctx)) internalEnrol(userId, c, childBatch, ctx)
+        val childBatch = childBatchOf(c)
+        if (!status.contains((c, childBatch))) internalEnrol(userId, c, childBatch, ctx)
       }
     }
 
@@ -164,14 +170,15 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
     if (levels.nonEmpty && levels.forall(levelComplete)) creditSkills(userId, rootId, trackable, ctx)
   }
 
-  private def ensureOptionalityComputed(userId: String, rootId: String, batchId: String, trackable: List[String], ctx: RequestContext): Unit = {
+  private def ensureOptionalityComputed(userId: String, rootId: String, batchId: String, trackable: List[String],
+                                        courseComplete: String => Boolean, ctx: RequestContext): Unit = {
     // Compute once (§Step 4); optionalityComputed remembers empty results without a DB column.
     if (optionalityComputed(userId, rootId, batchId, ctx)) return
     val policy = policyOf(rootId, ctx)
     if (policy.equalsIgnoreCase("Strict") || trackable.isEmpty) { writeOptionalNodes(userId, rootId, batchId, Set.empty, ctx); return }
     val diagnostic = trackable.head
     val hasDiagnostic = isAssessmentCourse(diagnostic, ctx)
-    if (hasDiagnostic && !isComplete(userId, diagnostic, batchId, ctx)) return // wait for the diagnostic
+    if (hasDiagnostic && !courseComplete(diagnostic)) return // wait for the diagnostic
     val prior = if (policy.equalsIgnoreCase("PriorLearning")) readUserSkills(userId, ctx) else Set.empty[String]
     val fromDiag = if (hasDiagnostic) skillsFromAssessment(userId, rootId, diagnostic, ctx) else Set.empty[String]
     val achieved = prior ++ fromDiag
@@ -192,19 +199,23 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
   // VERIFY-ON-DEPLOY: derive from best-attempt assessment_aggregator scores × se_skills tags (skill achieved = all its questions correct).
   private def skillsFromAssessment(userId: String, rootId: String, courseId: String, ctx: RequestContext): Set[String] = Set.empty
 
-  private def isComplete(userId: String, courseId: String, rootBatchId: String, ctx: RequestContext): Boolean =
-    enrolStatus(userId, courseId, rootBatchId + ":" + courseId, ctx).contains(2)
-
-  private def enrolStatus(userId: String, courseId: String, batchId: String, ctx: RequestContext): Option[Int] = {
-    val filters = new util.HashMap[String, AnyRef]() {{ put("userid", userId); put("courseid", courseId); put("batchid", batchId) }}
+  /**
+   * All of this user's enrolments as (courseId, batchId) -> status, in one read. Replaces the LP's former
+   * per-course status queries. Result rows are camelCase (createResponse); rows without a status map to 0
+   * (enrol always sets one) so presence-of-key still answers "is enrolled".
+   */
+  private def enrolStatusSnapshot(userId: String, ctx: RequestContext): Map[(String, String), Int] = {
+    val filters = new util.HashMap[String, AnyRef]() {{ put("userid", userId) }}
     val rows = cassandraOperation.getRecords(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName,
       filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)
       .getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]]).asInstanceOf[util.List[util.Map[String, AnyRef]]]
-    if (CollectionUtils.isNotEmpty(rows)) Option(rows.get(0).get("status")).map(_.asInstanceOf[Number].intValue()) else None
+    rows.asScala.flatMap { r =>
+      for {
+        c <- Option(r.get("courseId")).map(_.toString)
+        b <- Option(r.get("batchId")).map(_.toString)
+      } yield (c, b) -> Option(r.get("status")).map(_.asInstanceOf[Number].intValue()).getOrElse(0)
+    }.toMap
   }
-
-  private def isEnrolled(userId: String, courseId: String, batchId: String, ctx: RequestContext): Boolean =
-    enrolStatus(userId, courseId, batchId, ctx).isDefined
 
   /**
    * Internal (system-driven) enrol via the ProgressionEnroller gateway — the FULL enrol op (`doEnrol`),
@@ -307,6 +318,11 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
         val pct = activityAggUtil.getCompletionPercentage(completedCount, required)
         val currentStatus = Option(row.get("status")).map(_.asInstanceOf[Number].intValue()).getOrElse(0)
         val nodeContentStatus = requiredLeaves.flatMap(l => contentStatusMap.get(l).map(cs => l -> Integer.valueOf(cs.status))).toMap
+        // contentstatus is a full-column replace in updateRecordV2 — merge into the row's existing map so
+        // leaves not in this (root-keyed) read aren't clobbered.
+        val mergedContentStatus = new util.HashMap[String, AnyRef]()
+        Option(row.get("contentStatus")).foreach(m => mergedContentStatus.putAll(m.asInstanceOf[util.Map[String, AnyRef]]))
+        nodeContentStatus.foreach { case (k, v) => mergedContentStatus.put(k, v) }
         val selectMap = new util.HashMap[String, AnyRef]() {{
           put("userid", userId); put("courseid", nodeId); put("batchid", nodeCtx)
         }}
@@ -314,7 +330,7 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
           put("progress", Integer.valueOf(completedCount))
           put("status", Integer.valueOf(status))
           put("completionpercentage", Integer.valueOf(pct))
-          put("contentstatus", nodeContentStatus.asJava)
+          put("contentstatus", mergedContentStatus)
           if (status == 2 && currentStatus != 2) put("completedon", new java.util.Date())
         }}
         cassandraOperation.updateRecordV2(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, selectMap, updateMap, true, ctx)

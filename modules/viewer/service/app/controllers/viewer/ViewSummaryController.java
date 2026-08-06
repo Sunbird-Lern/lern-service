@@ -1,7 +1,10 @@
 package controllers.viewer;
 
 import controllers.BaseController;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.pekko.actor.ActorRef;
+import org.sunbird.exception.ProjectCommonException;
+import org.sunbird.message.ResponseCode;
 import org.sunbird.request.Request;
 import play.mvc.Http;
 import play.mvc.Result;
@@ -67,6 +70,13 @@ public class ViewSummaryController extends BaseController {
     private CompletionStage<Result> dispatchBody(String operation, Http.Request httpRequest) {
         try {
             Request request = createAndInitRequest(operation, httpRequest.body().asJson(), httpRequest);
+            // summaryRead identifies the enrolment by userId (from the body) — reject if absent.
+            if (StringUtils.isBlank((String) request.getRequest().get("userId"))) {
+                throw new ProjectCommonException(
+                    ResponseCode.mandatoryParameterMissing.getErrorCode(),
+                    ResponseCode.mandatoryParameterMissing.getErrorMessage() + " userId",
+                    ResponseCode.CLIENT_ERROR.getResponseCode());
+            }
             return actorResponseHandler(viewerSummaryActor, request, timeout, null, httpRequest);
         } catch (Exception e) {
             return CompletableFuture.completedFuture(createCommonExceptionResponse(e, httpRequest));
