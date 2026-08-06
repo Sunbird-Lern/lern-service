@@ -317,12 +317,11 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
         val status = activityAggUtil.getCompletionStatus(completedCount, required)
         val pct = activityAggUtil.getCompletionPercentage(completedCount, required)
         val currentStatus = Option(row.get("status")).map(_.asInstanceOf[Number].intValue()).getOrElse(0)
-        val nodeContentStatus = requiredLeaves.flatMap(l => contentStatusMap.get(l).map(cs => l -> Integer.valueOf(cs.status))).toMap
-        // contentstatus is a full-column replace in updateRecordV2 — merge into the row's existing map so
-        // leaves not in this (root-keyed) read aren't clobbered.
-        val mergedContentStatus = new util.HashMap[String, AnyRef]()
-        Option(row.get("contentStatus")).foreach(m => mergedContentStatus.putAll(m.asInstanceOf[util.Map[String, AnyRef]]))
-        nodeContentStatus.foreach { case (k, v) => mergedContentStatus.put(k, v) }
+        val nodeContentStatus: Map[String, AnyRef] =
+          requiredLeaves.flatMap(l => contentStatusMap.get(l).map(cs => l -> Integer.valueOf(cs.status).asInstanceOf[AnyRef])).toMap
+        // updateRecordV2 replaces the whole contentstatus column — merge into the row's existing map so a
+        // root-keyed rollup that only sees some leaves doesn't clobber the rest (see mergeContentStatus).
+        val mergedContentStatus = ViewerAggregatorActor.mergeContentStatus(row.get("contentStatus"), nodeContentStatus)
         val selectMap = new util.HashMap[String, AnyRef]() {{
           put("userid", userId); put("courseid", nodeId); put("batchid", nodeCtx)
         }}
@@ -385,6 +384,16 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
 }
 
 object ViewerAggregatorActor {
+  // Merge freshly computed per-leaf statuses into the enrolment row's existing contentstatus map instead of
+  // replacing it: updateRecordV2 overwrites the whole column, so a root-keyed rollup that only sees some
+  // leaves must not wipe the rest (C2). `existing` may be null; fresh values win on key conflicts.
+  private[actor] def mergeContentStatus(existing: AnyRef, fresh: Map[String, AnyRef]): java.util.Map[String, AnyRef] = {
+    val merged = new java.util.HashMap[String, AnyRef]()
+    Option(existing).foreach(m => merged.putAll(m.asInstanceOf[java.util.Map[String, AnyRef]]))
+    fresh.foreach { case (k, v) => merged.put(k, v) }
+    merged
+  }
+
   // JVM-wide memo of enrolments whose (empty) LP optionality is computed, so we don't recompute each pass.
   // ponytail: unbounded set, entries live for the process lifetime; add a size cap / TTL only if it grows.
   private val optionalityDone: java.util.Set[String] = java.util.concurrent.ConcurrentHashMap.newKeySet[String]()

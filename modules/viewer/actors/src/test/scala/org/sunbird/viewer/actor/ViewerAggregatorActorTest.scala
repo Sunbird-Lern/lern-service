@@ -37,16 +37,16 @@ class ViewerAggregatorActorTest extends AnyFlatSpec with Matchers with MockFacto
     probe.expectMsgType[Response](FiniteDuration.apply(15, TimeUnit.SECONDS))
   }
 
-  private def aggRequest(userId: String, collectionId: String): Request = {
+  private def aggRequest(userId: String, courseId: String): Request = {
     val req = new Request
     req.setOperation("aggregate")
     if (userId != null) req.put("userId", userId)
-    if (collectionId != null) req.put("collectionId", collectionId)
-    req.put("contextId", "b1")
+    if (courseId != null) req.put("courseId", courseId)
+    req.put("batchId", "b1")
     req
   }
 
-  "aggregate" should "skip and reply success when userId/collectionId are missing" in {
+  "aggregate" should "skip and reply success when userId/courseId are missing" in {
     val ops = mock[CassandraOperation]
     val hru = mock[HierarchyRelationsUtil]
     val cu = mock[CertificateUtil]
@@ -66,5 +66,27 @@ class ViewerAggregatorActorTest extends AnyFlatSpec with Matchers with MockFacto
       .expects(*, *, *, *, *).returns(emptyRows)
     val result = callActor(aggRequest("u1", "c1"), Props(new ViewerAggregatorActor().configure(ops, hru, cu)))
     result should not be null
+  }
+
+  // C2: contentstatus is a full-column replace in updateRecordV2, so the rollup must MERGE freshly computed
+  // leaf statuses into the enrolment row's existing map — a root-keyed read that sees only some leaves must
+  // not wipe the others. Tests the extracted pure merge directly (the full rollup is an integration concern).
+  "mergeContentStatus" should "preserve existing leaves and add/overwrite the fresh ones" in {
+    val existing = new util.HashMap[String, AnyRef]() {{
+      put("leaf-a", Integer.valueOf(2)) // completed earlier, not in this pass
+      put("leaf-b", Integer.valueOf(1)) // in-progress, gets overwritten below
+    }}
+    val fresh = Map[String, AnyRef]("leaf-b" -> Integer.valueOf(2), "leaf-c" -> Integer.valueOf(2))
+    val merged = ViewerAggregatorActor.mergeContentStatus(existing, fresh)
+    merged.get("leaf-a") shouldBe Integer.valueOf(2) // preserved (not clobbered)
+    merged.get("leaf-b") shouldBe Integer.valueOf(2) // fresh wins on conflict
+    merged.get("leaf-c") shouldBe Integer.valueOf(2) // added
+    merged.size() shouldBe 3
+  }
+
+  "mergeContentStatus" should "tolerate a null existing map" in {
+    val merged = ViewerAggregatorActor.mergeContentStatus(null, Map[String, AnyRef]("leaf-a" -> Integer.valueOf(1)))
+    merged.get("leaf-a") shouldBe Integer.valueOf(1)
+    merged.size() shouldBe 1
   }
 }

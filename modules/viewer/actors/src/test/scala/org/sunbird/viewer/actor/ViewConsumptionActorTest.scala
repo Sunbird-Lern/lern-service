@@ -20,6 +20,10 @@ import scala.concurrent.duration.FiniteDuration
  * (submit no-events branch + read). CassandraOperation is mocked via the setCassandraOperation seam;
  * the aggregator is a stub actor that replies immediately so the sync ask in viewEnd/viewAssess
  * returns fast. Scoring math itself is covered by AssessmentServiceSpec, not re-tested here.
+ *
+ * Every write op also calls touchEnrolmentAccess, which reads the enrolment (getRecordByIdentifier)
+ * and only stamps it (updateRecordV2) when it EXISTS — so each test stubs that read. The two
+ * "touchEnrolmentAccess" cases pin that guard (C1: no phantom enrolment row on an unenrolled view).
  */
 class ViewConsumptionActorTest extends AnyFlatSpec with Matchers with MockFactory {
 
@@ -44,6 +48,19 @@ class ViewConsumptionActorTest extends AnyFlatSpec with Matchers with MockFactor
     put("status", Integer.valueOf(status))
   }}
 
+  private def enrolmentRow: util.Map[String, AnyRef] = new util.HashMap[String, AnyRef]() {{
+    put("userid", "u1"); put("courseId", "c1"); put("batchId", "b1"); put("status", Integer.valueOf(1))
+  }}
+
+  // touchEnrolmentAccess's enrolment read; `result` decides whether the row is stamped.
+  private def stubEnrolmentRead(ops: CassandraOperation, result: Response) =
+    (ops.getRecordByIdentifier(_: String, _: String, _: Object, _: util.List[String], _: RequestContext))
+      .expects(*, *, *, *, *).returns(result)
+
+  private def expectEnrolmentStamp(ops: CassandraOperation) =
+    (ops.updateRecordV2(_: String, _: String, _: util.Map[String, AnyRef], _: util.Map[String, AnyRef], _: Boolean, _: RequestContext))
+      .expects(*, *, *, *, *, *).returns(new Response()).once()
+
   private def callActor(request: Request, props: Props): Response = {
     val probe = new TestKit(system)
     val actorRef = system.actorOf(props)
@@ -54,7 +71,7 @@ class ViewConsumptionActorTest extends AnyFlatSpec with Matchers with MockFactor
   private def viewRequest(op: String): Request = {
     val req = new Request
     req.setOperation(op)
-    req.put("userId", "u1"); req.put("collectionId", "c1"); req.put("contextId", "b1"); req.put("contentId", "ct1")
+    req.put("userId", "u1"); req.put("courseId", "c1"); req.put("batchId", "b1"); req.put("contentId", "ct1")
     req
   }
 
@@ -64,6 +81,7 @@ class ViewConsumptionActorTest extends AnyFlatSpec with Matchers with MockFactor
       .expects(*, *, *, *, *).returns(emptyRows)
     (ops.upsertRecord(_: String, _: String, _: util.Map[String, AnyRef], _: RequestContext))
       .expects(*, *, *, *).returns(new Response()).once()
+    stubEnrolmentRead(ops, emptyRows)
     val result = callActor(viewRequest("viewStart"),
       Props(new ViewConsumptionActor(replyingAggregator).setCassandraOperation(ops)))
     result should not be null
@@ -75,6 +93,7 @@ class ViewConsumptionActorTest extends AnyFlatSpec with Matchers with MockFactor
     (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
       .expects(*, *, *, *, *).returns(rowsWith(rows))
     // no upsertRecord expectation -> a call would fail the strict mock
+    stubEnrolmentRead(ops, emptyRows)
     val result = callActor(viewRequest("viewStart"),
       Props(new ViewConsumptionActor(replyingAggregator).setCassandraOperation(ops)))
     result should not be null
@@ -87,6 +106,7 @@ class ViewConsumptionActorTest extends AnyFlatSpec with Matchers with MockFactor
       .expects(*, *, *, *, *).returns(rowsWith(rows))
     (ops.upsertRecord(_: String, _: String, _: util.Map[String, AnyRef], _: RequestContext))
       .expects(*, *, *, *).returns(new Response()).once()
+    stubEnrolmentRead(ops, emptyRows)
     val result = callActor(viewRequest("viewUpdate"),
       Props(new ViewConsumptionActor(replyingAggregator).setCassandraOperation(ops)))
     result should not be null
@@ -96,6 +116,32 @@ class ViewConsumptionActorTest extends AnyFlatSpec with Matchers with MockFactor
     val ops = mock[CassandraOperation]
     (ops.upsertRecord(_: String, _: String, _: util.Map[String, AnyRef], _: RequestContext))
       .expects(*, *, *, *).returns(new Response()).once()
+    stubEnrolmentRead(ops, emptyRows)
+    val result = callActor(viewRequest("viewEnd"),
+      Props(new ViewConsumptionActor(replyingAggregator).setCassandraOperation(ops)))
+    result should not be null
+  }
+
+  // C1: touchEnrolmentAccess must NOT fabricate an enrolment for an unenrolled/no-context view.
+  "touchEnrolmentAccess" should "not stamp the enrolment when none exists" in {
+    val ops = mock[CassandraOperation]
+    (ops.upsertRecord(_: String, _: String, _: util.Map[String, AnyRef], _: RequestContext))
+      .expects(*, *, *, *).returns(new Response()).once()
+    stubEnrolmentRead(ops, emptyRows) // no enrolment
+    // no updateRecordV2 expectation -> a stamp write would fail the strict mock (phantom-row guard)
+    val result = callActor(viewRequest("viewEnd"),
+      Props(new ViewConsumptionActor(replyingAggregator).setCassandraOperation(ops)))
+    result should not be null
+  }
+
+  // C1: when the enrolment DOES exist, its last-access is stamped exactly once.
+  "touchEnrolmentAccess" should "stamp the enrolment when it exists" in {
+    val ops = mock[CassandraOperation]
+    (ops.upsertRecord(_: String, _: String, _: util.Map[String, AnyRef], _: RequestContext))
+      .expects(*, *, *, *).returns(new Response()).once()
+    val rows = new util.ArrayList[util.Map[String, AnyRef]](); rows.add(enrolmentRow)
+    stubEnrolmentRead(ops, rowsWith(rows)) // enrolment present
+    expectEnrolmentStamp(ops)
     val result = callActor(viewRequest("viewEnd"),
       Props(new ViewConsumptionActor(replyingAggregator).setCassandraOperation(ops)))
     result should not be null
@@ -116,6 +162,7 @@ class ViewConsumptionActorTest extends AnyFlatSpec with Matchers with MockFactor
     val ops = mock[CassandraOperation]
     (ops.upsertRecord(_: String, _: String, _: util.Map[String, AnyRef], _: RequestContext))
       .expects(*, *, *, *).returns(new Response()).once()
+    stubEnrolmentRead(ops, emptyRows)
     val result = callActor(viewRequest("viewAssess"),
       Props(new ViewConsumptionActor(replyingAggregator).setCassandraOperation(ops)))
     result.getResult.get("ct1") shouldBe "SUCCESS"
