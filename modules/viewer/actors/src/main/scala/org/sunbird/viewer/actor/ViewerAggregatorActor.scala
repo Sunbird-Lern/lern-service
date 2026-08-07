@@ -193,10 +193,11 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
   private def policyOf(rootId: String, ctx: RequestContext): String = "Strict"
   // VERIFY-ON-DEPLOY: assessment detection. Needs a Practice-Question-Set child via /v3/search or content_hierarchy.
   private def isAssessmentCourse(courseId: String, ctx: RequestContext): Boolean = false
-  // VERIFY-ON-DEPLOY: per-course skills (se_skills) + assessment flag via /v3/search.
+  // VERIFY-ON-DEPLOY: per-course skills + assessment flag via /v3/search. Skills = framework last-category
+  // terms (se_<category>Ids), not an se_skills field (see design §6).
   private def courseMeta(trackable: List[String], ctx: RequestContext): Map[String, (Set[String], Boolean)] =
     trackable.map(c => c -> (Set.empty[String], isAssessmentCourse(c, ctx))).toMap
-  // VERIFY-ON-DEPLOY: derive from best-attempt assessment_aggregator scores × se_skills tags (skill achieved = all its questions correct).
+  // VERIFY-ON-DEPLOY: achieved = assessment_aggregator best attempts × question skill ids (all correct); ids = framework last-category terms (design §6).
   private def skillsFromAssessment(userId: String, rootId: String, courseId: String, ctx: RequestContext): Set[String] = Set.empty
 
   /**
@@ -218,10 +219,8 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
   }
 
   /**
-   * Internal (system-driven) enrol via the ProgressionEnroller gateway — the FULL enrol op (`doEnrol`),
-   * NOT a bare DAO write: it reuses CourseEnrolmentActor's verified write path (DB + cache + telemetry).
-   * Transport per `deployment_mode`: MONOLITH -> in-JVM message to the enrolment actor's `systemEnrol`;
-   * DISTRIBUTED -> HTTP to the enrolment service. Idempotent (`systemEnrol` no-ops if already enrolled).
+   * System-driven enrol via the standard `enrol` op. MONOLITH -> in-JVM message; DISTRIBUTED -> POST
+   * /v1/course/enroll. Re-enrol safe: advanceLp only enrols courses absent from the snapshot.
    */
   private def isMonolith: Boolean = !"distributed".equalsIgnoreCase(ProjectUtil.getConfigValue("deployment_mode")) // default monolith
 
@@ -229,7 +228,8 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
     if (isMonolith) {
       val req = new Request()
       req.setRequestContext(ctx)
-      req.setOperation("systemEnrol")
+      req.setRequestId("system")   // enrol stores this as addedBy (via context REQUEST_ID)
+      req.setOperation("enrol")
       req.put(JsonKey.USER_ID, userId); req.put(JsonKey.COURSE_ID, courseId); req.put(JsonKey.BATCH_ID, batchId)
       // VERIFY-ON-DEPLOY: bound path of the enrolment actor in the monolith actor system.
       val path = Option(ProjectUtil.getConfigValue("enrolment_actor_path")).filter(_.nonEmpty).getOrElse("/user/course-enrolment-actor")

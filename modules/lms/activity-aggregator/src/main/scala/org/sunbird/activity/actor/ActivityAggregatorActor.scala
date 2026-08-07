@@ -109,16 +109,16 @@ class ActivityAggregatorActor extends BaseEnrolmentActor {
         val (op, api) = if (status >= 2) ("viewEnd", "/v1/view/end") else ("viewStart", "/v1/view/start")
         dispatch("view-consumption-actor", api, op, new util.HashMap[String, AnyRef]() {{
           put("contentId", c.get(JsonKey.CONTENT_ID))
-          put("collectionId", courseId)
-          put("contextId", batchId)
+          put("courseId", courseId)
+          put("batchId", batchId)
           put(JsonKey.USER_ID, userId)
           Option(c.get("progressdetails")).orElse(Option(c.get("progressDetails"))).foreach(pd => put("progressDetails", pd))
         }})
       }
     } else {
       dispatch("viewer-aggregator-actor", "/v1/view/agg", "aggregate", new util.HashMap[String, AnyRef]() {{
-        put("collectionId", courseId)
-        put("contextId", batchId)
+        put("courseId", courseId)
+        put("batchId", batchId)
         put(JsonKey.USER_ID, userId)
       }})
     }

@@ -74,7 +74,6 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
 
         request.getOperation match {
             case "enrol" => enroll(request)
-            case "systemEnrol" => systemEnroll(request)
             case "unenrol" => unEnroll(request)
             case "listEnrol" => list(request)
             case _ => ProjectCommonException.throwClientErrorException(ResponseCode.invalidRequestData,
@@ -98,28 +97,6 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
         sender().tell(successResponse(), self)
         generateTelemetryAudit(userId, courseId, batchId, data, "enrol", JsonKey.CREATE, request.getContext)
         notifyUser(userId, batchData, JsonKey.ADD)
-    }
-
-    /**
-     * System-driven enrol (the `doEnrol` seam) — used by LP progression to open a course.
-     * Reuses the SAME verified write path as `enroll` (createUserEnrolmentMap + upsertEnrollment +
-     * cache-clear + telemetry audit), so LP auto-enrolments are first-class. Differences: `addedBy =
-     * system-lp`, notifications SUPPRESSED (no per-auto-enrol spam), no descendant fan-out (this is a
-     * single course), and idempotent (already-enrolled -> success no-op). Called via the
-     * ProgressionEnroller gateway: in-JVM (monolith) or HTTP (distributed).
-     */
-    def systemEnroll(request: Request): Unit = {
-        val courseId: String = request.get(JsonKey.COURSE_ID).asInstanceOf[String]
-        val userId: String = request.get(JsonKey.USER_ID).asInstanceOf[String]
-        val batchId: String = request.get(JsonKey.BATCH_ID).asInstanceOf[String]
-        val enrolmentData: UserCourses = userCoursesDao.read(request.getRequestContext, userId, courseId, batchId)
-        if (null != enrolmentData) { sender().tell(successResponse(), self); return } // idempotent
-        val data: java.util.Map[String, AnyRef] = createUserEnrolmentMap(userId, courseId, batchId, enrolmentData, "system-lp")
-        upsertEnrollment(userId, courseId, batchId, data, true, request.getRequestContext)
-        if (isCacheEnabled) cacheUtil.delete(getCacheKey(userId))
-        sender().tell(successResponse(), self)
-        generateTelemetryAudit(userId, courseId, batchId, data, "enrol", JsonKey.CREATE, request.getContext)
-        // notifications intentionally suppressed for system-lp; no enrolTrackableDescendants (single course).
     }
     
     
@@ -187,7 +164,6 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
             enrolment.put(JsonKey.LEAF_NODE_COUNT, courseContent.get(JsonKey.LEAF_NODE_COUNT))
             enrolment.put(JsonKey.COURSE_LOGO_URL, courseContent.get(JsonKey.APP_ICON))
             enrolment.put(JsonKey.CONTENT_ID, enrolment.get(JsonKey.COURSE_ID))
-            enrolment.put(JsonKey.COLLECTION_ID, enrolment.get(JsonKey.COURSE_ID))
             enrolment.put(JsonKey.CONTENT, courseContent)
             enrolment
         }).toList.asJava

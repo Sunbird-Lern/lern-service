@@ -167,12 +167,8 @@ public class CourseBatchManagementActor extends BaseActor {
         Map<String, Object> childReq = new HashMap<>(parent.getRequest());
         childReq.put(JsonKey.COURSE_ID, childCourseId);
         childReq.put(JsonKey.BATCH_ID, childBatchId);
-        // Child batches must NOT inherit the LP root's certificate template (that template is the LP cert).
-        // Course certs are controlled by `courseCertificates` (per-LP, default off); when enabled a course's
-        // own cert template is attached separately. Always strip the inherited template so the default is
-        // "LP cert only" and a course never wrongly issues the LP certificate.
-        childReq.remove("certTemplates");
-        childReq.remove("cert_templates");
+        // Child batches inherit the LP root's certificate template (carried through via parent.getRequest()),
+        // so every trackable child issues the LP certificate on its own completion. Intentionally NOT stripped.
         child.setRequest(childReq);
         logger.info(ctx, "triggerChildBatchCreation: creating batch " + childBatchId + " for course " + childCourseId);
         self().tell(child, ActorRef.noSender());
