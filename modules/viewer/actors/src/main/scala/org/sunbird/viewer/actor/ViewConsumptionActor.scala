@@ -54,13 +54,14 @@ class ViewConsumptionActor @Inject() (
     // Cassandra), so without this guard a no-context/unenrolled view would fabricate a phantom enrolment row.
     val existing = cassandraOperation.getRecordByIdentifier(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, selectMap, null, ctx)
       .getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]]).asInstanceOf[util.List[util.Map[String, AnyRef]]]
-    if (existing.isEmpty) return
+    if (existing.isEmpty) { logger.info(ctx, s"view: access skip(no-enrolment) | user=${key.get("userid")} course=${key.get("courseid")} batch=${key.get("batchid")}"); return }
     val updateMap = new util.HashMap[String, AnyRef]() {{
       put("lastcontentaccesstime", new java.util.Date())
       put("lastreadcontentid", key.get("contentid"))
       put("lastreadcontentstatus", Integer.valueOf(status))
     }}
     cassandraOperation.updateRecordV2(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, selectMap, updateMap, true, ctx)
+    logger.info(ctx, s"view: access stamped | user=${key.get("userid")} course=${key.get("courseid")} content=${key.get("contentid")} status=$status")
   }
 
   // Assessment scoring reuses the assessment-aggregator services in-process (same math + persistence
@@ -198,8 +199,8 @@ class ViewConsumptionActor @Inject() (
       row.put("last_access_time", ProjectUtil.getTimeStamp)
       row.put("last_updated_time", ProjectUtil.getTimeStamp)
       cassandraOperation.upsertRecord(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
-    }
-    // present -> already started, no-op
+      logger.info(ctx, s"view: start inserted | user=${key.get("userid")} course=${key.get("courseid")} batch=${key.get("batchid")} content=${key.get("contentid")}")
+    } else logger.info(ctx, s"view: start noop(exists) | user=${key.get("userid")} content=${key.get("contentid")}")
     touchEnrolmentAccess(key, 1, ctx)
     sender().tell(successResponse(), self)
   }
@@ -216,8 +217,8 @@ class ViewConsumptionActor @Inject() (
       row.put("last_access_time", ProjectUtil.getTimeStamp)
       row.put("last_updated_time", ProjectUtil.getTimeStamp)
       cassandraOperation.upsertRecord(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
-    }
-    // absent -> update only if exists (ignore); already completed -> revisit ignored
+      logger.info(ctx, s"view: update merged | user=${key.get("userid")} content=${key.get("contentid")}")
+    } else logger.info(ctx, s"view: update skip(absent-or-completed) | user=${key.get("userid")} content=${key.get("contentid")}")
     touchEnrolmentAccess(key, math.max(1, if (existing != null) statusOf(existing) else 1), ctx)
     sender().tell(successResponse(), self)
   }
@@ -231,6 +232,7 @@ class ViewConsumptionActor @Inject() (
     row.put("last_completed_time", ProjectUtil.getTimeStamp)
     row.put("last_updated_time", ProjectUtil.getTimeStamp)
     cassandraOperation.upsertRecord(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
+    logger.info(ctx, s"view: end completed | user=${key.get("userid")} course=${key.get("courseid")} batch=${key.get("batchid")} content=${key.get("contentid")}")
     touchEnrolmentAccess(key, 2, ctx)
     // Async rollup: fire-and-forget tell to the aggregator; respond immediately (does not wait).
     triggerAggregation(request, ctx)
@@ -248,6 +250,7 @@ class ViewConsumptionActor @Inject() (
     aggRequest.put("batchId", key.get("batchid"))
     // Async, fire-and-forget: the rollup + LP progression run in the background on the aggregator
     // (per-user serialized). The hot path does not wait for it — the change from before is ask -> tell.
+    logger.info(ctx, s"view: rollup triggered | user=${key.get("userid")} course=${key.get("courseid")} batch=${key.get("batchid")}")
     viewerAggregatorActor.tell(aggRequest, ActorRef.noSender)
   }
 

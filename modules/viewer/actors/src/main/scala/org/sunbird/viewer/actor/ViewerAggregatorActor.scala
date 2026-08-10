@@ -67,13 +67,15 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
 
     // trackablenodes non-empty => this root is a Learning Path (structural detection; §Step 2/5).
     val trackable = hierarchyRelationsUtil.getTrackableNodes(courseId, ctx)
+    logger.info(ctx, s"viewer.rollup: start | user=$userId course=$courseId batch=$batchId " +
+      (if (trackable.nonEmpty) s"LP detected n=${trackable.size}" else "not-an-LP"))
 
     // 1. Read this user's consumption for the (root) collection+context from viewer ucc, build status map
     val rows = readConsumption(userId, courseId, batchId, ctx)
     if (CollectionUtils.isEmpty(rows)) {
       // No consumption yet. For an LP, still advance (bootstrap: open the first required course).
-      if (trackable.nonEmpty) advanceLp(userId, courseId, batchId, trackable, ctx)
-      else logger.info(ctx, s"ViewerAggregatorActor: no consumption for userId=$userId courseId=$courseId")
+      if (trackable.nonEmpty) { logger.info(ctx, s"viewer.rollup: no-consumption -> LP bootstrap | user=$userId course=$courseId"); advanceLp(userId, courseId, batchId, trackable, ctx) }
+      else logger.info(ctx, s"viewer.rollup: no-consumption skip | user=$userId course=$courseId")
       return
     }
     val contentStatusMap: Map[String, ContentStatus] = activityAggUtil.getContentStatusFromContents(rows)
@@ -111,6 +113,7 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
 
     // 5. Write user_activity_agg (frozen content_status + agg) for root + every node
     writeActivityAggregates(allAggs, ctx)
+    logger.info(ctx, s"viewer.rollup: nodes rolled-up n=${allAggs.size} | user=$userId course=$courseId batch=$batchId")
 
     // 6. Per-node progress: nodeId -> (completedCount, requiredLeaves) for root + every trackable ancestor.
     val nodeProgress = scala.collection.mutable.LinkedHashMap[String, (Int, List[String])]()
@@ -160,14 +163,20 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
     levels.find(l => !levelComplete(l)).foreach { level =>
       val courses = ProgressionPolicy.coursesOfLevel(level, trackable, ancestorsOf, rootId)
       val nextRequired = courses.filterNot(optional.contains).find(c => !courseComplete(c))
-      (courses.filter(optional.contains) ++ nextRequired.toList).foreach { c =>
+      val toOpen = courses.filter(optional.contains) ++ nextRequired.toList
+      logger.info(ctx, s"viewer.lp: level opened | user=$userId root=$rootId level=$level open=[${toOpen.mkString(",")}]")
+      toOpen.foreach { c =>
         val childBatch = childBatchOf(c)
         if (!status.contains((c, childBatch))) internalEnrol(userId, c, childBatch, ctx)
+        else logger.info(ctx, s"viewer.lp: enrol skip(already) | user=$userId course=$c batch=$childBatch")
       }
     }
 
     // LP completion = every level complete -> credit durable skills (once; creditSkills no-ops if nothing new).
-    if (levels.nonEmpty && levels.forall(levelComplete)) creditSkills(userId, rootId, trackable, ctx)
+    if (levels.nonEmpty && levels.forall(levelComplete)) {
+      logger.info(ctx, s"viewer.lp: complete | user=$userId root=$rootId")
+      creditSkills(userId, rootId, trackable, ctx)
+    }
   }
 
   private def ensureOptionalityComputed(userId: String, rootId: String, batchId: String, trackable: List[String],
@@ -175,7 +184,7 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
     // Compute once (§Step 4); optionalityComputed remembers empty results without a DB column.
     if (optionalityComputed(userId, rootId, batchId, ctx)) return
     val policy = policyOf(rootId, ctx)
-    if (policy.equalsIgnoreCase("Strict") || trackable.isEmpty) { writeOptionalNodes(userId, rootId, batchId, Set.empty, ctx); return }
+    if (policy.equalsIgnoreCase("Strict") || trackable.isEmpty) { logger.info(ctx, s"viewer.lp: optionality computed(strict) optional=[] | user=$userId root=$rootId"); writeOptionalNodes(userId, rootId, batchId, Set.empty, ctx); return }
     val diagnostic = trackable.head
     val hasDiagnostic = isAssessmentCourse(diagnostic, ctx)
     if (hasDiagnostic && !courseComplete(diagnostic)) return // wait for the diagnostic
@@ -249,7 +258,7 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
       }}
       HttpClientUtil.post(base + "/v1/course/enroll", body, headers, ctx)
     }
-    logger.info(ctx, s"ViewerAggregatorActor: system-enrol requested course=$courseId ctx=$batchId user=$userId mode=${ProjectUtil.getConfigValue("deployment_mode")}")
+    logger.info(ctx, s"viewer.lp: enrol dispatched | user=$userId course=$courseId batch=$batchId mode=${ProjectUtil.getConfigValue("deployment_mode")}")
   }
 
   private def writeOptionalNodes(userId: String, rootId: String, batchId: String, optional: Set[String], ctx: RequestContext): Unit = {
@@ -334,7 +343,7 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
         }}
         cassandraOperation.updateRecordV2(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, selectMap, updateMap, true, ctx)
         if (status == 2 && currentStatus != 2) {
-          logger.info(ctx, s"ViewerAggregatorActor: node completed userId=$userId courseId=$nodeId; issuing cert")
+          logger.info(ctx, s"viewer.rollup: node completed -> cert | user=$userId course=$nodeId batch=$nodeCtx")
           certificateUtil.publishCertificateIssueEvent(userId, nodeId, nodeCtx, ctx)
         }
       }

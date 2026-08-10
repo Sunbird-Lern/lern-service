@@ -52,7 +52,7 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
     if (StringUtils.isNotBlank(courseId)) enrolFilters.put("courseid", courseId)
     if (StringUtils.isNotBlank(batchId)) enrolFilters.put("batchid", batchId)
     val enrolments = getRecords(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, enrolFilters, ctx)
-
+    logger.info(ctx, s"summary: read | user=$userId course=$courseId rows=${enrolments.size}")
     val response = new Response
     response.put(JsonKey.RESPONSE, enrolments)
     sender().tell(response, self)
@@ -66,6 +66,7 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
     val filters = new util.HashMap[String, AnyRef]()
     filters.put("userid", userId)
     val enrolments = getRecords(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, filters, ctx)
+    logger.info(ctx, s"summary: list | user=$userId rows=${enrolments.size}")
     val response = new Response
     response.put(JsonKey.RESPONSE, enrolments)
     sender().tell(response, self)
@@ -86,6 +87,7 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
     response.put("format", format)
     if (format == "csv") response.put("url", uploadSummaryCsv(userId, toCsv(enrolments)))
     else response.put(JsonKey.RESPONSE, enrolments)
+    logger.info(ctx, s"summary: download | user=$userId format=$format rows=${enrolments.size}")
     sender().tell(response, self)
   }
 
@@ -137,6 +139,7 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
     } else {
       deleteEnrolment(userId, courseId, batchId, ctx)
     }
+    logger.info(ctx, s"summary: delete | user=$userId course=${Option(courseId).getOrElse("ALL")}")
     sender().tell(successResponse(), self)
   }
 
