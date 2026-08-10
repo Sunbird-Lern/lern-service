@@ -23,6 +23,18 @@ class ProgressionPolicySpec extends AnyFlatSpec with Matchers {
     ProgressionPolicy.levelOf("CRS-X", ancestorsOf, "do_lp") shouldBe Some("L2")
   }
 
+  // Hybrid: levels are derived from a LEAF's ancestors (root LAST), which also contain the unit + course.
+  // levelOf must still pick the level = last non-root, regardless of the extra leading nodes.
+  it should "pick the level from a full leaf ancestor chain [unit, course, level, root]" in {
+    val leafChain: String => List[String] = _ => List("U1", "CRS-B", "L2", "do_lp")
+    ProgressionPolicy.levelOf("CRS-B", leafChain, "do_lp") shouldBe Some("L2")
+  }
+
+  it should "treat a course directly under root (no level wrapper) as its own level" in {
+    val flatChain: String => List[String] = _ => List("U1", "CRS-Z", "do_lp")
+    ProgressionPolicy.levelOf("CRS-Z", flatChain, "do_lp") shouldBe Some("CRS-Z")
+  }
+
   "coursesOfLevel" should "group the level's courses in trackablenodes order" in {
     ProgressionPolicy.coursesOfLevel("L2", order, ancestorsOf, "do_lp") shouldBe List("CRS-B", "CRS-C")
   }

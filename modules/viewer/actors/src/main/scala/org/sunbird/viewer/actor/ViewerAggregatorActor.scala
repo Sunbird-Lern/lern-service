@@ -151,7 +151,12 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
 
     ensureOptionalityComputed(userId, rootId, batchId, trackable, courseComplete, ctx)
     val optional = readOptionalNodes(userId, rootId, batchId, ctx).toSet
-    val ancestorsOf = (n: String) => hierarchyRelationsUtil.getAncestors(rootId, n, ctx)
+    // Course ancestors aren't published (only leaf ancestors are), so derive a course's chain from one of
+    // its leaves: leaf ancestors = [..course, level, root] (root LAST) -> levelOf = last non-root = the level.
+    val ancestorsOf = (course: String) =>
+      hierarchyRelationsUtil.getLeafNodes(rootId, course, ctx).headOption
+        .map(leaf => hierarchyRelationsUtil.getAncestors(rootId, leaf, ctx))
+        .getOrElse(List.empty[String])
     val levels = ProgressionPolicy.orderedLevels(trackable, ancestorsOf, rootId)
 
     // Level complete = all its required (non-optional) courses complete (empty required set = complete, §5).
