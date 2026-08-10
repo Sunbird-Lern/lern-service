@@ -117,7 +117,7 @@ fi
 
 echo ""
 echo "Step 2: Creating Play distribution for ${SERVICE} service..."
-(cd "$PLAY_MODULE_PATH" && mvn play2:dist)
+mvn play2:dist -pl ${PLAY_MODULE_PATH} -P ${MAVEN_PROFILE},${CSP}
 
 echo ""
 echo "========================================="
