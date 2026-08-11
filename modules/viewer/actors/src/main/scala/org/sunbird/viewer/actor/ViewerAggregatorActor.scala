@@ -5,13 +5,11 @@ import org.sunbird.activity.domain.{ContentStatus, UserContentConsumption, UserE
 import org.sunbird.activity.util.{ActivityAggregateUtil, CertificateUtil, HierarchyRelationsUtil}
 import org.sunbird.cassandra.CassandraOperation
 import org.sunbird.common.ProjectUtil
-import org.sunbird.http.HttpClientUtil
 import org.sunbird.enrolments.BaseEnrolmentActor
 import org.sunbird.helper.ServiceFactory
 import org.sunbird.keys.JsonKey
 import org.sunbird.learner.util.Util
 import org.sunbird.request.{Request, RequestContext}
-import org.sunbird.viewer.util.ProgressionPolicy
 
 import java.util
 import scala.collection.JavaConverters._
@@ -44,6 +42,11 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
   private val activityAggDBInfo = Util.dbInfoMap.get(JsonKey.GROUP_ACTIVITY_DB)
   private val consumptionDBInfo = Util.dbInfoMap.get(JsonKey.LEARNER_CONTENT_DB)
   private val CONSUMPTION_TABLE = "user_content_consumption"
+  // LP progression extracted to a focused, injectable engine (SRP); transport behind a dispatcher (OCP).
+  // lazy so `context` is set by the time they initialize.
+  private lazy val enrolDispatcher: org.sunbird.viewer.engine.EnrolDispatcher = org.sunbird.viewer.engine.EnrolDispatcher(context)
+  private lazy val lpEngine = new org.sunbird.viewer.engine.LpProgressionEngine(
+    cassandraOperation, enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, lpPolicyUtil, assessmentService, enrolDispatcher)
 
   override def onReceive(request: Request): Unit = {
     request.getOperation match {
@@ -134,110 +137,20 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
   private def completedCountOf(a: UserEnrolmentAgg): Int =
     a.activityAgg.aggregates.getOrElse("completedCount", 0.0).toInt
 
-  // ─────────────────────────── LP progression (the engine) ───────────────────────────
-  // Pure decisions come from ProgressionPolicy; this orchestrates reads/writes. Strict is fully
-  // functional. Adaptive/PriorLearning are wired but their skill inputs (policy source, se_skills,
-  // diagnostic assessment scores) are marked VERIFY-ON-DEPLOY — they default to "no skills" so the
-  // system compiles and behaves as Strict until those integrations are wired against the live env.
-
-  private val USER_SKILLS_TABLE = "user_skills"
-
+  // LP progression: read the status snapshot + derive ancestorsOf here, then delegate to LpProgressionEngine.
   private def advanceLp(userId: String, rootId: String, batchId: String,
                         trackable: List[String], ctx: RequestContext): Unit = {
     // One read of this user's enrolments, reused for every completion/enrolment check below. Safe because
     // advanceLp runs AFTER writeAllNodeEnrolments has committed this pass's statuses, so the snapshot is
     // current; collapses the LP's former O(courses) single-row status reads into a single query.
     val status = enrolStatusSnapshot(userId, ctx)
-    val childBatchOf = (c: String) => batchId + ":" + c
-    val courseComplete = (c: String) => status.get((c, childBatchOf(c))).contains(2)
-
     // Course ancestors aren't published (only leaf ancestors are), so derive a course's chain from one of
     // its leaves: leaf ancestors = [..course, level, root] (root LAST) -> levelOf = last non-root = the level.
     val ancestorsOf = (course: String) =>
       hierarchyRelationsUtil.getLeafNodes(rootId, course, ctx).headOption
         .map(leaf => hierarchyRelationsUtil.getAncestors(rootId, leaf, ctx))
         .getOrElse(List.empty[String])
-
-    ensureOptionalityComputed(userId, rootId, batchId, trackable, ancestorsOf, status, ctx)
-    val optional = readOptionalNodes(userId, rootId, batchId, ctx).toSet
-    val levels = ProgressionPolicy.orderedLevels(trackable, ancestorsOf, rootId)
-
-    // Level complete = all its required (non-optional) courses complete (empty required set = complete, §5).
-    // Derived from persisted enrolment status only, so it's recompute-safe (force-sync repairs identically).
-    def levelComplete(level: String): Boolean =
-      ProgressionPolicy.coursesOfLevel(level, trackable, ancestorsOf, rootId).filterNot(optional.contains).forall(courseComplete)
-
-    // Open first incomplete level: enrol all its optionals up front + the next single required course (§5).
-    levels.find(l => !levelComplete(l)).foreach { level =>
-      val courses = ProgressionPolicy.coursesOfLevel(level, trackable, ancestorsOf, rootId)
-      val nextRequired = courses.filterNot(optional.contains).find(c => !courseComplete(c))
-      val toOpen = courses.filter(optional.contains) ++ nextRequired.toList
-      logger.info(ctx, s"viewer.lp: level opened | user=$userId root=$rootId level=$level open=[${toOpen.mkString(",")}]")
-      toOpen.foreach { c =>
-        val childBatch = childBatchOf(c)
-        if (!status.contains((c, childBatch))) internalEnrol(userId, c, childBatch, ctx)
-        else logger.info(ctx, s"viewer.lp: enrol skip(already) | user=$userId course=$c batch=$childBatch")
-      }
-    }
-
-    // LP completion = every level complete -> credit durable skills (once; creditSkills no-ops if nothing new).
-    if (levels.nonEmpty && levels.forall(levelComplete)) {
-      logger.info(ctx, s"viewer.lp: complete | user=$userId root=$rootId")
-      creditSkills(userId, rootId, batchId, trackable, ctx)
-    }
-  }
-
-  private def ensureOptionalityComputed(userId: String, rootId: String, batchId: String, trackable: List[String],
-                                        ancestorsOf: String => List[String],
-                                        status: Map[(String, String), Int], ctx: RequestContext): Unit = {
-    // Compute once (§Step 4); optionalityComputed remembers empty results without a DB column.
-    if (optionalityComputed(userId, rootId, batchId, ctx)) return
-    val meta = lpPolicyUtil.lpMeta(rootId, ctx)
-    val policy = lpPolicyUtil.policyOf(meta)
-    if (policy.equalsIgnoreCase("Strict") || trackable.isEmpty) {
-      logger.info(ctx, s"viewer.lp: optionality computed(strict) optional=[] | user=$userId root=$rootId")
-      writeOptionalNodes(userId, rootId, batchId, Set.empty, ctx); return
-    }
-    // pre-assessment = an assessment course in the FIRST level (seeds achieved skills before waivers).
-    val levels = ProgressionPolicy.orderedLevels(trackable, ancestorsOf, rootId)
-    val preAssessment = ProgressionPolicy.coursesOfLevel(levels.headOption.getOrElse(""), trackable, ancestorsOf, rootId)
-      .find(c => lpPolicyUtil.isAssessmentCourse(c, meta))
-    if (policy.equalsIgnoreCase("Adaptive") && preAssessment.isEmpty) {
-      logger.warn(ctx, s"viewer.lp: Adaptive LP has no pre-assessment; exiting (misconfigured) | user=$userId root=$rootId", null)
-      return
-    }
-    val childBatchOf = (c: String) => batchId + ":" + c
-    val courseComplete = (c: String) => status.get((c, childBatchOf(c))).contains(2)
-    if (preAssessment.exists(pa => !courseComplete(pa))) return // wait for the pre-assessment
-    val achieved = preAssessment.map(pa => skillsFromAssessment(userId, rootId, pa, batchId, ctx)).getOrElse(Set.empty)
-    // PriorLearning: a content course already completed under ANY batch is optional directly.
-    val priorCompleted =
-      if (policy.equalsIgnoreCase("PriorLearning")) trackable.filter(c => status.exists { case ((cc, _), st) => cc == c && st == 2 }).toSet
-      else Set.empty[String]
-    val cMeta = lpPolicyUtil.courseMeta(trackable, meta)
-    val assessmentCourses = cMeta.collect { case (c, (_, true)) => c }.toSet
-    val skillsByCourse = cMeta.map { case (c, (s, _)) => c -> s }
-    logger.info(ctx, s"viewer.lp: optionality computing($policy) preAssess=${preAssessment.getOrElse("-")} achieved=${achieved.size} priorDone=${priorCompleted.size} | user=$userId root=$rootId")
-    writeOptionalNodes(userId, rootId, batchId,
-      ProgressionPolicy.computeOptionalNodes(policy, trackable, skillsByCourse, assessmentCourses, achieved, priorCompleted), ctx)
-  }
-
-  private def isAssessmentCourse(rootId: String, courseId: String, ctx: RequestContext): Boolean =
-    lpPolicyUtil.isAssessmentCourse(courseId, lpPolicyUtil.lpMeta(rootId, ctx))
-
-  // <category> terms (framework last-category code, e.g. "skill") of the questions the learner got fully
-  // correct in the pre-assessment's question set(s). courseId = the pre-assessment course; its child batch
-  // is rootBatch:courseId. Never se_<category>Ids.
-  private def skillsFromAssessment(userId: String, rootId: String, courseId: String, batchId: String, ctx: RequestContext): Set[String] = {
-    val meta = lpPolicyUtil.lpMeta(rootId, ctx)
-    val childBatch = batchId + ":" + courseId
-    // best attempt (highest total) per question set; keep only fully-correct questions.
-    val correct = lpPolicyUtil.questionSetsOf(courseId, meta).flatMap { qs =>
-      val attempts = assessmentService.getUserAssessments(userId, courseId, childBatch, qs, ctx)
-      if (attempts.isEmpty) Nil
-      else attempts.maxBy(_.totalScore).questions.collect { case q if q.maxScore > 0 && q.score == q.maxScore => q.questionId }
-    }.distinct
-    lpPolicyUtil.skillsOfQuestions(correct, meta)
+    lpEngine.advance(userId, rootId, batchId, trackable, status, ancestorsOf, ctx)
   }
 
   /**
@@ -256,74 +169,6 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
         b <- Option(r.get("batchId")).map(_.toString)
       } yield (c, b) -> Option(r.get("status")).map(_.asInstanceOf[Number].intValue()).getOrElse(0)
     }.toMap
-  }
-
-  /**
-   * System-driven enrol via the standard `enrol` op. MONOLITH -> in-JVM message; DISTRIBUTED -> POST
-   * /v1/course/enroll. Re-enrol safe: advanceLp only enrols courses absent from the snapshot.
-   */
-  private def isMonolith: Boolean = !"distributed".equalsIgnoreCase(ProjectUtil.getConfigValue("deployment_mode")) // default monolith
-
-  private def internalEnrol(userId: String, courseId: String, batchId: String, ctx: RequestContext): Unit = {
-    if (isMonolith) {
-      val req = new Request()
-      req.setRequestContext(ctx)
-      req.setRequestId("system")   // enrol stores this as addedBy (via context REQUEST_ID)
-      req.setOperation("enrol")
-      req.put(JsonKey.USER_ID, userId); req.put(JsonKey.COURSE_ID, courseId); req.put(JsonKey.BATCH_ID, batchId)
-      // VERIFY-ON-DEPLOY: bound path of the enrolment actor in the monolith actor system.
-      val path = Option(ProjectUtil.getConfigValue("enrolment_actor_path")).filter(_.nonEmpty).getOrElse("/user/course-enrolment-actor")
-      // noSender: fire-and-forget; the enrol actor's success reply must NOT bounce back to this actor
-      // (it only handles "aggregate" Requests) — let the reply go to deadLetters.
-      context.actorSelection(path).tell(req, org.apache.pekko.actor.ActorRef.noSender)
-    } else {
-      // DISTRIBUTED: call the enrolment service over HTTP (full enrol op).
-      // VERIFY-ON-DEPLOY: use a system-enrol endpoint (not the public one that fans out/notifies) + forward auth token.
-      val base = Option(ProjectUtil.getConfigValue("enrolment_service_base_url")).filter(_.nonEmpty).getOrElse("http://lern-service:9000")
-      val body = s"""{"request":{"userId":"$userId","courseId":"$courseId","batchId":"$batchId"}}"""
-      val headers = new util.HashMap[String, String]() {{
-        put("Content-Type", "application/json")
-        // System-driven enrol: authenticate with the configured system token (else 401 in distributed mode).
-        Option(ProjectUtil.getConfigValue("viewer_system_auth_token")).filter(_.nonEmpty)
-          .foreach(t => put("x-authenticated-user-token", t))
-      }}
-      HttpClientUtil.post(base + "/v1/course/enroll", body, headers, ctx)
-    }
-    logger.info(ctx, s"viewer.lp: enrol dispatched | user=$userId course=$courseId batch=$batchId mode=${ProjectUtil.getConfigValue("deployment_mode")}")
-  }
-
-  private def writeOptionalNodes(userId: String, rootId: String, batchId: String, optional: Set[String], ctx: RequestContext): Unit = {
-    val selectMap = new util.HashMap[String, AnyRef]() {{ put("userid", userId); put("courseid", rootId); put("batchid", batchId) }}
-    val updateMap = new util.HashMap[String, AnyRef]() {{ put("optional_nodes", optional.asJava) }}
-    cassandraOperation.updateRecordV2(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, selectMap, updateMap, true, ctx)
-    ViewerAggregatorActor.markOptionalityComputed(userId, rootId, batchId) // remember empty results too (no DB column)
-  }
-
-  /** Computed? Non-empty optional_nodes is self-evident; an empty result is remembered in an in-process memo. */
-  private def optionalityComputed(userId: String, rootId: String, batchId: String, ctx: RequestContext): Boolean =
-    readOptionalNodes(userId, rootId, batchId, ctx).nonEmpty ||
-      ViewerAggregatorActor.isOptionalityComputed(userId, rootId, batchId)
-
-  private def readUserSkills(userId: String, ctx: RequestContext): Set[String] = {
-    val filters = new util.HashMap[String, AnyRef]() {{ put("userid", userId) }}
-    val rows = cassandraOperation.getRecords(enrolmentDBInfo.getKeySpace, USER_SKILLS_TABLE,
-      filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)
-      .getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]]).asInstanceOf[util.List[util.Map[String, AnyRef]]]
-    if (CollectionUtils.isNotEmpty(rows))
-      Option(rows.get(0).get("skills")).map(_.asInstanceOf[util.Collection[String]].asScala.toSet).getOrElse(Set.empty)
-    else Set.empty
-  }
-
-  // Durable skill credit — ONCE at LP completion. Read-union-upsert (portable; no set-append needed).
-  private def creditSkills(userId: String, rootId: String, batchId: String, trackable: List[String], ctx: RequestContext): Unit = {
-    val earned = trackable.filter(c => isAssessmentCourse(rootId, c, ctx)).flatMap(c => skillsFromAssessment(userId, rootId, c, batchId, ctx)).toSet
-    if (earned.isEmpty) return // no-op until se_skills is wired (VERIFY-ON-DEPLOY)
-    val existing = readUserSkills(userId, ctx)
-    val merged = existing ++ earned
-    if (merged.size == existing.size) return // nothing new — credit already granted (advanceLp calls this every completed pass)
-    val row = new util.HashMap[String, AnyRef]() {{ put("userid", userId); put("skills", merged.asJava) }}
-    cassandraOperation.insertRecord(enrolmentDBInfo.getKeySpace, USER_SKILLS_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
-    logger.info(ctx, s"ViewerAggregatorActor: credited ${earned.size} skills to user=$userId for LP=$rootId")
   }
 
   private def writeActivityAggregates(aggs: List[UserEnrolmentAgg], ctx: RequestContext): Unit = {
@@ -433,13 +278,4 @@ object ViewerAggregatorActor {
     fresh.foreach { case (k, v) => merged.put(k, v) }
     merged
   }
-
-  // JVM-wide memo of enrolments whose (empty) LP optionality is computed, so we don't recompute each pass.
-  // ponytail: unbounded set, entries live for the process lifetime; add a size cap / TTL only if it grows.
-  private val optionalityDone: java.util.Set[String] = java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
-  private def optKey(userId: String, rootId: String, batchId: String): String = s"$userId:$rootId:$batchId"
-  def markOptionalityComputed(userId: String, rootId: String, batchId: String): Unit =
-    optionalityDone.add(optKey(userId, rootId, batchId))
-  def isOptionalityComputed(userId: String, rootId: String, batchId: String): Boolean =
-    optionalityDone.contains(optKey(userId, rootId, batchId))
 }

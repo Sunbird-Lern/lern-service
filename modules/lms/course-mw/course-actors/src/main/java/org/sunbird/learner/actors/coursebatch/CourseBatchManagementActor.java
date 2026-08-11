@@ -10,6 +10,7 @@ import org.sunbird.cassandra.CassandraOperation;
 import org.sunbird.helper.ServiceFactory;
 import org.sunbird.common.ElasticSearchHelper;
 import org.sunbird.exception.ProjectCommonException;
+import org.sunbird.response.ResponseCode;
 import org.sunbird.common.factory.EsClientFactory;
 import org.sunbird.common.inf.ElasticSearchService;
 import org.sunbird.response.Response;
@@ -178,13 +179,15 @@ public class CourseBatchManagementActor extends BaseActor {
     }
   }
 
-  /** Non-throwing existence check for a course_batch (readById throws when absent). */
+  // Exists via readById; only invalidCourseBatchId means absent — any other PCE is rethrown so a transient
+  // error isn't misread as absent (which would create a duplicate batch).
   private boolean batchExists(String courseId, String batchId, RequestContext ctx) {
     try {
       courseBatchDao.readById(courseId, batchId, ctx);
       return true;
     } catch (ProjectCommonException e) {
-      return false;
+      if (ResponseCode.invalidCourseBatchId.getErrorCode().equals(e.getErrorCode())) return false;
+      throw e;
     }
   }
 

@@ -43,6 +43,15 @@ class ProgressionPolicySpec extends AnyFlatSpec with Matchers {
     ProgressionPolicy.orderedLevels(order, ancestorsOf, "do_lp") shouldBe List("L1", "L2", "L3", "L4")
   }
 
+  "levelByCourse (precomputed map)" should "match the ancestorsOf-based overloads" in {
+    val m = ProgressionPolicy.levelByCourse(order, ancestorsOf, "do_lp")
+    m shouldBe Map("CRS-A" -> "L1", "CRS-B" -> "L2", "CRS-C" -> "L2",
+      "CRS-D" -> "L3", "CRS-E" -> "L3", "CRS-F" -> "L4")
+    ProgressionPolicy.orderedLevels(order, m) shouldBe ProgressionPolicy.orderedLevels(order, ancestorsOf, "do_lp")
+    ProgressionPolicy.coursesOfLevel("L2", order, m) shouldBe
+      ProgressionPolicy.coursesOfLevel("L2", order, ancestorsOf, "do_lp")
+  }
+
   "computeOptionalNodes" should "waive a fully-known non-assessment course but never an assessment" in {
     val opt = ProgressionPolicy.computeOptionalNodes(
       policy = "Adaptive",

@@ -9,13 +9,10 @@ import java.util
 import scala.collection.JavaConverters._
 
 case class NodeMeta(primaryCategory: String, skills: Set[String], childNodes: List[String])
-case class LpMeta(policy: String, framework: String, nodes: Map[String, NodeMeta])
+case class LpMeta(policy: String, framework: String, categoryCode: String, nodes: Map[String, NodeMeta])
 
-/**
- * LP content metadata via one cached /v3/search per LP + a long-TTL framework->last-category-code cache.
- * Pure parse/derive functions on the companion are I/O-free and unit-tested; the class wraps them with
- * search + framework-read + caching. Reads the framework last-category code field (e.g. "skill"), never se_*Ids.
- */
+/** LP content metadata via a cached /v3/search + long-TTL framework->last-category-code cache. Reads the
+ *  category code field (e.g. "skill"), never se_*Ids. Pure parsers on the companion; class does I/O + caching. */
 object LpPolicyUtil {
   private val mapper = new ObjectMapper()
 
@@ -97,9 +94,9 @@ class LpPolicyUtil {
 
   private def searchByIds(ids: List[String], fields: List[String]): String = {
     if (ids.isEmpty || fields.isEmpty) return "{}"
-    val idArr = ids.map(i => "\"" + i + "\"").mkString(",")
-    val fldArr = fields.map(f => "\"" + f + "\"").mkString(",")
-    post(s"""{"request":{"filters":{"status":["Live"],"identifier":[$idArr]},"fields":[$fldArr]}}""")
+    val filters = new util.HashMap[String, AnyRef]() {{ put("status", util.Arrays.asList("Live")); put("identifier", ids.asJava) }}
+    val request = new util.HashMap[String, AnyRef]() {{ put("filters", filters); put("fields", fields.asJava) }}
+    post(mapper.writeValueAsString(new util.HashMap[String, AnyRef]() {{ put("request", request) }}))
   }
 
   private def frameworkCategoryCode(frameworkId: String): Option[String] =
@@ -119,7 +116,7 @@ class LpPolicyUtil {
     val categoryCode = frameworkCategoryCode(framework).getOrElse("")
     val ids = (rootId :: childNodes).distinct
     val fields = if (categoryCode.isEmpty) List("primaryCategory", "childNodes") else List(categoryCode, "primaryCategory", "childNodes")
-    LpMeta(policy, framework, parseLpNodes(searchByIds(ids, fields), categoryCode))
+    LpMeta(policy, framework, categoryCode, parseLpNodes(searchByIds(ids, fields), categoryCode))
   }
 
   def policyOf(meta: LpMeta): String = meta.policy match {
@@ -134,9 +131,7 @@ class LpPolicyUtil {
 
   // <category> terms for a set of question identifiers (one /v3/search)
   def skillsOfQuestions(questionIds: List[String], meta: LpMeta): Set[String] = {
-    if (questionIds.isEmpty) return Set.empty
-    val code = frameworkCategoryCode(meta.framework).getOrElse("")
-    if (code.isEmpty) return Set.empty
-    parseLpNodes(searchByIds(questionIds, List(code)), code).values.flatMap(_.skills).toSet
+    if (questionIds.isEmpty || meta.categoryCode.isEmpty) return Set.empty
+    parseLpNodes(searchByIds(questionIds, List(meta.categoryCode)), meta.categoryCode).values.flatMap(_.skills).toSet
   }
 }

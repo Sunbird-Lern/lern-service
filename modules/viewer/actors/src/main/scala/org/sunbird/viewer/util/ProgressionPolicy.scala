@@ -24,6 +24,16 @@ object ProgressionPolicy {
                     ancestorsOf: String => List[String], root: String): List[String] =
     trackable.flatMap(c => levelOf(c, ancestorsOf, root)).distinct
 
+  /** Precompute each course's level once so downstream lookups don't re-invoke ancestorsOf per call. */
+  def levelByCourse(trackable: List[String], ancestorsOf: String => List[String], root: String): Map[String, String] =
+    trackable.flatMap(c => levelOf(c, ancestorsOf, root).map(c -> _)).toMap
+
+  def orderedLevels(trackable: List[String], levelByCourse: Map[String, String]): List[String] =
+    trackable.flatMap(levelByCourse.get).distinct
+
+  def coursesOfLevel(level: String, trackable: List[String], levelByCourse: Map[String, String]): List[String] =
+    trackable.filter(c => levelByCourse.get(c).contains(level))
+
   /**
    * A course is optional iff it is not an assessment and all of its (non-empty) skills are achieved.
    * `Strict` waives nothing; other policies differ only in how the caller builds `skillsAchieved`.
