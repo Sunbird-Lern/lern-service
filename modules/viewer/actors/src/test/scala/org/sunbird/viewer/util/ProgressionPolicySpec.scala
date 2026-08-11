@@ -57,4 +57,26 @@ class ProgressionPolicySpec extends AnyFlatSpec with Matchers {
     ProgressionPolicy.computeOptionalNodes("Strict", List("CRS-B"),
       Map("CRS-B" -> Set("s1")), Set.empty, Set("s1")) shouldBe empty
   }
+
+  it should "waive a prior-completed course regardless of skills (PriorLearning)" in {
+    val opt = ProgressionPolicy.computeOptionalNodes(
+      policy = "PriorLearning",
+      courses = List("CRS-B", "CRS-C"),
+      skillsByCourse = Map("CRS-B" -> Set.empty, "CRS-C" -> Set.empty),
+      assessmentCourses = Set.empty,
+      skillsAchieved = Set.empty,
+      priorCompleted = Set("CRS-B"))
+    opt shouldBe Set("CRS-B")
+  }
+
+  it should "never waive an assessment course even if prior-completed" in {
+    val opt = ProgressionPolicy.computeOptionalNodes(
+      policy = "PriorLearning",
+      courses = List("CRS-B"),
+      skillsByCourse = Map("CRS-B" -> Set.empty),
+      assessmentCourses = Set("CRS-B"),
+      skillsAchieved = Set.empty,
+      priorCompleted = Set("CRS-B"))
+    opt shouldBe empty
+  }
 }

@@ -37,6 +37,8 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
   private var hierarchyRelationsUtil: HierarchyRelationsUtil = HierarchyRelationsUtil(cassandraOperation)
   private var certificateUtil: CertificateUtil = CertificateUtil()
   private val activityAggUtil = new ActivityAggregateUtil()
+  private val lpPolicyUtil: org.sunbird.activity.util.LpPolicyUtil = org.sunbird.activity.util.LpPolicyUtil()
+  private val assessmentService = new org.sunbird.assessment.service.CassandraService(Some(cassandraOperation))
 
   private val enrolmentDBInfo = Util.dbInfoMap.get(JsonKey.LEARNER_COURSE_DB)
   private val activityAggDBInfo = Util.dbInfoMap.get(JsonKey.GROUP_ACTIVITY_DB)
@@ -149,14 +151,15 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
     val childBatchOf = (c: String) => batchId + ":" + c
     val courseComplete = (c: String) => status.get((c, childBatchOf(c))).contains(2)
 
-    ensureOptionalityComputed(userId, rootId, batchId, trackable, courseComplete, ctx)
-    val optional = readOptionalNodes(userId, rootId, batchId, ctx).toSet
     // Course ancestors aren't published (only leaf ancestors are), so derive a course's chain from one of
     // its leaves: leaf ancestors = [..course, level, root] (root LAST) -> levelOf = last non-root = the level.
     val ancestorsOf = (course: String) =>
       hierarchyRelationsUtil.getLeafNodes(rootId, course, ctx).headOption
         .map(leaf => hierarchyRelationsUtil.getAncestors(rootId, leaf, ctx))
         .getOrElse(List.empty[String])
+
+    ensureOptionalityComputed(userId, rootId, batchId, trackable, ancestorsOf, status, ctx)
+    val optional = readOptionalNodes(userId, rootId, batchId, ctx).toSet
     val levels = ProgressionPolicy.orderedLevels(trackable, ancestorsOf, rootId)
 
     // Level complete = all its required (non-optional) courses complete (empty required set = complete, §5).
@@ -180,39 +183,62 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
     // LP completion = every level complete -> credit durable skills (once; creditSkills no-ops if nothing new).
     if (levels.nonEmpty && levels.forall(levelComplete)) {
       logger.info(ctx, s"viewer.lp: complete | user=$userId root=$rootId")
-      creditSkills(userId, rootId, trackable, ctx)
+      creditSkills(userId, rootId, batchId, trackable, ctx)
     }
   }
 
   private def ensureOptionalityComputed(userId: String, rootId: String, batchId: String, trackable: List[String],
-                                        courseComplete: String => Boolean, ctx: RequestContext): Unit = {
+                                        ancestorsOf: String => List[String],
+                                        status: Map[(String, String), Int], ctx: RequestContext): Unit = {
     // Compute once (§Step 4); optionalityComputed remembers empty results without a DB column.
     if (optionalityComputed(userId, rootId, batchId, ctx)) return
-    val policy = policyOf(rootId, ctx)
-    if (policy.equalsIgnoreCase("Strict") || trackable.isEmpty) { logger.info(ctx, s"viewer.lp: optionality computed(strict) optional=[] | user=$userId root=$rootId"); writeOptionalNodes(userId, rootId, batchId, Set.empty, ctx); return }
-    val diagnostic = trackable.head
-    val hasDiagnostic = isAssessmentCourse(diagnostic, ctx)
-    if (hasDiagnostic && !courseComplete(diagnostic)) return // wait for the diagnostic
-    val prior = if (policy.equalsIgnoreCase("PriorLearning")) readUserSkills(userId, ctx) else Set.empty[String]
-    val fromDiag = if (hasDiagnostic) skillsFromAssessment(userId, rootId, diagnostic, ctx) else Set.empty[String]
-    val achieved = prior ++ fromDiag
-    val meta = courseMeta(trackable, ctx)
-    val assessmentCourses = meta.collect { case (c, (_, true)) => c }.toSet
-    val skillsByCourse = meta.map { case (c, (s, _)) => c -> s }
+    val meta = lpPolicyUtil.lpMeta(rootId, ctx)
+    val policy = lpPolicyUtil.policyOf(meta)
+    if (policy.equalsIgnoreCase("Strict") || trackable.isEmpty) {
+      logger.info(ctx, s"viewer.lp: optionality computed(strict) optional=[] | user=$userId root=$rootId")
+      writeOptionalNodes(userId, rootId, batchId, Set.empty, ctx); return
+    }
+    // pre-assessment = an assessment course in the FIRST level (seeds achieved skills before waivers).
+    val levels = ProgressionPolicy.orderedLevels(trackable, ancestorsOf, rootId)
+    val preAssessment = ProgressionPolicy.coursesOfLevel(levels.headOption.getOrElse(""), trackable, ancestorsOf, rootId)
+      .find(c => lpPolicyUtil.isAssessmentCourse(c, meta))
+    if (policy.equalsIgnoreCase("Adaptive") && preAssessment.isEmpty) {
+      logger.warn(ctx, s"viewer.lp: Adaptive LP has no pre-assessment; exiting (misconfigured) | user=$userId root=$rootId", null)
+      return
+    }
+    val childBatchOf = (c: String) => batchId + ":" + c
+    val courseComplete = (c: String) => status.get((c, childBatchOf(c))).contains(2)
+    if (preAssessment.exists(pa => !courseComplete(pa))) return // wait for the pre-assessment
+    val achieved = preAssessment.map(pa => skillsFromAssessment(userId, rootId, pa, batchId, ctx)).getOrElse(Set.empty)
+    // PriorLearning: a content course already completed under ANY batch is optional directly.
+    val priorCompleted =
+      if (policy.equalsIgnoreCase("PriorLearning")) trackable.filter(c => status.exists { case ((cc, _), st) => cc == c && st == 2 }).toSet
+      else Set.empty[String]
+    val cMeta = lpPolicyUtil.courseMeta(trackable, meta)
+    val assessmentCourses = cMeta.collect { case (c, (_, true)) => c }.toSet
+    val skillsByCourse = cMeta.map { case (c, (s, _)) => c -> s }
+    logger.info(ctx, s"viewer.lp: optionality computing($policy) preAssess=${preAssessment.getOrElse("-")} achieved=${achieved.size} priorDone=${priorCompleted.size} | user=$userId root=$rootId")
     writeOptionalNodes(userId, rootId, batchId,
-      ProgressionPolicy.computeOptionalNodes(policy, trackable, skillsByCourse, assessmentCourses, achieved), ctx)
+      ProgressionPolicy.computeOptionalNodes(policy, trackable, skillsByCourse, assessmentCourses, achieved, priorCompleted), ctx)
   }
 
-  // VERIFY-ON-DEPLOY: policy source. Read the LP's policy from collection/batch metadata; absent => Strict.
-  private def policyOf(rootId: String, ctx: RequestContext): String = "Strict"
-  // VERIFY-ON-DEPLOY: assessment detection. Needs a Practice-Question-Set child via /v3/search or content_hierarchy.
-  private def isAssessmentCourse(courseId: String, ctx: RequestContext): Boolean = false
-  // VERIFY-ON-DEPLOY: per-course skills + assessment flag via /v3/search. Skills = framework last-category
-  // terms (se_<category>Ids), not an se_skills field (see design §6).
-  private def courseMeta(trackable: List[String], ctx: RequestContext): Map[String, (Set[String], Boolean)] =
-    trackable.map(c => c -> (Set.empty[String], isAssessmentCourse(c, ctx))).toMap
-  // VERIFY-ON-DEPLOY: achieved = assessment_aggregator best attempts × question skill ids (all correct); ids = framework last-category terms (design §6).
-  private def skillsFromAssessment(userId: String, rootId: String, courseId: String, ctx: RequestContext): Set[String] = Set.empty
+  private def isAssessmentCourse(rootId: String, courseId: String, ctx: RequestContext): Boolean =
+    lpPolicyUtil.isAssessmentCourse(courseId, lpPolicyUtil.lpMeta(rootId, ctx))
+
+  // <category> terms (framework last-category code, e.g. "skill") of the questions the learner got fully
+  // correct in the pre-assessment's question set(s). courseId = the pre-assessment course; its child batch
+  // is rootBatch:courseId. Never se_<category>Ids.
+  private def skillsFromAssessment(userId: String, rootId: String, courseId: String, batchId: String, ctx: RequestContext): Set[String] = {
+    val meta = lpPolicyUtil.lpMeta(rootId, ctx)
+    val childBatch = batchId + ":" + courseId
+    // best attempt (highest total) per question set; keep only fully-correct questions.
+    val correct = lpPolicyUtil.questionSetsOf(courseId, meta).flatMap { qs =>
+      val attempts = assessmentService.getUserAssessments(userId, courseId, childBatch, qs, ctx)
+      if (attempts.isEmpty) Nil
+      else attempts.maxBy(_.totalScore).questions.collect { case q if q.maxScore > 0 && q.score == q.maxScore => q.questionId }
+    }.distinct
+    lpPolicyUtil.skillsOfQuestions(correct, meta)
+  }
 
   /**
    * All of this user's enrolments as (courseId, batchId) -> status, in one read. Replaces the LP's former
@@ -289,8 +315,8 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
   }
 
   // Durable skill credit — ONCE at LP completion. Read-union-upsert (portable; no set-append needed).
-  private def creditSkills(userId: String, rootId: String, trackable: List[String], ctx: RequestContext): Unit = {
-    val earned = trackable.filter(c => isAssessmentCourse(c, ctx)).flatMap(c => skillsFromAssessment(userId, rootId, c, ctx)).toSet
+  private def creditSkills(userId: String, rootId: String, batchId: String, trackable: List[String], ctx: RequestContext): Unit = {
+    val earned = trackable.filter(c => isAssessmentCourse(rootId, c, ctx)).flatMap(c => skillsFromAssessment(userId, rootId, c, batchId, ctx)).toSet
     if (earned.isEmpty) return // no-op until se_skills is wired (VERIFY-ON-DEPLOY)
     val existing = readUserSkills(userId, ctx)
     val merged = existing ++ earned

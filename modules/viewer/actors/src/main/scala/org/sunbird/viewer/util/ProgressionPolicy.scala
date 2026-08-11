@@ -31,11 +31,14 @@ object ProgressionPolicy {
   def computeOptionalNodes(policy: String, courses: List[String],
                            skillsByCourse: Map[String, Set[String]],
                            assessmentCourses: Set[String],
-                           skillsAchieved: Set[String]): Set[String] = {
+                           skillsAchieved: Set[String],
+                           priorCompleted: Set[String] = Set.empty): Set[String] = {
     if ("Strict".equalsIgnoreCase(policy)) Set.empty
     else courses.filter { c =>
-      val skills = skillsByCourse.getOrElse(c, Set.empty)
-      !assessmentCourses.contains(c) && skills.nonEmpty && skills.subsetOf(skillsAchieved)
+      !assessmentCourses.contains(c) && {
+        val skills = skillsByCourse.getOrElse(c, Set.empty)
+        priorCompleted.contains(c) || (skills.nonEmpty && skills.subsetOf(skillsAchieved))
+      }
     }.toSet
   }
 }
