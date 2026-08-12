@@ -41,12 +41,17 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
   private val enrolmentDBInfo = Util.dbInfoMap.get(JsonKey.LEARNER_COURSE_DB)
   private val activityAggDBInfo = Util.dbInfoMap.get(JsonKey.GROUP_ACTIVITY_DB)
   private val consumptionDBInfo = Util.dbInfoMap.get(JsonKey.LEARNER_CONTENT_DB)
+  private val courseBatchDBInfo = Util.dbInfoMap.get(JsonKey.COURSE_BATCH_DB)
   private val CONSUMPTION_TABLE = "user_content_consumption"
+  // Course-level certificates on course completion (the LP cert is always issued by the engine).
+  // Default true; set course_certificate_enabled=false to suppress course certs only.
+  private val courseCertEnabled: Boolean =
+    ViewerAggregatorActor.parseCourseCertEnabled(ProjectUtil.getConfigValue("course_certificate_enabled"))
   // LP progression extracted to a focused, injectable engine (SRP); transport behind a dispatcher (OCP).
   // lazy so `context` is set by the time they initialize.
   private lazy val enrolDispatcher: org.sunbird.viewer.engine.EnrolDispatcher = org.sunbird.viewer.engine.EnrolDispatcher(context)
   private lazy val lpEngine = new org.sunbird.viewer.engine.LpProgressionEngine(
-    cassandraOperation, enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, lpPolicyUtil, assessmentService, enrolDispatcher)
+    cassandraOperation, enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, lpPolicyUtil, assessmentService, enrolDispatcher, certificateUtil)
 
   override def onReceive(request: Request): Unit = {
     request.getOperation match {
@@ -128,10 +133,43 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
 
     // 7. Update user_enrolments status for EVERY enrolled node in this tree (approach #1: key off the
     //    child enrolment rows that already exist; root included). Cert fires once, on transition to complete.
-    writeAllNodeEnrolments(userId, courseId, batchId, nodeProgress.toMap, contentStatusMap, ctx)
+    //    Returns the node ids that transitioned to complete (status != 2 -> 2) in THIS pass.
+    val completedNow = writeAllNodeEnrolments(userId, courseId, batchId, nodeProgress.toMap, contentStatusMap, ctx)
 
-    // 8. LP progression (only when this root is an LP): optionality once, open next course(s), credit at completion.
+    // 8. LP progression: for the LP root, advance. For a chained child, bridge to the LP root ONLY when the
+    //    child course just COMPLETED this pass (not on every partial view) — the completion is the trigger.
     if (trackable.nonEmpty) advanceLp(userId, courseId, batchId, trackable, ctx)
+    else if (completedNow.contains(courseId)) bridgeToRoot(userId, courseId, batchId, ctx)
+  }
+
+  /** A child course just completed -> if it belongs to an LP, re-fire the LP-root aggregate so it re-advances. */
+  private def bridgeToRoot(userId: String, courseId: String, courseBatchId: String, ctx: RequestContext): Unit =
+    parentLpOf(courseId, courseBatchId, ctx).foreach { case (lpId, lpBatch) =>
+      val req = new Request(); req.setRequestContext(ctx); req.setOperation("aggregate")
+      req.put(JsonKey.USER_ID, userId); req.put("courseId", lpId); req.put("batchId", lpBatch)
+      self.tell(req, org.apache.pekko.actor.ActorRef.noSender)
+      logger.info(ctx, s"viewer.rollup: child->LP bridge | user=$userId course=$courseId childBatch=$courseBatchId lp=$lpId lpBatch=$lpBatch")
+    }
+
+  /**
+   * Parent LP of a just-completed course, or None for a standalone course. Resolves from the authoritative
+   * structural map (course_batch): strip the ":" prefix to get the LP batch, read course_batch by batchid,
+   * and pick the row whose courseid differs from the completed course (that's the LP). Requires the
+   * course_batch(batchid) secondary index (see migrations) so this is a keyed read, not a scan — same
+   * pattern as user_enrolments_by_batch.
+   * ponytail: leans on the ":" child-batch convention (rootBatch:childId) to recover the LP batch id.
+   * Ceiling: assumes no standalone batch id contains ":". Upgrade: stamp parent_collection_id/
+   * parent_context_id on the course_batch/enrolment row at creation and read those directly (migration-time).
+   */
+  private def parentLpOf(courseId: String, courseBatchId: String, ctx: RequestContext): Option[(String, String)] =
+    ViewerAggregatorActor.resolveParentLp(courseId, courseBatchId, lpBatch => courseBatchRowsByBatchId(lpBatch, ctx))
+
+  /** course_batch rows for a batch id — keyed read via the course_batch(batchid) secondary index. */
+  private def courseBatchRowsByBatchId(batchId: String, ctx: RequestContext): util.List[util.Map[String, AnyRef]] = {
+    val filters = new util.HashMap[String, AnyRef]() {{ put("batchid", batchId) }}
+    cassandraOperation.getRecords(courseBatchDBInfo.getKeySpace, courseBatchDBInfo.getTableName,
+      filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)
+      .getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]]).asInstanceOf[util.List[util.Map[String, AnyRef]]]
   }
 
   private def completedCountOf(a: UserEnrolmentAgg): Int =
@@ -184,7 +222,8 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
    */
   private def writeAllNodeEnrolments(userId: String, rootId: String, batchId: String,
                                      nodeProgress: Map[String, (Int, List[String])],
-                                     contentStatusMap: Map[String, ContentStatus], ctx: RequestContext): Unit = {
+                                     contentStatusMap: Map[String, ContentStatus], ctx: RequestContext): Set[String] = {
+    val completedNow = scala.collection.mutable.Set[String]()
     val filters = new util.HashMap[String, AnyRef]() {{ put("userid", userId) }}
     val enrolRows = cassandraOperation.getRecords(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName,
       filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)
@@ -219,11 +258,15 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
         }}
         cassandraOperation.updateRecordV2(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, selectMap, updateMap, true, ctx)
         if (status == 2 && currentStatus != 2) {
-          logger.info(ctx, s"viewer.rollup: node completed -> cert | user=$userId course=$nodeId batch=$nodeCtx")
-          certificateUtil.publishCertificateIssueEvent(userId, nodeId, nodeCtx, ctx)
+          completedNow += nodeId
+          if (courseCertEnabled) {
+            logger.info(ctx, s"viewer.rollup: node completed -> cert | user=$userId course=$nodeId batch=$nodeCtx")
+            certificateUtil.publishCertificateIssueEvent(userId, nodeId, nodeCtx, ctx)
+          } else logger.info(ctx, s"viewer.rollup: node completed, course cert suppressed (course_certificate_enabled=false) | user=$userId course=$nodeId batch=$nodeCtx")
         }
       }
     }
+    completedNow.toSet
   }
 
   /**
@@ -278,4 +321,22 @@ object ViewerAggregatorActor {
     fresh.foreach { case (k, v) => merged.put(k, v) }
     merged
   }
+
+  // Parent LP of a completed course: strip the ":" child-batch prefix to get the LP batch, read course_batch
+  // by that batch id, and pick the row whose courseid differs from the completed course (a course may hold
+  // its own records under the same batch string; only a DIFFERENT courseid is the parent LP). None for a
+  // standalone (colon-free) batch — fetchByBatchId is not invoked in that case.
+  private[actor] def resolveParentLp(courseId: String, courseBatchId: String,
+      fetchByBatchId: String => java.util.List[java.util.Map[String, AnyRef]]): Option[(String, String)] = {
+    if (courseBatchId == null || !courseBatchId.contains(":")) None
+    else {
+      val lpBatch = courseBatchId.substring(0, courseBatchId.indexOf(":"))
+      fetchByBatchId(lpBatch).asScala
+        .flatMap(r => Option(r.get("courseId")).map(_.toString))
+        .find(_ != courseId).map(lpId => (lpId, lpBatch))
+    }
+  }
+
+  // Course-cert toggle: default true; only the literal "false" disables it (the LP cert is unaffected).
+  private[actor] def parseCourseCertEnabled(cfg: String): Boolean = !"false".equalsIgnoreCase(Option(cfg).getOrElse(""))
 }

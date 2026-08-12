@@ -1,7 +1,7 @@
 package org.sunbird.viewer.engine
 
 import org.apache.commons.collections4.CollectionUtils
-import org.sunbird.activity.util.LpPolicyUtil
+import org.sunbird.activity.util.{CertificateUtil, LpPolicyUtil}
 import org.sunbird.assessment.service.CassandraService
 import org.sunbird.cassandra.CassandraOperation
 import org.sunbird.keys.JsonKey
@@ -18,7 +18,8 @@ class LpProgressionEngine(cassandraOperation: CassandraOperation,
                           enrolKeyspace: String, enrolTable: String,
                           lpPolicyUtil: LpPolicyUtil,
                           assessmentService: CassandraService,
-                          dispatcher: EnrolDispatcher) {
+                          dispatcher: EnrolDispatcher,
+                          certificateUtil: CertificateUtil) {
 
   private val logger = new LoggerUtil(classOf[LpProgressionEngine])
   private val USER_SKILLS_TABLE = "user_skills"
@@ -52,11 +53,33 @@ class LpProgressionEngine(cassandraOperation: CassandraOperation,
       }
     }
 
-    // LP completion = every level complete -> credit durable skills (once; creditSkills no-ops if nothing new).
-    if (levels.nonEmpty && levels.forall(levelComplete)) {
+    // Root progress/status/cert from trackable-course completion: the root's own leaf consumption is empty
+    // (leaves are consumed under child batches), so derive its progress from how many required courses are done.
+    val requiredCourses = trackable.filterNot(optional.contains)
+    val allComplete = levels.nonEmpty && levels.forall(levelComplete)
+    writeRootProgress(userId, rootId, batchId, requiredCourses.count(courseComplete), requiredCourses.size,
+      allComplete, status.get((rootId, batchId)).getOrElse(0), ctx)
+
+    if (allComplete) {
       logger.info(ctx, s"viewer.lp: complete | user=$userId root=$rootId")
       creditSkills(userId, rootId, batchId, trackable, ctx)
     }
+  }
+
+  // Update the LP-root user_enrolments row (progress/%/status; completedon on the 2-transition) and fire the
+  // LP certificate once when status first reaches 2. Partial update — does not touch contentstatus.
+  private def writeRootProgress(userId: String, rootId: String, batchId: String, done: Int, total: Int,
+                                allComplete: Boolean, currentStatus: Int, ctx: RequestContext): Unit = {
+    val pct = if (total <= 0) 100 else math.min(100, done * 100 / total)
+    val rootStatus = if (allComplete) 2 else if (done > 0) 1 else 0
+    val select = new util.HashMap[String, AnyRef]() {{ put("userid", userId); put("courseid", rootId); put("batchid", batchId) }}
+    val update = new util.HashMap[String, AnyRef]() {{
+      put("progress", Integer.valueOf(done)); put("completionpercentage", Integer.valueOf(pct)); put("status", Integer.valueOf(rootStatus))
+      if (rootStatus == 2 && currentStatus != 2) put("completedon", new java.util.Date())
+    }}
+    cassandraOperation.updateRecordV2(enrolKeyspace, enrolTable, select, update, true, ctx)
+    logger.info(ctx, s"viewer.lp: root progress | user=$userId root=$rootId done=$done/$total pct=$pct status=$rootStatus")
+    if (rootStatus == 2 && currentStatus != 2) certificateUtil.publishCertificateIssueEvent(userId, rootId, batchId, ctx)
   }
 
   // Returns whether advance() may open courses; false ONLY for a misconfigured Adaptive LP (no pre-assessment).

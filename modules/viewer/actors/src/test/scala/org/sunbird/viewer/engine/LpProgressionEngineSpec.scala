@@ -3,7 +3,7 @@ package org.sunbird.viewer.engine
 import org.scalamock.scalatest.MockFactory
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
-import org.sunbird.activity.util.{LpMeta, LpPolicyUtil, NodeMeta}
+import org.sunbird.activity.util.{CertificateUtil, LpMeta, LpPolicyUtil, NodeMeta}
 import org.sunbird.assessment.service.CassandraService
 import org.sunbird.cassandra.CassandraOperation
 import org.sunbird.request.RequestContext
@@ -39,13 +39,19 @@ class LpProgressionEngineSpec extends AnyFlatSpec with Matchers with MockFactory
       enrolled += ((userId, courseId, batchId))
   }
 
-  private def engineWith(ops: CassandraOperation, lp: LpPolicyUtil, disp: EnrolDispatcher): LpProgressionEngine =
-    new LpProgressionEngine(ops, "ks", "user_enrolments", lp, new CassandraService(Some(ops)), disp)
+  private def engineWith(ops: CassandraOperation, lp: LpPolicyUtil, disp: EnrolDispatcher, cert: CertificateUtil): LpProgressionEngine =
+    new LpProgressionEngine(ops, "ks", "user_enrolments", lp, new CassandraService(Some(ops)), disp, cert)
+
+  // updateRecordV2 stub (writeOptionalNodes + writeRootProgress) — accept any, return a Response.
+  private def stubUpdate(ops: CassandraOperation): Unit =
+    (ops.updateRecordV2(_: String, _: String, _: util.Map[String, AnyRef], _: util.Map[String, AnyRef], _: Boolean, _: RequestContext))
+      .expects(*, *, *, *, *, *).returns(new Response()).anyNumberOfTimes()
 
   "advance (Strict)" should "open the first level's required course and gate the next level" in {
     val ops = mock[CassandraOperation]
     val lp = mock[LpPolicyUtil]
     val disp = new FakeDispatcher
+    val cert = mock[CertificateUtil]
     // optional_nodes read -> empty (not yet computed); Strict writes an empty optional set.
     (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
       .expects(*, *, *, *, *).returns(emptyRows).anyNumberOfTimes()
@@ -54,7 +60,7 @@ class LpProgressionEngineSpec extends AnyFlatSpec with Matchers with MockFactory
     (lp.lpMeta(_: String, _: RequestContext)).expects(*, *).returns(LpMeta("Strict", "", "", Map.empty[String, NodeMeta])).anyNumberOfTimes()
     (lp.policyOf(_: LpMeta)).expects(*).returns("Strict").anyNumberOfTimes()
 
-    engineWith(ops, lp, disp).advance("uA", "lp", "bA", trackable, Map.empty, ancestorsOf, ctx)
+    engineWith(ops, lp, disp, cert).advance("uA", "lp", "bA", trackable, Map.empty, ancestorsOf, ctx)
 
     disp.enrolled.toList shouldBe List(("uA", "crsA", "bA:crsA")) // first level's course only; crsB (L2) gated
   }
@@ -63,20 +69,44 @@ class LpProgressionEngineSpec extends AnyFlatSpec with Matchers with MockFactory
     val ops = mock[CassandraOperation]
     val lp = mock[LpPolicyUtil]
     val disp = new FakeDispatcher
+    val cert = mock[CertificateUtil]
     // optional_nodes already = [crsA] -> optionality is 'computed' (non-empty), so ensureOptionality
     // returns immediately; crsA is treated as waived, L1 is complete, L2's crsB opens.
     (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
       .expects(*, *, *, *, *).returns(optionalRows("crsA")).anyNumberOfTimes()
+    stubUpdate(ops)
 
-    engineWith(ops, lp, disp).advance("uB", "lp", "bB", trackable, Map.empty, ancestorsOf, ctx)
+    engineWith(ops, lp, disp, cert).advance("uB", "lp", "bB", trackable, Map.empty, ancestorsOf, ctx)
 
     disp.enrolled.toList shouldBe List(("uB", "crsB", "bB:crsB")) // crsA waived -> next required course opens
+  }
+
+  "advance" should "mark the LP root complete + fire the cert when all required courses are done" in {
+    val ops = mock[CassandraOperation]
+    val lp = mock[LpPolicyUtil]
+    val disp = new FakeDispatcher
+    val cert = mock[CertificateUtil]
+    // single-course LP; the course is already complete in the snapshot -> root reaches 100%/status=2.
+    val oneCourse = List("crsA")
+    val statusDone = Map(("crsA", "bD:crsA") -> 2) // root (lp,bD) absent -> currentStatus 0 -> cert fires once
+    (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
+      .expects(*, *, *, *, *).returns(emptyRows).anyNumberOfTimes()
+    (lp.lpMeta(_: String, _: RequestContext)).expects(*, *).returns(LpMeta("Strict", "", "", Map.empty[String, NodeMeta])).anyNumberOfTimes()
+    (lp.policyOf(_: LpMeta)).expects(*).returns("Strict").anyNumberOfTimes()
+    (lp.isAssessmentCourse(_: String, _: LpMeta)).expects(*, *).returns(false).anyNumberOfTimes() // creditSkills -> no assessment courses
+    stubUpdate(ops)
+    (cert.publishCertificateIssueEvent(_: String, _: String, _: String, _: RequestContext)).expects("uD", "lp", "bD", *).once()
+
+    engineWith(ops, lp, disp, cert).advance("uD", "lp", "bD", oneCourse, statusDone, ancestorsOf, ctx)
+
+    disp.enrolled shouldBe empty // nothing left to open; LP root completed
   }
 
   "advance (Adaptive, no pre-assessment)" should "halt and open nothing (misconfigured)" in {
     val ops = mock[CassandraOperation]
     val lp = mock[LpPolicyUtil]
     val disp = new FakeDispatcher
+    val cert = mock[CertificateUtil]
     // optionality not yet computed; Adaptive policy; no course is an assessment -> no pre-assessment -> halt.
     (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
       .expects(*, *, *, *, *).returns(emptyRows).anyNumberOfTimes()
@@ -84,7 +114,7 @@ class LpProgressionEngineSpec extends AnyFlatSpec with Matchers with MockFactory
     (lp.policyOf(_: LpMeta)).expects(*).returns("Adaptive").anyNumberOfTimes()
     (lp.isAssessmentCourse(_: String, _: LpMeta)).expects(*, *).returns(false).anyNumberOfTimes()
 
-    engineWith(ops, lp, disp).advance("uC", "lp", "bC", trackable, Map.empty, ancestorsOf, ctx)
+    engineWith(ops, lp, disp, cert).advance("uC", "lp", "bC", trackable, Map.empty, ancestorsOf, ctx)
 
     disp.enrolled shouldBe empty // misconfigured Adaptive LP opens no course (no updateRecordV2 either)
   }

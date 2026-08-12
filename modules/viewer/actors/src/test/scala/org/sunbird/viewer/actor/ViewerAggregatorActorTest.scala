@@ -89,4 +89,47 @@ class ViewerAggregatorActorTest extends AnyFlatSpec with Matchers with MockFacto
     merged.get("leaf-a") shouldBe Integer.valueOf(1)
     merged.size() shouldBe 1
   }
+
+  // resolveParentLp: the completion trigger's parent-lookup. Child batch = "LPbatch:childId"; the LP is the
+  // course_batch row keyed by the stripped LPbatch whose courseid differs from the completed course.
+  private def batchRow(courseId: String): util.Map[String, AnyRef] =
+    new util.HashMap[String, AnyRef]() {{ put("courseId", courseId) }}
+  private def batchRows(courseIds: String*): util.List[util.Map[String, AnyRef]] = {
+    val l = new util.ArrayList[util.Map[String, AnyRef]](); courseIds.foreach(c => l.add(batchRow(c))); l
+  }
+
+  "resolveParentLp" should "return None for a standalone (colon-free) batch without fetching" in {
+    var fetched = false
+    val out = ViewerAggregatorActor.resolveParentLp("course-1", "plainBatch", _ => { fetched = true; batchRows() })
+    out shouldBe None
+    fetched shouldBe false // standalone course -> no course_batch read, no trigger
+  }
+
+  "resolveParentLp" should "resolve the LP course + stripped LP batch from the child batch" in {
+    val out = ViewerAggregatorActor.resolveParentLp(
+      "course-1", "lpBatch-9:course-1", lpBatch => { lpBatch shouldBe "lpBatch-9"; batchRows("course-1", "lp-root") })
+    out shouldBe Some(("lp-root", "lpBatch-9")) // the row whose courseid != the completed course
+  }
+
+  "resolveParentLp" should "return None when the batch maps only to the course itself" in {
+    // course consumed under its own colon-batch, but course_batch has no differing (LP) row -> not an LP child
+    val out = ViewerAggregatorActor.resolveParentLp("course-1", "lpBatch-9:course-1", _ => batchRows("course-1"))
+    out shouldBe None
+  }
+
+  "resolveParentLp" should "pick the first differing course id when several rows share the LP batch" in {
+    // In the live schema only the LP-root row is keyed by the bare lpBatch (children are lpBatch:childId), so
+    // this is a defensive/bad-data case: with multiple differing rows the resolver is first-match-wins.
+    val out = ViewerAggregatorActor.resolveParentLp("course-1", "lpBatch-9:course-1",
+      _ => batchRows("course-1", "lp-root", "lp-other"))
+    out shouldBe Some(("lp-root", "lpBatch-9"))
+  }
+
+  // parseCourseCertEnabled: course certs default ON; only literal "false" disables (LP cert unaffected).
+  "parseCourseCertEnabled" should "default to true when unset/blank and honor an explicit false" in {
+    ViewerAggregatorActor.parseCourseCertEnabled(null) shouldBe true
+    ViewerAggregatorActor.parseCourseCertEnabled("") shouldBe true
+    ViewerAggregatorActor.parseCourseCertEnabled("true") shouldBe true
+    ViewerAggregatorActor.parseCourseCertEnabled("FALSE") shouldBe false
+  }
 }
