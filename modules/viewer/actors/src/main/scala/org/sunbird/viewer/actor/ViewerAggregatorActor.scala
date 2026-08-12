@@ -133,11 +133,12 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
 
     // 7. Update user_enrolments status for EVERY enrolled node in this tree (approach #1: key off the
     //    child enrolment rows that already exist; root included). Cert fires once, on transition to complete.
-    //    Returns the node ids that transitioned to complete (status != 2 -> 2) in THIS pass.
+    //    Returns the node ids that are COMPLETE (status == 2) after this pass.
     val completedNow = writeAllNodeEnrolments(userId, courseId, batchId, nodeProgress.toMap, contentStatusMap, ctx)
 
-    // 8. LP progression: for the LP root, advance. For a chained child, bridge to the LP root ONLY when the
-    //    child course just COMPLETED this pass (not on every partial view) — the completion is the trigger.
+    // 8. LP progression: for the LP root, advance. For a chained child, bridge to the LP root when the child
+    //    course is COMPLETE this pass (not on a partial view) — the completion is the trigger. Idempotent:
+    //    a re-submit of an already-complete course still re-advances the LP.
     if (trackable.nonEmpty) advanceLp(userId, courseId, batchId, trackable, ctx)
     else if (completedNow.contains(courseId)) bridgeToRoot(userId, courseId, batchId, ctx)
   }
@@ -257,8 +258,13 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
           if (status == 2 && currentStatus != 2) put("completedon", new java.util.Date())
         }}
         cassandraOperation.updateRecordV2(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, selectMap, updateMap, true, ctx)
+        // Complete after this pass -> eligible to bridge to the LP. Gate on COMPLETENESS (status==2), not
+        // the status!=2->2 transition: a course that was already complete (re-submit, or completed before
+        // the bridge existed) must still re-advance the LP. advanceLp is idempotent, so re-firing is safe;
+        // a partial pass (status 1) never bridges.
+        if (status == 2) completedNow += nodeId
+        // Cert fires once, only on the transition to complete (avoid re-issuing on a re-submit).
         if (status == 2 && currentStatus != 2) {
-          completedNow += nodeId
           if (courseCertEnabled) {
             logger.info(ctx, s"viewer.rollup: node completed -> cert | user=$userId course=$nodeId batch=$nodeCtx")
             certificateUtil.publishCertificateIssueEvent(userId, nodeId, nodeCtx, ctx)
