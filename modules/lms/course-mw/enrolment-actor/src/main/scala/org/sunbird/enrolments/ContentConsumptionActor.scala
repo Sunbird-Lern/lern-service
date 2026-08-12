@@ -14,6 +14,7 @@ import org.sunbird.response.ResponseCode
 import org.sunbird.utils.JsonUtil
 import org.sunbird.common.ProjectUtil
 import org.sunbird.helper.ServiceFactory
+import org.sunbird.http.HttpClientUtil
 import org.sunbird.kafka.{InstructionEventGenerator, KafkaClient}
 import org.sunbird.learner.constants.{CourseJsonKey, InstructionEvent}
 import org.sunbird.learner.util.{CourseBatchUtil, Util}
@@ -23,6 +24,10 @@ import java.util
 import java.util.{Date, TimeZone, UUID}
 import javax.inject.{Inject, Named}
 import org.apache.pekko.actor.ActorRef
+import org.apache.pekko.pattern.ask
+import org.apache.pekko.util.Timeout
+import scala.concurrent.Await
+import scala.concurrent.duration._
 import scala.collection.JavaConverters._
 import scala.collection.convert.ImplicitConversions._
 
@@ -83,24 +88,35 @@ class ContentConsumptionActor @Inject() (
             val requestContext = request.getRequestContext
             val assessmentEvents = request.getRequest.getOrDefault(JsonKey.ASSESSMENT_EVENTS, new java.util.ArrayList[java.util.Map[String, AnyRef]]).asInstanceOf[java.util.List[java.util.Map[String, AnyRef]]]
             val contentList = request.getRequest.getOrDefault(JsonKey.CONTENTS, new java.util.ArrayList[java.util.Map[String, AnyRef]]).asInstanceOf[java.util.List[java.util.Map[String, AnyRef]]]
-            val finalContentList = if(CollectionUtils.isNotEmpty(assessmentEvents)) {
-              logger.info(requestContext, "Assessment Consumption events exist: " + assessmentEvents.size())
-              val assessmentConsumptions = assessmentEvents.map(e => {
-                InternalContentConsumption(e.get("courseId").asInstanceOf[String], e.get("batchId").asInstanceOf[String], e.get("contentId").asInstanceOf[String])
-              }).filter(cc => cc.validConsumption()).map(cc => {
-                var consumption: util.Map[String, AnyRef] = new util.HashMap[String, AnyRef]()
-                consumption.put("courseId", cc.courseId)
-                consumption.put("batchId", cc.batchId)
-                consumption.put("contentId", cc.contentId)
-                consumption.put("status", 2.asInstanceOf[AnyRef])
-                consumption
-              })
-              if (CollectionUtils.isNotEmpty(contentList)) (contentList ++ assessmentConsumptions).asJava else assessmentConsumptions.asJava
-            } else contentList
-            logger.info(requestContext, "Final content-consumption data: " + finalContentList)
-            // Update consumption first and then push the assessment events if there are any. This will help us handling failures of max attempts (for assessment content).
-            val contentConsumptionResponse = processContents(finalContentList, requestContext, requestBy, requestedFor)
-            val assessmentResponse = processAssessments(assessmentEvents, requestContext, requestBy, requestedFor)
+            // viewer.enabled -> the Viewer Service OWNS both consumption AND assessment processing:
+            //   regular contents  -> /v1/view/start|end     (ucc write + recursive rollup)
+            //   assessment events -> /v1/assessment/submit   (score + status=2 + same rollup)
+            // Assessments are NOT merged into the content list here (submit marks completion itself, no
+            // double rollup) and legacy processContents/processAssessments are skipped. API contract preserved.
+            val contentConsumptionResponse =
+              if (isViewerEnabled) delegateContentsToViewer(contentList, request, requestBy, requestedFor)
+              else {
+                // legacy path only: merge assessment events (as completed contents) into the content list.
+                val finalContentList = if(CollectionUtils.isNotEmpty(assessmentEvents)) {
+                  logger.info(requestContext, "Assessment Consumption events exist: " + assessmentEvents.size())
+                  val assessmentConsumptions = assessmentEvents.map(e => {
+                    InternalContentConsumption(e.get("courseId").asInstanceOf[String], e.get("batchId").asInstanceOf[String], e.get("contentId").asInstanceOf[String])
+                  }).filter(cc => cc.validConsumption()).map(cc => {
+                    val consumption: util.Map[String, AnyRef] = new util.HashMap[String, AnyRef]()
+                    consumption.put("courseId", cc.courseId)
+                    consumption.put("batchId", cc.batchId)
+                    consumption.put("contentId", cc.contentId)
+                    consumption.put("status", 2.asInstanceOf[AnyRef])
+                    consumption
+                  })
+                  if (CollectionUtils.isNotEmpty(contentList)) (contentList ++ assessmentConsumptions).asJava else assessmentConsumptions.asJava
+                } else contentList
+                logger.info(requestContext, "Final content-consumption data: " + finalContentList)
+                processContents(finalContentList, requestContext, requestBy, requestedFor)
+              }
+            val assessmentResponse =
+              if (isViewerEnabled) delegateAssessmentsToViewer(assessmentEvents, request, requestBy, requestedFor)
+              else processAssessments(assessmentEvents, requestContext, requestBy, requestedFor)
             val finalResponse = assessmentResponse.getOrElse(new Response())
             finalResponse.putAll(contentConsumptionResponse.getOrElse(new Response()).getResult)
             sender().tell(finalResponse, self)
@@ -192,8 +208,7 @@ class ContentConsumptionActor @Inject() (
                     userContents.foreach(entry => {
                         val userId = entry._1
                         if(validUserIds.contains(userId)) {
-                            val courseId = if (entry._2.head.containsKey(JsonKey.COURSE_ID)) entry._2.head.getOrDefault(JsonKey.COURSE_ID, "").asInstanceOf[String] else entry._2.head.getOrDefault(JsonKey.COLLECTION_ID, "").asInstanceOf[String]
-                            if(entry._2.head.containsKey(JsonKey.COLLECTION_ID)) entry._2.head.remove(JsonKey.COLLECTION_ID)
+                            val courseId = entry._2.head.getOrDefault(JsonKey.COURSE_ID, "").asInstanceOf[String]
                             val contentIds = entry._2.map(e => e.getOrDefault(JsonKey.CONTENT_ID, "").asInstanceOf[String]).distinct.asJava
                             val existingContents = getContentsConsumption(userId, courseId, contentIds, batchId, requestContext).groupBy(x => x.get("contentId").asInstanceOf[String]).map(e => e._1 -> e._2.toList.head).toMap
                             val contents:List[java.util.Map[String, AnyRef]] = entry._2.toList.map(inputContent => {
@@ -429,18 +444,200 @@ class ContentConsumptionActor @Inject() (
         activityAggregatorActor ! activityRequest
     }
 
+    // ProjectUtil.getConfigValue = env var first, then properties file.
+    private def isViewerEnabled: Boolean =
+        java.lang.Boolean.parseBoolean(ProjectUtil.getConfigValue("viewer_enabled"))
+
+    // Transport for the viewer adapter: monolith -> in-JVM actor ask; distributed -> HTTP (default monolith).
+    private def isMonolith: Boolean = !"distributed".equalsIgnoreCase(ProjectUtil.getConfigValue("deployment_mode"))
+    private val viewerAskTimeoutMs: Long =
+        Option(ProjectUtil.getConfigValue("viewer_ask_timeout_ms")).filter(StringUtils.isNotBlank).map(_.trim.toLong).getOrElse(30000L)
+    private implicit val viewerAskTimeout: Timeout = Timeout(viewerAskTimeoutMs.millis)
+    private def viewerBaseUrl: String =
+        Option(ProjectUtil.getConfigValue("viewer_service_base_url")).filter(StringUtils.isNotBlank).getOrElse("http://viewer-service:9000")
+    private def viewerHeaders(token: String): java.util.Map[String, String] =
+        new java.util.HashMap[String, String]() {{
+            put("Content-Type", "application/json")
+            Option(token).filter(StringUtils.isNotBlank).foreach(t => put("x-authenticated-user-token", t))
+        }}
+    // Blocks until the viewer actor replies (rollup stays async inside the viewer); mirrors the old HTTP await.
+    private def viewerAsk(actorName: String, operation: String, body: java.util.Map[String, AnyRef], ctx: RequestContext): AnyRef = {
+        val req = new Request(); req.setRequestContext(ctx); req.setOperation(operation); req.setRequest(body)
+        Await.result(context.actorSelection("/user/" + actorName) ? req, viewerAskTimeoutMs.millis).asInstanceOf[AnyRef]
+    }
+    /** Write op (view/start|end, assessment/submit): monolith asks the in-JVM actor, distributed POSTs. */
+    private def viewerWrite(actorName: String, httpApi: String, operation: String,
+                            body: java.util.Map[String, AnyRef], token: String, ctx: RequestContext): Boolean =
+        if (isMonolith) viewerAsk(actorName, operation, body, ctx) != null
+        else StringUtils.isNotBlank(HttpClientUtil.post(viewerBaseUrl + httpApi,
+            mapper.writeValueAsString(new java.util.HashMap[String, AnyRef]() {{ put(JsonKey.REQUEST, body) }}), viewerHeaders(token), ctx))
+    /** Read op (view/read): ucc rows. Monolith returns native Cassandra types; distributed parses JSON + coerces. */
+    private def viewerRead(actorName: String, httpApi: String, operation: String,
+                           body: java.util.Map[String, AnyRef], token: String, ctx: RequestContext): java.util.List[java.util.Map[String, AnyRef]] = {
+        val empty = new java.util.ArrayList[java.util.Map[String, AnyRef]]()
+        if (isMonolith) viewerAsk(actorName, operation, body, ctx) match {
+            case r: Response => r.getResult.getOrDefault(JsonKey.RESPONSE, empty).asInstanceOf[java.util.List[java.util.Map[String, AnyRef]]]
+            case _ => empty
+        } else {
+            val responseStr = HttpClientUtil.post(viewerBaseUrl + httpApi,
+                mapper.writeValueAsString(new java.util.HashMap[String, AnyRef]() {{ put(JsonKey.REQUEST, body) }}), viewerHeaders(token), ctx)
+            if (StringUtils.isBlank(responseStr)) empty
+            else {
+                val respNode = mapper.readTree(responseStr).path("result").path("response")
+                val rows = mapper.convertValue(respNode, classOf[java.util.List[java.util.Map[String, AnyRef]]])
+                rows.asScala.foreach(coerceUccRowTypes)
+                rows
+            }
+        }
+    }
+
+    /**
+     * Backward-compat adapter for content/state/update (content items): extract the fields and dispatch
+     * each to the viewer view API (status >= 2 -> viewEnd, else viewStart). The viewer owns the ucc write
+     * + async rollup. Idempotent monotonic upserts, so retries are safe. Response: contentId -> SUCCESS/FAILED.
+     */
+    private def delegateContentsToViewer(contentList: java.util.List[java.util.Map[String, AnyRef]],
+                                         originalRequest: Request,
+                                         requestedBy: String, requestedFor: String): Option[Response] = {
+        if (CollectionUtils.isEmpty(contentList)) return None
+        val ctx = originalRequest.getRequestContext
+        val userId = if (StringUtils.isNotBlank(requestedFor)) requestedFor else requestedBy
+        val token = originalRequest.getContext.get(JsonKey.X_AUTH_TOKEN).asInstanceOf[String]
+        val responseMessage = new java.util.HashMap[String, AnyRef]()
+        contentList.asScala.foreach(c => {
+            val contentId = c.get(JsonKey.CONTENT_ID).asInstanceOf[String]
+            try {
+                val status = c.getOrDefault(JsonKey.STATUS, 0.asInstanceOf[AnyRef]).asInstanceOf[Number].intValue()
+                val courseId = c.get(JsonKey.COURSE_ID).asInstanceOf[String]
+                val (op, api) = if (status >= 2) ("viewEnd", "/v1/view/end") else ("viewStart", "/v1/view/start")
+                val body = new java.util.HashMap[String, AnyRef]() {{
+                    put("contentId", contentId)
+                    put("courseId", courseId)
+                    put("batchId", c.get(JsonKey.BATCH_ID))
+                    put(JsonKey.USER_ID, userId)
+                    Option(c.get("progressdetails")).orElse(Option(c.get("progressDetails"))).foreach(pd => put("progressDetails", pd))
+                }}
+                responseMessage.put(contentId, if (viewerWrite("view-consumption-actor", api, op, body, token, ctx)) JsonKey.SUCCESS else "FAILED")
+            } catch {
+                case ex: Exception =>
+                    logger.error(ctx, s"delegateContentsToViewer failed for contentId=$contentId: ${ex.getMessage}", ex)
+                    responseMessage.put(contentId, "FAILED")
+            }
+        })
+        val response = new Response(); response.putAll(responseMessage); Option(response)
+    }
+
+    /**
+     * Backward-compat adapter for content/state/update (assessment events): dispatch each to the viewer
+     * assessment/submit (score + status=2 + rollup). Applies the SAME batch-validity guard as legacy
+     * processAssessments: unknown batch -> BATCH_NOT_EXISTS, completed batch (status != 1) ->
+     * NOT_A_ON_GOING_BATCH; only ongoing batches are dispatched. Response: batchId -> SUCCESS/FAILED
+     * (+ the two error keys when applicable).
+     */
+    private def delegateAssessmentsToViewer(assessmentEvents: java.util.List[java.util.Map[String, AnyRef]],
+                                            originalRequest: Request,
+                                            requestedBy: String, requestedFor: String): Option[Response] = {
+        if (CollectionUtils.isEmpty(assessmentEvents)) return None
+        val ctx = originalRequest.getRequestContext
+        val userId = if (StringUtils.isNotBlank(requestedFor)) requestedFor else requestedBy
+        val token = originalRequest.getContext.get(JsonKey.X_AUTH_TOKEN).asInstanceOf[String]
+        val byBatch: Map[String, List[java.util.Map[String, AnyRef]]] = assessmentEvents.asScala
+          .filter(e => StringUtils.isNotBlank(e.getOrDefault(JsonKey.BATCH_ID, "").asInstanceOf[String])).toList
+          .groupBy(_.get(JsonKey.BATCH_ID).asInstanceOf[String])
+        val batchIds = byBatch.keySet.toList.asJava
+        val batches: Map[String, List[java.util.Map[String, AnyRef]]] =
+          getBatches(ctx, new java.util.ArrayList[String](batchIds), null).toList.groupBy(_.get(JsonKey.BATCH_ID).asInstanceOf[String])
+        val invalidBatchIds = byBatch.keySet.diff(batches.keySet).toList.asJava
+        batches.values.foreach(bl => bl.foreach(b => CourseBatchUtil.enrichBatchStatusFromDates(b)))
+        val completedBatchIds = batches.filter(b => 1 != b._2.head.get(JsonKey.STATUS).asInstanceOf[Integer]).keys.toList.asJava
+        val responseMessage = new java.util.HashMap[String, AnyRef]()
+        byBatch.foreach { case (batchId, events) =>
+            if (!invalidBatchIds.contains(batchId) && !completedBatchIds.contains(batchId)) {
+                events.foreach(a => {
+                    try {
+                        val courseId = a.get(JsonKey.COURSE_ID).asInstanceOf[String]
+                        val evs = a.getOrDefault(JsonKey.ASSESSMENT_EVENTS_KEY, new java.util.ArrayList[java.util.Map[String, AnyRef]]())
+                        val body = new java.util.HashMap[String, AnyRef]() {{
+                            put("contentId", a.get(JsonKey.CONTENT_ID))
+                            put("courseId", courseId)
+                            put("batchId", batchId)
+                            put(JsonKey.USER_ID, userId)
+                            put(JsonKey.ASSESSMENT_EVENTS, evs)
+                        }}
+                        responseMessage.put(batchId, if (viewerWrite("view-consumption-actor", "/v1/assessment/submit", "viewAssess", body, token, ctx)) JsonKey.SUCCESS else "FAILED")
+                    } catch {
+                        case ex: Exception =>
+                            logger.error(ctx, s"delegateAssessmentsToViewer failed for batchId=$batchId: ${ex.getMessage}", ex)
+                            responseMessage.put(batchId, "FAILED")
+                    }
+                })
+            }
+        }
+        if (CollectionUtils.isNotEmpty(completedBatchIds)) responseMessage.put("NOT_A_ON_GOING_BATCH", completedBatchIds)
+        if (CollectionUtils.isNotEmpty(invalidBatchIds)) responseMessage.put("BATCH_NOT_EXISTS", invalidBatchIds)
+        val response = new Response(); response.putAll(responseMessage); Option(response)
+    }
+
+    /**
+     * Backward-compat adapter for content/state/read: fetch the ucc rows from the viewer (viewRead) instead
+     * of a direct Cassandra read. Returns the same row shape getContentsConsumption produces (monolith:
+     * native Cassandra types; distributed: coerced back from JSON), so the caller's post-processing is unchanged.
+     */
+    private def readContentsFromViewer(userId: String, courseId: String, batchId: String,
+                                       contentIds: java.util.List[String], originalRequest: Request): java.util.List[java.util.Map[String, AnyRef]] = {
+        val ctx = originalRequest.getRequestContext
+        val token = originalRequest.getContext.get(JsonKey.X_AUTH_TOKEN).asInstanceOf[String]
+        val body = new java.util.HashMap[String, AnyRef]() {{
+            put(JsonKey.USER_ID, userId)
+            put("courseId", courseId)
+            put("batchId", batchId)
+            if (CollectionUtils.isNotEmpty(contentIds)) put("contentId", contentIds)
+        }}
+        try viewerRead("view-consumption-actor", "/v1/view/read", "viewRead", body, token, ctx)
+        catch {
+            case ex: Exception =>
+                logger.error(ctx, s"readContentsFromViewer failed for userId=$userId courseId=$courseId: ${ex.getMessage}", ex)
+                new java.util.ArrayList[java.util.Map[String, AnyRef]]()
+        }
+    }
+
+    // ucc column -> native type, so JSON-parsed viewer rows match a direct Cassandra read exactly.
+    private val uccTimestampCols = Set("last_access_time", "last_completed_time", "last_updated_time", "datetime")
+    private val uccIntCols = Set("status", "progress", "completedcount", "viewcount")
+
+    private def coerceUccRowTypes(row: java.util.Map[String, AnyRef]): Unit = {
+        uccTimestampCols.foreach { c => val d = toDate(row.get(c)); if (d != null) row.put(c, d) }
+        uccIntCols.foreach { c => row.get(c) match { case n: Number => row.put(c, Integer.valueOf(n.intValue())); case _ => } }
+        row.get("completionpercentage") match { case n: Number => row.put("completionpercentage", java.lang.Float.valueOf(n.floatValue())); case _ => }
+    }
+
+    /** Reconstruct a java.util.Date from the viewer's JSON form (epoch-millis number, numeric string, or ISO-8601). */
+    private def toDate(v: AnyRef): java.util.Date = v match {
+        case null => null
+        case d: java.util.Date => d
+        case n: Number => new java.util.Date(n.longValue())
+        case s: String if StringUtils.isNotBlank(s) =>
+            try new java.util.Date(s.toLong)
+            catch { case _: Throwable => try java.util.Date.from(java.time.Instant.parse(s)) catch { case _: Throwable => null } }
+        case _ => null
+    }
+
     def getConsumption(request: Request): Unit = {
         val userId = request.get(JsonKey.USER_ID).asInstanceOf[String]
         val batchId = request.get(JsonKey.BATCH_ID).asInstanceOf[String]
         val courseId = request.get(JsonKey.COURSE_ID).asInstanceOf[String]
         val contentIds = request.getRequest.getOrDefault(JsonKey.CONTENT_IDS, new java.util.ArrayList[String]()).asInstanceOf[java.util.List[String]]
         val fields = request.getRequest.getOrDefault(JsonKey.FIELDS, new java.util.ArrayList[String](){{ add(JsonKey.PROGRESS) }}).asInstanceOf[java.util.List[String]]
-        val contentsConsumed = getContentsConsumption(userId, courseId, contentIds, batchId, request.getRequestContext)
+        // viewer.enabled -> Content-State-Read is served by the Viewer Service (/v1/view/read), so raw
+        // ucc reads can be archived away from this API. Same rows, so the existing post-processing
+        // (field filtering, json parse, date format, optional assessment score) is reused unchanged.
+        val contentsConsumed =
+          if (isViewerEnabled) readContentsFromViewer(userId, courseId, batchId, contentIds, request)
+          else getContentsConsumption(userId, courseId, contentIds, batchId, request.getRequestContext)
         val response = new Response
         if(CollectionUtils.isNotEmpty(contentsConsumed)) {
             val filteredContents = contentsConsumed.map(m => {
                 ProjectUtil.removeUnwantedFields(m, JsonKey.DATE_TIME, JsonKey.USER_ID, JsonKey.ADDED_BY, JsonKey.LAST_UPDATED_TIME, JsonKey.OLD_LAST_ACCESS_TIME, JsonKey.OLD_LAST_UPDATED_TIME, JsonKey.OLD_LAST_COMPLETED_TIME)
-                m.put(JsonKey.COLLECTION_ID, m.getOrDefault(JsonKey.COURSE_ID, ""))
                 jsonFields.foreach(field =>
                     if(m.get(field) != null)
                         m.put(field, mapper.readTree(m.get(field).asInstanceOf[String]))

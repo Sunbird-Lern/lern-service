@@ -99,12 +99,22 @@
             </modules>
         </profile>
 
+        <!-- Build viewer module only (future) -->
+        <profile>
+            <id>viewer</id>
+            <modules>
+                <module>modules/lms</module>
+                <module>modules/viewer</module>
+            </modules>
+        </profile>
+
         <!-- Build all services together (Lern Service mode) -->
         <profile>
             <id>lern</id>
             <modules>
                 <module>modules/userorg</module>
                 <module>modules/lms</module>
+                <module>modules/viewer</module>
                 <module>modules/notification</module>
                 <module>modules/lern/service</module>
                 <module>lern-jacoco-report</module>

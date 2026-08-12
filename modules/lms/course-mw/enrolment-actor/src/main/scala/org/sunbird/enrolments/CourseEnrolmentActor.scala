@@ -7,6 +7,7 @@ import org.apache.commons.lang3.StringUtils
 import org.sunbird.cache.util.RedisCacheUtil
 import org.sunbird.common.CassandraUtil
 import org.sunbird.exception.ProjectCommonException
+import org.sunbird.http.HttpClientUtil
 import org.sunbird.response.Response
 import org.sunbird.common.ProjectUtil
 import org.sunbird.common.ProjectUtil.EnrolmentType
@@ -90,6 +91,7 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
         validateEnrolment(batchData, enrolmentData, true)
         val data: java.util.Map[String, AnyRef] = createUserEnrolmentMap(userId, courseId, batchId, enrolmentData, request.getContext.getOrDefault(JsonKey.REQUEST_ID, "").asInstanceOf[String])
         upsertEnrollment(userId, courseId, batchId, data, (null == enrolmentData), request.getRequestContext)
+        logger.info(request.getRequestContext, s"enrol: enrolled | user=$userId course=$courseId batch=$batchId new=${null == enrolmentData}")
         if (isCacheEnabled) {
             logger.info(request.getRequestContext, "CourseEnrolmentActor :: enroll :: Deleting redis for key " + getCacheKey(userId))
             cacheUtil.delete(getCacheKey(userId))
@@ -97,6 +99,31 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
         sender().tell(successResponse(), self)
         generateTelemetryAudit(userId, courseId, batchId, data, "enrol", JsonKey.CREATE, request.getContext)
         notifyUser(userId, batchData, JsonKey.ADD)
+        fireLpBootstrap(userId, courseId, batchId, request)
+    }
+
+    /**
+     * Open the first LP course right after a USER enrol (design Step 3): fire the viewer rollup once so
+     * advanceLp runs at enrol time instead of only on first consumption. Skips system-lp child enrols
+     * (already driven by their rollup) and no-ops when the viewer is off. Fire-and-forget; monolith ->
+     * in-JVM to the aggregator, distributed -> HTTP /v1/view/agg. Mirrors ContentConsumptionActor's transport.
+     */
+    private def fireLpBootstrap(userId: String, courseId: String, batchId: String, request: Request): Unit = {
+        val requestId = Option(request.getContext.get(JsonKey.REQUEST_ID)).map(_.toString).getOrElse("")
+        if ("system".equals(requestId)) return
+        if (!java.lang.Boolean.parseBoolean(ProjectUtil.getConfigValue("viewer_enabled"))) return
+        try {
+            if (!"distributed".equalsIgnoreCase(ProjectUtil.getConfigValue("deployment_mode"))) {
+                val agg = new Request(); agg.setRequestContext(request.getRequestContext); agg.setOperation("aggregate")
+                agg.put(JsonKey.USER_ID, userId); agg.put("courseId", courseId); agg.put("batchId", batchId)
+                context.actorSelection("/user/viewer-aggregator-actor").tell(agg, ActorRef.noSender)
+            } else {
+                val base = Option(ProjectUtil.getConfigValue("viewer_service_base_url")).filter(StringUtils.isNotBlank).getOrElse("http://viewer-service:9000")
+                val headers = new util.HashMap[String, String]() {{ put("Content-Type", "application/json") }}
+                HttpClientUtil.post(base + "/v1/view/agg", s"""{"request":{"userId":"$userId","courseId":"$courseId","batchId":"$batchId"}}""", headers, request.getRequestContext)
+            }
+            logger.info(request.getRequestContext, s"enrol: LP bootstrap fired | user=$userId course=$courseId batch=$batchId")
+        } catch { case ex: Exception => logger.error(request.getRequestContext, s"enrol: LP bootstrap failed: ${ex.getMessage}", ex) }
     }
     
     
@@ -164,7 +191,6 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
             enrolment.put(JsonKey.LEAF_NODE_COUNT, courseContent.get(JsonKey.LEAF_NODE_COUNT))
             enrolment.put(JsonKey.COURSE_LOGO_URL, courseContent.get(JsonKey.APP_ICON))
             enrolment.put(JsonKey.CONTENT_ID, enrolment.get(JsonKey.COURSE_ID))
-            enrolment.put(JsonKey.COLLECTION_ID, enrolment.get(JsonKey.COURSE_ID))
             enrolment.put(JsonKey.CONTENT, courseContent)
             enrolment
         }).toList.asJava
