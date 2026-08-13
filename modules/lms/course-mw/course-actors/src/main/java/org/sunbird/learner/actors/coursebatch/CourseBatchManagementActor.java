@@ -6,8 +6,11 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.sunbird.actor.base.BaseActor;
+import org.sunbird.cassandra.CassandraOperation;
+import org.sunbird.helper.ServiceFactory;
 import org.sunbird.common.ElasticSearchHelper;
 import org.sunbird.exception.ProjectCommonException;
+import org.sunbird.response.ResponseCode;
 import org.sunbird.common.factory.EsClientFactory;
 import org.sunbird.common.inf.ElasticSearchService;
 import org.sunbird.response.Response;
@@ -43,6 +46,7 @@ import java.util.stream.Collectors;
 public class CourseBatchManagementActor extends BaseActor {
 
   private CourseBatchDao courseBatchDao = new CourseBatchDaoImpl();
+  private CassandraOperation cassandraOperation = ServiceFactory.getInstance();
   private UserOrgService userOrgService = UserOrgServiceImpl.getInstance();
   private UserCoursesService userCoursesService = new UserCoursesService();
   private ElasticSearchService esService = EsClientFactory.getInstance();
@@ -82,7 +86,11 @@ public class CourseBatchManagementActor extends BaseActor {
     Map<String, Object> request = actorMessage.getRequest();
     Map<String, Object> targetObject;
     List<Map<String, Object>> correlatedObject = new ArrayList<>();
-    String courseBatchId = ProjectUtil.getUniqueIdFromTimestamp(actorMessage.getEnv());
+    // Use a client-supplied batchId when present (e.g. chained trackable-node batch ids); else generate.
+    String requestedBatchId = (String) request.get(JsonKey.BATCH_ID);
+    String courseBatchId = StringUtils.isNotBlank(requestedBatchId)
+        ? requestedBatchId
+        : ProjectUtil.getUniqueIdFromTimestamp(actorMessage.getEnv());
     Map<String, String> headers = (Map<String, String>) actorMessage.getContext().get(JsonKey.HEADER);
     String requestedBy = (String) actorMessage.getContext().get(JsonKey.REQUESTED_BY);
 

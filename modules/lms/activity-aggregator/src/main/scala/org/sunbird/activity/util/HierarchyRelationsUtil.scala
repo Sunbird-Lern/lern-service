@@ -16,7 +16,10 @@ class HierarchyRelationsUtil(cassandraOperation: CassandraOperation) {
   private val keyspace = Option(ProjectUtil.getConfigValue("hierarchy_store_keyspace")).getOrElse("dev_hierarchy_store")
   private val tableName = Option(ProjectUtil.getConfigValue("hierarchy_relations_table")).getOrElse("hierarchy_relations")
 
-  def readFromDB(key: String, requestContext: RequestContext): List[String] = {
+  def readFromDB(key: String, requestContext: RequestContext): List[String] =
+    HierarchyRelationsUtil.cached(key)(readFromDBUncached(key, requestContext))
+
+  private def readFromDBUncached(key: String, requestContext: RequestContext): List[String] = {
     logger.info(requestContext, s"HierarchyRelationsUtil.readFromDB: key: $key, keyspace: $keyspace, table: $tableName")
     try {
       val queryMap = new util.HashMap[String, AnyRef]()
@@ -84,4 +87,26 @@ class HierarchyRelationsUtil(cassandraOperation: CassandraOperation) {
 
 object HierarchyRelationsUtil {
   def apply(cassandraOperation: CassandraOperation): HierarchyRelationsUtil = new HierarchyRelationsUtil(cassandraOperation)
+
+  // JVM-wide TTL cache of relationship_key -> node_ids. The hierarchy tree changes only on collection
+  // republish; we accept up to TTL of staleness (structure-only, self-heals on next recompute) instead
+  // of detecting republish. Empty results are NOT cached, so a freshly-published collection isn't held
+  // stale. Set hierarchy_relations_cache_ttl=0 to disable.
+  // ponytail: TTL eviction; go version-keyed/event-driven only if republish-during-consumption bites.
+  private val ttlMillis: Long =
+    Option(ProjectUtil.getConfigValue("hierarchy_relations_cache_ttl"))
+      .filter(_.trim.nonEmpty).map(_.trim.toLong).getOrElse(300L) * 1000L
+  private val cache = new java.util.concurrent.ConcurrentHashMap[String, (Long, List[String])]()
+
+  private def cached(key: String)(load: => List[String]): List[String] = {
+    if (ttlMillis <= 0) return load
+    val now = System.currentTimeMillis()
+    val hit = cache.get(key)
+    if (hit != null && hit._1 > now) hit._2
+    else {
+      val v = load
+      if (v.nonEmpty) cache.put(key, (now + ttlMillis, v))
+      v
+    }
+  }
 }

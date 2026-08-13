@@ -39,8 +39,6 @@ public class CourseBatchController extends BaseController {
         httpRequest.body().asJson(),
         (request) -> {
           Request req = (Request) request;
-          String courseId = req.getRequest().containsKey(JsonKey.COURSE_ID) ? JsonKey.COURSE_ID : JsonKey.COLLECTION_ID;
-          req.getRequest().put(JsonKey.COURSE_ID, req.getRequest().get(courseId));
           new CourseBatchRequestValidator().validateCreateCourseBatchRequest(req);
           return null;
         },
@@ -69,8 +67,6 @@ public class CourseBatchController extends BaseController {
         httpRequest.body().asJson(),
         (request) -> {
           Request req = (Request) request;
-          String courseId = req.getRequest().containsKey(JsonKey.COURSE_ID) ? JsonKey.COURSE_ID : JsonKey.COLLECTION_ID;
-          req.getRequest().put(JsonKey.COURSE_ID, req.getRequest().get(courseId));
           new CourseBatchRequestValidator().validateUpdateCourseBatchRequest(req);
           return null;
         },
@@ -98,7 +94,8 @@ public class CourseBatchController extends BaseController {
       if (reqObj.getRequest().containsKey(JsonKey.FILTERS)
           && reqObj.getRequest().get(JsonKey.FILTERS) != null
           && reqObj.getRequest().get(JsonKey.FILTERS) instanceof Map) {
-        ((Map) (reqObj.getRequest().get(JsonKey.FILTERS))).put(JsonKey.OBJECT_TYPE, esObjectType);
+        Map<String, Object> f = (Map) reqObj.getRequest().get(JsonKey.FILTERS);
+        f.put(JsonKey.OBJECT_TYPE, esObjectType);
       } else {
         Map<String, Object> filtermap = new HashMap<>();
         Map<String, Object> dataMap = new HashMap<>();
