@@ -79,6 +79,12 @@ class ViewConsumptionActor @Inject() (
     val response = cassandraOperation.getRecords(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE,
       filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)
     val rows = response.getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]])
+      .asInstanceOf[util.List[util.Map[String, AnyRef]]]
+    // surface the renamed ucc columns back as the courseId/batchId API contract
+    rows.asScala.foreach { r =>
+      Option(r.remove("collectionid")).foreach(v => r.put("courseId", v))
+      Option(r.remove("contextid")).foreach(v => r.put("batchId", v))
+    }
     val out = new Response(); out.put(JsonKey.RESPONSE, rows); sender().tell(out, self)
   }
 
