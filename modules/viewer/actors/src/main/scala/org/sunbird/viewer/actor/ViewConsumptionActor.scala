@@ -29,19 +29,19 @@ class ViewConsumptionActor @Inject() (
 
   private def touchEnrolmentAccess(key: util.HashMap[String, AnyRef], status: Int, ctx: RequestContext): Unit = {
     val selectMap = new util.HashMap[String, AnyRef]() {{
-      put("userid", key.get("userid")); put("courseid", key.get("courseid")); put("batchid", key.get("batchid"))
+      put("userid", key.get("userid")); put("courseid", key.get("collectionid")); put("batchid", key.get("contextid"))
     }}
     // only stamp an EXISTING enrolment — a plain UPDATE would fabricate a phantom row for an unenrolled view
     val existing = cassandraOperation.getRecordByIdentifier(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, selectMap, null, ctx)
       .getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]]).asInstanceOf[util.List[util.Map[String, AnyRef]]]
-    if (existing.isEmpty) { logger.info(ctx, s"view: access skip(no-enrolment) | user=${key.get("userid")} course=${key.get("courseid")} batch=${key.get("batchid")}"); return }
+    if (existing.isEmpty) { logger.info(ctx, s"view: access skip(no-enrolment) | user=${key.get("userid")} course=${key.get("collectionid")} batch=${key.get("contextid")}"); return }
     val updateMap = new util.HashMap[String, AnyRef]() {{
       put("lastcontentaccesstime", new java.util.Date())
       put("lastreadcontentid", key.get("contentid"))
       put("lastreadcontentstatus", Integer.valueOf(status))
     }}
     cassandraOperation.updateRecordV2(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, selectMap, updateMap, true, ctx)
-    logger.info(ctx, s"view: access stamped | user=${key.get("userid")} course=${key.get("courseid")} content=${key.get("contentid")} status=$status")
+    logger.info(ctx, s"view: access stamped | user=${key.get("userid")} course=${key.get("collectionid")} content=${key.get("contentid")} status=$status")
   }
 
   override def onReceive(request: Request): Unit = {
@@ -54,21 +54,28 @@ class ViewConsumptionActor @Inject() (
     }
   }
 
-  // context=all -> ignore batchid (read across all contexts)
+  // resolves partial keys like viewKey: collectionid <- courseId?:content, contextid <- batchId?:courseId?:content; context=all ignores contextid
   private def viewRead(request: Request): Unit = {
     val ctx = request.getRequestContext
     val userId = request.get(JsonKey.USER_ID).asInstanceOf[String]
     val allContexts = "all".equalsIgnoreCase(request.get("context").asInstanceOf[String])
-    val filters = new util.HashMap[String, AnyRef]()
-    filters.put("userid", userId)
-    ViewerRequestKeys.courseId(request).foreach(c => filters.put("courseid", c))
-    if (!allContexts) ViewerRequestKeys.batchId(request).foreach(c => filters.put("batchid", c))
-    val contentIds = request.get("contentId") match {
+    val courseIdOpt = ViewerRequestKeys.courseId(request)
+    val batchIdOpt = ViewerRequestKeys.batchId(request)
+    val contentIds: util.List[String] = request.get("contentId") match {
       case l: util.List[_] => l.asScala.map(_.asInstanceOf[String]).asJava
       case s: String if StringUtils.isNotBlank(s) => util.Arrays.asList(s)
       case _ => null
     }
-    if (contentIds != null && !contentIds.isEmpty) filters.put("contentid", contentIds)
+    val hasContent = contentIds != null && !contentIds.isEmpty
+    // individual content (no collection): PK collapses to the single contentId for collection+context (scenario 1)
+    val singleContent = if (courseIdOpt.isEmpty && hasContent && contentIds.size == 1) contentIds.get(0) else null
+    val collectionId = courseIdOpt.getOrElse(singleContent)
+    val contextId = batchIdOpt.orElse(courseIdOpt).getOrElse(singleContent)
+    val filters = new util.HashMap[String, AnyRef]()
+    filters.put("userid", userId)
+    if (collectionId != null) filters.put("collectionid", collectionId)
+    if (!allContexts && contextId != null) filters.put("contextid", contextId)
+    if (hasContent) filters.put("contentid", contentIds)
     val response = cassandraOperation.getRecords(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE,
       filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)
     val rows = response.getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]])
@@ -86,7 +93,7 @@ class ViewConsumptionActor @Inject() (
       row.put("last_updated_time", ProjectUtil.getTimeStamp)
       applyClientFields(request, null, row)
       cassandraOperation.upsertRecord(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
-      logger.info(ctx, s"view: start inserted | user=${key.get("userid")} course=${key.get("courseid")} batch=${key.get("batchid")} content=${key.get("contentid")}")
+      logger.info(ctx, s"view: start inserted | user=${key.get("userid")} course=${key.get("collectionid")} batch=${key.get("contextid")} content=${key.get("contentid")}")
     } else {
       // row exists: merge client progress/viewcount/lastAccessTime monotonically (max / later-of)
       val row = new util.HashMap[String, AnyRef](key)
@@ -132,7 +139,7 @@ class ViewConsumptionActor @Inject() (
       row.put("viewcount", Integer.valueOf(math.max(intOf(v.asInstanceOf[AnyRef]), if (existing != null) intOf(existing.get("viewcount")) else 0))))
     row.put("last_updated_time", ProjectUtil.getTimeStamp)
     cassandraOperation.upsertRecord(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
-    logger.info(ctx, s"view: end completed | user=${key.get("userid")} course=${key.get("courseid")} batch=${key.get("batchid")} content=${key.get("contentid")}")
+    logger.info(ctx, s"view: end completed | user=${key.get("userid")} course=${key.get("collectionid")} batch=${key.get("contextid")} content=${key.get("contentid")}")
     touchEnrolmentAccess(key, 2, ctx)
     triggerAggregation(request, ctx)
     sender().tell(successResponse(), self)
@@ -145,13 +152,13 @@ class ViewConsumptionActor @Inject() (
     aggRequest.setOperation("aggregate")
     aggRequest.setRequestContext(ctx)
     aggRequest.put(JsonKey.USER_ID, key.get("userid"))
-    aggRequest.put("courseId", key.get("courseid"))
-    aggRequest.put("batchId", key.get("batchid"))
-    logger.info(ctx, s"view: rollup triggered | user=${key.get("userid")} course=${key.get("courseid")} batch=${key.get("batchid")}")
+    aggRequest.put("courseId", key.get("collectionid"))
+    aggRequest.put("batchId", key.get("contextid"))
+    logger.info(ctx, s"view: rollup triggered | user=${key.get("userid")} course=${key.get("collectionid")} batch=${key.get("contextid")}")
     viewerAggregatorActor.tell(aggRequest, ActorRef.noSender)
   }
 
-  // ucc primary key; no collection ctx -> courseid = batchid = contentId
+  // ucc primary key; missing keys cascade: courseid <- contentId, batchid <- courseId <- contentId (design scenarios 1-3)
   private def viewKey(request: Request): util.HashMap[String, AnyRef] = {
     // explicit userId (internal delegation) else requestedFor/requestedBy (from token on direct API calls)
     val userId = Option(request.get(JsonKey.USER_ID).asInstanceOf[String]).filter(StringUtils.isNotBlank)
@@ -159,11 +166,11 @@ class ViewConsumptionActor @Inject() (
       .getOrElse(request.get(JsonKey.REQUESTED_BY).asInstanceOf[String])
     val contentId = ViewerRequestKeys.contentId(request)
     val courseId = ViewerRequestKeys.courseId(request).getOrElse(contentId)
-    val batchId = ViewerRequestKeys.batchId(request).getOrElse(contentId)
+    val batchId = ViewerRequestKeys.batchId(request).orElse(ViewerRequestKeys.courseId(request)).getOrElse(contentId)
     val key = new util.HashMap[String, AnyRef]()
     key.put("userid", userId)
-    key.put("courseid", courseId)
-    key.put("batchid", batchId)
+    key.put("collectionid", courseId)
+    key.put("contextid", batchId)
     key.put("contentid", contentId)
     key
   }

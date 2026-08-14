@@ -64,16 +64,13 @@ public class ViewController extends BaseController {
         }
     }
 
-    // reject requests missing courseId/batchId/contentId so callers get a 400, not an opaque NPE
+    // only contentId is mandatory; collectionId(courseId)/contextId(batchId) are optional and cascade in the actor (design scenarios 1-3)
     private void validate(String operation, Request request) {
         switch (operation) {
             case "viewStart": case "viewUpdate": case "viewEnd":
-                requireNonBlank(request, "courseId", "batchId", "contentId");
+                requireNonBlank(request, "contentId");
                 break;
-            case "viewRead":
-                requireNonBlank(request, "courseId", "batchId");
-                break;
-            default: // no mandatory fields
+            default: // viewRead + others: userId is derived from the token; keys are optional
         }
     }
 

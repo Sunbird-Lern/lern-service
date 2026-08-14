@@ -43,7 +43,7 @@ class ViewConsumptionActorTest extends AnyFlatSpec with Matchers with MockFactor
   }
 
   private def uccRow(status: Int): util.Map[String, AnyRef] = new util.HashMap[String, AnyRef]() {{
-    put("userid", "u1"); put("courseid", "c1"); put("batchid", "b1"); put("contentid", "ct1")
+    put("userid", "u1"); put("collectionid", "c1"); put("contextid", "b1"); put("contentid", "ct1")
     put("status", Integer.valueOf(status))
   }}
 
@@ -101,7 +101,7 @@ class ViewConsumptionActorTest extends AnyFlatSpec with Matchers with MockFactor
   "viewStart" should "keep the higher existing progress on merge (monotonic)" in {
     val ops = mock[CassandraOperation]
     val rows = new util.ArrayList[util.Map[String, AnyRef]](); rows.add(new util.HashMap[String, AnyRef]() {{
-      put("userid", "u1"); put("courseid", "c1"); put("batchid", "b1"); put("contentid", "ct1")
+      put("userid", "u1"); put("collectionid", "c1"); put("contextid", "b1"); put("contentid", "ct1")
       put("status", Integer.valueOf(1)); put("progress", Integer.valueOf(80))
     }})
     (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
@@ -111,6 +111,38 @@ class ViewConsumptionActorTest extends AnyFlatSpec with Matchers with MockFactor
       .returns(new Response()).once()
     stubEnrolmentRead(ops, emptyRows)
     val req = viewRequest("viewStart"); req.put("progress", Integer.valueOf(50)) // lower than existing 80
+    val result = callActor(req, Props(new ViewConsumptionActor(replyingAggregator).setCassandraOperation(ops)))
+    result should not be null
+  }
+
+  // scenario 2: collection given, no context -> contextid(batchid) cascades to collectionid(courseid)
+  "viewStart" should "store batchid=courseId when contextId is absent (scenario 2)" in {
+    val ops = mock[CassandraOperation]
+    (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
+      .expects(*, *, *, *, *).returns(emptyRows)
+    (ops.upsertRecord(_: String, _: String, _: util.Map[String, AnyRef], _: RequestContext))
+      .expects(where { (_: String, _: String, row: util.Map[String, AnyRef], _: RequestContext) =>
+        row.get("collectionid") == "c1" && row.get("contextid") == "c1" && row.get("contentid") == "ct1" })
+      .returns(new Response()).once()
+    stubEnrolmentRead(ops, emptyRows)
+    val req = new Request; req.setOperation("viewStart")
+    req.put("userId", "u1"); req.put("courseId", "c1"); req.put("contentId", "ct1")
+    val result = callActor(req, Props(new ViewConsumptionActor(replyingAggregator).setCassandraOperation(ops)))
+    result should not be null
+  }
+
+  // scenario 1: individual content -> collectionid & contextid both collapse to contentId
+  "viewStart" should "store courseid=batchid=contentId for individual content (scenario 1)" in {
+    val ops = mock[CassandraOperation]
+    (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
+      .expects(*, *, *, *, *).returns(emptyRows)
+    (ops.upsertRecord(_: String, _: String, _: util.Map[String, AnyRef], _: RequestContext))
+      .expects(where { (_: String, _: String, row: util.Map[String, AnyRef], _: RequestContext) =>
+        row.get("collectionid") == "ct1" && row.get("contextid") == "ct1" && row.get("contentid") == "ct1" })
+      .returns(new Response()).once()
+    stubEnrolmentRead(ops, emptyRows)
+    val req = new Request; req.setOperation("viewStart")
+    req.put("userId", "u1"); req.put("contentId", "ct1")
     val result = callActor(req, Props(new ViewConsumptionActor(replyingAggregator).setCassandraOperation(ops)))
     result should not be null
   }

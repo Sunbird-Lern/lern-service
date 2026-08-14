@@ -50,8 +50,8 @@ object AssessmentAuditRecorder {
   private def createRecordMap(m: util.Map[String, AnyRef], aid: String, uid: String, cid: String, ts: Long, ctx: RequestContext): util.Map[String, AnyRef] = {
     val rec = new util.HashMap[String, AnyRef]()
     rec.put("user_id", uid)
-    rec.put("course_id", m.get(JsonKey.COURSE_ID))
-    rec.put("batch_id", m.get(JsonKey.BATCH_ID))
+    rec.put("collection_id", m.get(JsonKey.COURSE_ID))
+    rec.put("context_id", m.get(JsonKey.BATCH_ID))
     rec.put("content_id", cid)
     rec.put("attempt_id", aid)
     logger.info(ctx, s"AssessmentAuditRecorder: Recording attemptId=$aid with last_attempted_on=$ts")

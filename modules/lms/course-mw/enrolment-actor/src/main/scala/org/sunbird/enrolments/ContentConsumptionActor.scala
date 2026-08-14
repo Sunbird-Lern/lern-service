@@ -300,8 +300,8 @@ class ContentConsumptionActor @Inject() (
     def getContentsConsumption(userId: String, courseId : String, contentIds: java.util.List[String], batchId: String, requestContext: RequestContext):java.util.List[java.util.Map[String, AnyRef]] = {
         val filters = new java.util.HashMap[String, AnyRef]() {{
             put("userid", userId)
-            put("courseid", courseId)
-            put("batchid", batchId)
+            put("collectionid", courseId)
+            put("contextid", batchId)
             if(CollectionUtils.isNotEmpty(contentIds))
                 put("contentid", contentIds)
         }}
@@ -618,8 +618,8 @@ class ContentConsumptionActor @Inject() (
         val filters = new java.util.HashMap[String, AnyRef]() {
             {
                 put("user_id", userId)
-                put("course_id", courseId)
-                put("batch_id", batchId)
+                put("collection_id", courseId)
+                put("context_id", batchId)
                 put("content_id", contentId)
             }
         }

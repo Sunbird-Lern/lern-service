@@ -157,12 +157,12 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
     }
   }
 
-  // clustering-prefix slice on ucc PK (userid, courseid, batchid); batchId omitted only when absent (no-context read)
+  // clustering-prefix slice on ucc PK (userid, collectionid, contextid); contextId omitted only when absent (no-context read)
   private def readConsumption(userId: String, courseId: String, batchId: String, ctx: RequestContext): util.List[util.Map[String, AnyRef]] = {
     val filters = new util.HashMap[String, AnyRef]() {{
       put("userid", userId)
-      put("courseid", courseId)
-      if (batchId != null) put("batchid", batchId)
+      put("collectionid", courseId)
+      if (batchId != null) put("contextid", batchId)
     }}
     val response = cassandraOperation.getRecords(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE,
       filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)

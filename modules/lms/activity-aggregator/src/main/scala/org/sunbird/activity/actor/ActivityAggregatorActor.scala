@@ -440,11 +440,11 @@ class ActivityAggregatorActor extends BaseEnrolmentActor {
 
   private def getContentStatusFromDB(userId: String, courseId: String, batchId: String, requestContext: RequestContext): UserContentConsumption = {
     logger.info(requestContext, s"getContentStatusFromDB: Querying user_content_consumption for userId: $userId, courseId: $courseId, batchId: $batchId")
-    val response = cassandraOperation.getRecordsByProperties(consumptionDBInfo.getKeySpace, "user_content_consumption", 
+    val response = cassandraOperation.getRecordsByProperties(consumptionDBInfo.getKeySpace, "user_content_consumption",
       new util.HashMap[String, AnyRef]() {{
         put("userid", userId)
-        put("courseid", courseId)
-        put("batchid", batchId)
+        put("collectionid", courseId)
+        put("contextid", batchId)
       }}, requestContext)
     
     if (response != null && response.getResult != null) {
