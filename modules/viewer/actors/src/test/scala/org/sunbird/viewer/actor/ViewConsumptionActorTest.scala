@@ -43,7 +43,7 @@ class ViewConsumptionActorTest extends AnyFlatSpec with Matchers with MockFactor
   }
 
   private def uccRow(status: Int): util.Map[String, AnyRef] = new util.HashMap[String, AnyRef]() {{
-    put("userid", "u1"); put("collectionid", "c1"); put("contextid", "b1"); put("contentid", "ct1")
+    put("userid", "u1"); put("courseid", "c1"); put("batchid", "b1"); put("contentid", "ct1")
     put("status", Integer.valueOf(status))
   }}
 

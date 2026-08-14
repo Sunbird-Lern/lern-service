@@ -24,7 +24,7 @@ import scala.collection.JavaConverters._
  *   - recompute from DB state each call -> idempotent, safe under per-user serialization.
  *
  * ASSUMPTIONS to verify against live schema (v2 snake_case):
- *   - user_content_consumption PK (user_id, collection_id, context_id, content_id); status per content.
+ *   - user_content_consumption PK (userid, courseid, batchid, contentid); status per content.
  *   - user_enrolments keyed (userid, courseid, batchid) with optional_nodes set<text>.
  *   - user_activity_agg is the aggregate target (activity_id = collection do-id).
  */

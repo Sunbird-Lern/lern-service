@@ -267,8 +267,6 @@ public class CourseBatchManagementActor extends BaseActor {
     // Recompute status from dates to handle stale cached values
     CourseBatchUtil.enrichBatchStatusFromDates(result);
 
-    if (result.containsKey(JsonKey.COURSE_ID))
-      result.put(JsonKey.COLLECTION_ID, result.getOrDefault(JsonKey.COURSE_ID, ""));
     Response response = new Response();
     response.put(JsonKey.RESPONSE, result);
     sender().tell(response, self());

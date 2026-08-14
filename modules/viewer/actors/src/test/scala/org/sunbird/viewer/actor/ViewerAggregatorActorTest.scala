@@ -17,7 +17,7 @@ import scala.concurrent.duration.FiniteDuration
 
 /**
  * Unit tests for ViewerAggregatorActor guard branches (deterministic, no hierarchy fixture needed):
- *  - missing userId/collectionId -> skip, still replies success.
+ *  - missing userId/courseId -> skip, still replies success.
  *  - no consumption rows -> early return, NO aggregate/enrolment writes.
  * The full recursive-rollup happy path depends on a published hierarchy_relations fixture and is
  * better exercised as an integration test; these guards pin the cheap-exit correctness.

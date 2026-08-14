@@ -20,7 +20,7 @@ import java.util.concurrent.CompletionStage;
  * recompute after a collection is republished. Mirrors the legacy POST /v1/activity/agg, but targets
  * the viewer aggregator (viewer-aggregator-actor, op "aggregate"). Runs on the userId-hashed pool, so
  * a resync serialises with any live /v1/view/end for that learner — no race with real-time roll-ups.
- *   POST /v1/view/agg   { request: { userId, collectionId|courseId, contextId|batchId } }
+ *   POST /v1/view/agg   { request: { userId, courseId, batchId } }
  */
 public class ViewAggregateController extends BaseController {
 
