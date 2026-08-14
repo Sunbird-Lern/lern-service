@@ -4,6 +4,7 @@ import controllers.BaseController;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.pekko.actor.ActorRef;
 import org.sunbird.exception.ProjectCommonException;
+import org.sunbird.keys.JsonKey;
 import org.sunbird.message.ResponseCode;
 import org.sunbird.request.Request;
 import play.mvc.Http;
@@ -55,13 +56,12 @@ public class ViewController extends BaseController {
         return Results.ok(json);
     }
 
-    public Result preflight(String all) {
-        return Results.ok();
-    }
-
     private CompletionStage<Result> dispatch(String operation, Http.Request httpRequest) {
         try {
             Request request = createAndInitRequest(operation, httpRequest.body().asJson(), httpRequest);
+            // userId is derived from the auth token, never the client body
+            String userId = (String) request.getContext().getOrDefault(JsonKey.REQUESTED_FOR, request.getContext().get(JsonKey.REQUESTED_BY));
+            request.getRequest().put(JsonKey.USER_ID, userId);
             validate(operation, request);
             return actorResponseHandler(viewConsumptionActor, request, timeout, null, httpRequest);
         } catch (Exception e) {
@@ -70,14 +70,15 @@ public class ViewController extends BaseController {
     }
 
     // Reject requests missing keys the actor unconditionally dereferences, so callers get a 400 with the
-    // offending field instead of an opaque 500/NPE. Contract is courseId/batchId/contentId (+ userId).
+    // offending field instead of an opaque 500/NPE. Contract is courseId/batchId/contentId; userId is
+    // derived from the auth token above, so it is no longer a client-supplied mandatory field.
     private void validate(String operation, Request request) {
         switch (operation) {
             case "viewStart": case "viewUpdate": case "viewEnd":
-                requireNonBlank(request, "userId", "courseId", "batchId", "contentId");
+                requireNonBlank(request, "courseId", "batchId", "contentId");
                 break;
             case "viewRead":
-                requireNonBlank(request, "userId", "courseId", "batchId");
+                requireNonBlank(request, "courseId", "batchId");
                 break;
             default: // no mandatory fields
         }

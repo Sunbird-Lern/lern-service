@@ -4,6 +4,7 @@ import controllers.BaseController;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.pekko.actor.ActorRef;
 import org.sunbird.exception.ProjectCommonException;
+import org.sunbird.keys.JsonKey;
 import org.sunbird.message.ResponseCode;
 import org.sunbird.request.Request;
 import play.mvc.Http;
@@ -36,6 +37,7 @@ public class ViewSummaryController extends BaseController {
     public CompletionStage<Result> summaryList(String userId, Http.Request httpRequest) {
         try {
             Request request = createAndInitRequest("summaryList", httpRequest);
+            requireOwnPath(request, userId);
             request.getRequest().put("userId", userId);
             return actorResponseHandler(viewerSummaryActor, request, timeout, null, httpRequest);
         } catch (Exception e) {
@@ -46,6 +48,7 @@ public class ViewSummaryController extends BaseController {
     public CompletionStage<Result> summaryDownload(String userId, Http.Request httpRequest) {
         try {
             Request request = createAndInitRequest("summaryDownload", httpRequest);
+            requireOwnPath(request, userId);
             request.getRequest().put("userId", userId);
             String[] fmt = httpRequest.queryString().getOrDefault("format", new String[]{"json"});
             request.getRequest().put("format", fmt.length > 0 ? fmt[0] : "json");
@@ -60,6 +63,7 @@ public class ViewSummaryController extends BaseController {
             Request request = httpRequest.body().asJson() != null
                 ? createAndInitRequest("summaryDelete", httpRequest.body().asJson(), httpRequest)
                 : createAndInitRequest("summaryDelete", httpRequest);
+            requireOwnPath(request, userId);
             request.getRequest().put("userId", userId);
             return actorResponseHandler(viewerSummaryActor, request, timeout, null, httpRequest);
         } catch (Exception e) {
@@ -80,6 +84,17 @@ public class ViewSummaryController extends BaseController {
             return actorResponseHandler(viewerSummaryActor, request, timeout, null, httpRequest);
         } catch (Exception e) {
             return CompletableFuture.completedFuture(createCommonExceptionResponse(e, httpRequest));
+        }
+    }
+
+    // path userId must equal the authenticated user (IDOR guard)
+    private void requireOwnPath(Request request, String pathUserId) {
+        String authUserId = (String) request.getContext().getOrDefault(JsonKey.REQUESTED_FOR, request.getContext().get(JsonKey.REQUESTED_BY));
+        if (authUserId == null || !authUserId.equals(pathUserId)) {
+            throw new ProjectCommonException(
+                ResponseCode.unAuthorized.getErrorCode(),
+                ResponseCode.unAuthorized.getErrorMessage(),
+                ResponseCode.UNAUTHORIZED.getResponseCode());
         }
     }
 }

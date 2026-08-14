@@ -113,6 +113,9 @@ class ViewConsumptionActorTest extends AnyFlatSpec with Matchers with MockFactor
 
   "viewEnd" should "write status=2 and trigger the aggregation" in {
     val ops = mock[CassandraOperation]
+    // viewEnd reads the existing ucc row to merge viewcount/lastCompletedTime monotonically
+    (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
+      .expects(*, *, *, *, *).returns(emptyRows)
     (ops.upsertRecord(_: String, _: String, _: util.Map[String, AnyRef], _: RequestContext))
       .expects(*, *, *, *).returns(new Response()).once()
     stubEnrolmentRead(ops, emptyRows)
@@ -124,6 +127,8 @@ class ViewConsumptionActorTest extends AnyFlatSpec with Matchers with MockFactor
   // C1: touchEnrolmentAccess must NOT fabricate an enrolment for an unenrolled/no-context view.
   "touchEnrolmentAccess" should "not stamp the enrolment when none exists" in {
     val ops = mock[CassandraOperation]
+    (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
+      .expects(*, *, *, *, *).returns(emptyRows)
     (ops.upsertRecord(_: String, _: String, _: util.Map[String, AnyRef], _: RequestContext))
       .expects(*, *, *, *).returns(new Response()).once()
     stubEnrolmentRead(ops, emptyRows) // no enrolment
@@ -136,6 +141,8 @@ class ViewConsumptionActorTest extends AnyFlatSpec with Matchers with MockFactor
   // C1: when the enrolment DOES exist, its last-access is stamped exactly once.
   "touchEnrolmentAccess" should "stamp the enrolment when it exists" in {
     val ops = mock[CassandraOperation]
+    (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
+      .expects(*, *, *, *, *).returns(emptyRows)
     (ops.upsertRecord(_: String, _: String, _: util.Map[String, AnyRef], _: RequestContext))
       .expects(*, *, *, *).returns(new Response()).once()
     val rows = new util.ArrayList[util.Map[String, AnyRef]](); rows.add(enrolmentRow)

@@ -99,11 +99,21 @@ class ViewConsumptionActor @Inject() (
     if (existing == null) {
       val row = new util.HashMap[String, AnyRef](key)
       row.put("status", Integer.valueOf(1))
-      row.put("last_access_time", ProjectUtil.getTimeStamp)
+      row.put("last_access_time", mergeTime(null, "last_access_time", request, JsonKey.LAST_ACCESS_TIME))
       row.put("last_updated_time", ProjectUtil.getTimeStamp)
+      applyClientFields(request, null, row)
       cassandraOperation.upsertRecord(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
       logger.info(ctx, s"view: start inserted | user=${key.get("userid")} course=${key.get("courseid")} batch=${key.get("batchid")} content=${key.get("contentid")}")
-    } else logger.info(ctx, s"view: start noop(exists) | user=${key.get("userid")} content=${key.get("contentid")}")
+    } else {
+      // Row already exists: still merge client progress/viewcount/lastAccessTime monotonically
+      // (mirrors legacy ContentConsumptionActor.processContentConsumption) even though status/insert is a no-op.
+      val row = new util.HashMap[String, AnyRef](key)
+      if (applyClientFields(request, existing, row)) {
+        row.put("last_updated_time", ProjectUtil.getTimeStamp)
+        cassandraOperation.upsertRecord(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
+      }
+      logger.info(ctx, s"view: start noop(exists) | user=${key.get("userid")} content=${key.get("contentid")}")
+    }
     touchEnrolmentAccess(key, 1, ctx)
     sender().tell(successResponse(), self)
   }
@@ -129,10 +139,15 @@ class ViewConsumptionActor @Inject() (
   private def viewEnd(request: Request): Unit = {
     val ctx = request.getRequestContext
     val key = viewKey(request)
+    val existing = readRow(key, ctx)
     val row = new util.HashMap[String, AnyRef](key)
     row.put("status", Integer.valueOf(2))
+    row.put("progress", Integer.valueOf(100))
     Option(request.get("progressDetails")).foreach(pd => row.put("progressdetails", mapper.writeValueAsString(pd)))
-    row.put("last_completed_time", ProjectUtil.getTimeStamp)
+    row.put("last_completed_time", mergeCompletedTime(existing, request))
+    row.put("last_access_time", mergeTime(existing, "last_access_time", request, JsonKey.LAST_ACCESS_TIME))
+    applyClientFields(request, existing, row)
+    row.put("progress", Integer.valueOf(100)) // viewEnd always completes -> progress pinned to 100, mirrors legacy
     row.put("last_updated_time", ProjectUtil.getTimeStamp)
     cassandraOperation.upsertRecord(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
     logger.info(ctx, s"view: end completed | user=${key.get("userid")} course=${key.get("courseid")} batch=${key.get("batchid")} content=${key.get("contentid")}")
@@ -190,6 +205,49 @@ class ViewConsumptionActor @Inject() (
 
   private def statusOf(row: util.Map[String, AnyRef]): Int =
     Option(row.get("status")).map(_.asInstanceOf[Number].intValue()).getOrElse(0)
+
+  private def intOf(v: AnyRef): Int = Option(v).map(_.asInstanceOf[Number].intValue()).getOrElse(0)
+
+  /** Merge client progress/viewcount/lastAccessTime into `row` monotonically (max / later-of); true if any set. */
+  private def applyClientFields(request: Request, existing: util.Map[String, AnyRef], row: util.HashMap[String, AnyRef]): Boolean = {
+    var changed = false
+    Option(request.get("progress")).foreach { p =>
+      val incoming = intOf(p.asInstanceOf[AnyRef])
+      val current = if (existing != null) intOf(existing.get("progress")) else 0
+      row.put("progress", Integer.valueOf(math.max(incoming, current)))
+      changed = true
+    }
+    Option(request.get(JsonKey.VIEW_COUNT)).foreach { v =>
+      val incoming = intOf(v.asInstanceOf[AnyRef])
+      val current = if (existing != null) intOf(existing.get("viewcount")) else 0
+      row.put("viewcount", Integer.valueOf(math.max(incoming, current)))
+      changed = true
+    }
+    Option(request.get(JsonKey.LAST_ACCESS_TIME)).foreach { _ =>
+      row.put("last_access_time", mergeTime(existing, "last_access_time", request, JsonKey.LAST_ACCESS_TIME))
+      changed = true
+    }
+    changed
+  }
+
+  /** last_completed_time for viewEnd: later of existing vs client-forwarded lastCompletedTime, else now. */
+  private def mergeCompletedTime(existing: util.Map[String, AnyRef], request: Request): java.util.Date =
+    mergeTime(existing, "last_completed_time", request, JsonKey.LAST_COMPLETED_TIME)
+
+  private def mergeTime(existing: util.Map[String, AnyRef], existingCol: String, request: Request, requestKey: String): java.util.Date = {
+    val existingTime: java.util.Date = if (existing != null) existing.get(existingCol).asInstanceOf[java.util.Date] else null
+    val inputTime: java.util.Date = Option(request.get(requestKey)).flatMap {
+      case d: java.util.Date => Some(d)
+      case n: Number => Some(new java.util.Date(n.longValue()))
+      case s: String if StringUtils.isNotBlank(s) =>
+        try Some(new java.util.Date(s.toLong)) catch { case _: Throwable => try Some(java.util.Date.from(java.time.Instant.parse(s))) catch { case _: Throwable => None } }
+      case _ => None
+    }.orNull
+    if (existingTime == null && inputTime == null) ProjectUtil.getTimeStamp
+    else if (existingTime == null) inputTime
+    else if (inputTime == null) existingTime
+    else if (inputTime.after(existingTime)) inputTime else existingTime
+  }
 
   // for tests
   def setCassandraOperation(ops: org.sunbird.cassandra.CassandraOperation): ViewConsumptionActor = {

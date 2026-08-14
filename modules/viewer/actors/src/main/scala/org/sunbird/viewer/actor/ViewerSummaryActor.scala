@@ -99,7 +99,8 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
    */
   private def uploadSummaryCsv(userId: String, csv: String): String = {
     val storageType = ProjectUtil.getConfigValue("sunbird_cloud_service_provider")
-    val container = ProjectUtil.getConfigValue("sunbird_content_cloud_storage_container")
+    val container = Option(ProjectUtil.getConfigValue("viewer_summary_cloud_storage_container")).filter(StringUtils.isNotBlank)
+      .getOrElse(ProjectUtil.getConfigValue("sunbird_content_cloud_storage_container"))
     val prefix = Option(ProjectUtil.getConfigValue("viewer_summary_upload_path")).getOrElse("").trim.stripSuffix("/")
     val objectKey = (if (StringUtils.isNotBlank(prefix)) prefix + "/" else "") + userId + "_viewer_summary.csv"
     val tmp = java.io.File.createTempFile(userId + "_viewer_summary", ".csv")
@@ -107,6 +108,8 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
       val w = new java.io.PrintWriter(tmp, "UTF-8")
       try w.write(csv) finally w.close()
       CloudStorageUtil.upload(storageType, container, objectKey, tmp.getAbsolutePath)
+      // return a time-limited signed URL for the private learner data (mirrors BulkUploadManagementActor)
+      CloudStorageUtil.getSignedUrl(storageType, container, objectKey)
     } finally tmp.delete()
   }
 
@@ -115,10 +118,14 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
   private val csvCols = List(
     ("courseid", "courseId"), ("batchid", "batchId"), ("progress", "progress"),
     ("status", "status"), ("completionpercentage", "completionPercentage"), ("completedon", "completedOn"))
+  // RFC-4180: quote any field containing a comma, quote, or line break; escape embedded quotes as "".
+  private def csvField(v: String): String =
+    if (v.exists(c => c == ',' || c == '"' || c == '\n' || c == '\r')) "\"" + v.replace("\"", "\"\"") + "\""
+    else v
   private def toCsv(rows: util.List[util.Map[String, AnyRef]]): String = {
     val sb = new StringBuilder(csvCols.map(_._1).mkString(",")).append("\n")
     rows.asScala.foreach { r =>
-      sb.append(csvCols.map { case (_, key) => Option(r.get(key)).map(_.toString.replace(",", " ")).getOrElse("") }.mkString(",")).append("\n")
+      sb.append(csvCols.map { case (_, key) => csvField(Option(r.get(key)).map(_.toString).getOrElse("")) }.mkString(",")).append("\n")
     }
     sb.toString
   }

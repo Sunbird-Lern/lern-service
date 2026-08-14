@@ -4,6 +4,8 @@ import org.apache.commons.collections4.CollectionUtils
 import org.sunbird.activity.domain.{ContentStatus, UserContentConsumption, UserEnrolmentAgg}
 import org.sunbird.activity.util.{ActivityAggregateUtil, HierarchyRelationsUtil}
 import org.sunbird.cassandra.CassandraOperation
+import org.sunbird.exception.ProjectCommonException
+import org.sunbird.response.ResponseCode
 import org.sunbird.enrolments.BaseEnrolmentActor
 import org.sunbird.helper.ServiceFactory
 import org.sunbird.keys.JsonKey
@@ -42,10 +44,14 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
   override def onReceive(request: Request): Unit = {
     request.getOperation match {
       case "aggregate" =>
-        // Fire-and-forget rollup: log failures (caller already acked); /v1/view/agg force-sync is the repair path.
-        try aggregate(request)
-        catch { case ex: Exception => logger.error(request.getRequestContext, s"ViewerAggregatorActor.aggregate failed: ${ex.getMessage}", ex) }
-        sender().tell(successResponse(), self)
+        try {
+          aggregate(request)
+          sender().tell(successResponse(), self)
+        } catch {
+          case ex: Exception =>
+            logger.error(request.getRequestContext, s"ViewerAggregatorActor.aggregate failed: ${ex.getMessage}", ex)
+            ProjectCommonException.throwServerErrorException(ResponseCode.SERVER_ERROR, ex.getMessage)
+        }
       case _           => onReceiveUnsupportedOperation(request.getOperation)
     }
   }
@@ -195,7 +201,7 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
     val filters = new util.HashMap[String, AnyRef]() {{
       put("userid", userId)
       put("courseid", courseId)
-      put("batchid", batchId)
+      if (batchId != null) put("batchid", batchId)
     }}
     val response = cassandraOperation.getRecords(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName,
       filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)

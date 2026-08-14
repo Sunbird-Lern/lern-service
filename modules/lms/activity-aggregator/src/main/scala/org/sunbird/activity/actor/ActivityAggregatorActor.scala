@@ -56,8 +56,6 @@ class ActivityAggregatorActor extends BaseEnrolmentActor {
     val contents = if (contentsRaw != null) contentsRaw.asInstanceOf[util.List[util.Map[String, AnyRef]]] else null
 
     try {
-      // Backward compatibility: the frontend keeps calling /v1/activity/agg. When the viewer is
-      // enabled, the Viewer Service owns the processing (see delegateToViewer); otherwise legacy.
       if (isViewerEnabled) {
         val token = Option(request.getContext.get(JsonKey.X_AUTH_TOKEN)).map(_.asInstanceOf[String]).orNull
         delegateToViewer(userId, courseId, batchId, contents, token, requestContext)
@@ -93,7 +91,6 @@ class ActivityAggregatorActor extends BaseEnrolmentActor {
       put("Content-Type", "application/json")
       Option(token).filter(StringUtils.isNotBlank).foreach(t => put("x-authenticated-user-token", t))
     }}
-    // monolith: fire-and-forget to the in-JVM viewer actor (its own rollup stays async); distributed: HTTP.
     def dispatch(actorName: String, api: String, operation: String, body: util.Map[String, AnyRef]): Unit = {
       if (isMonolith) {
         val req = new Request(); req.setRequestContext(ctx); req.setOperation(operation); req.setRequest(body)

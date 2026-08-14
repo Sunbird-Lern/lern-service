@@ -39,6 +39,8 @@ public class CourseBatchController extends BaseController {
         httpRequest.body().asJson(),
         (request) -> {
           Request req = (Request) request;
+          String courseId = req.getRequest().containsKey(JsonKey.COURSE_ID) ? JsonKey.COURSE_ID : JsonKey.COLLECTION_ID;
+          req.getRequest().put(JsonKey.COURSE_ID, req.getRequest().get(courseId));
           new CourseBatchRequestValidator().validateCreateCourseBatchRequest(req);
           return null;
         },
@@ -67,6 +69,8 @@ public class CourseBatchController extends BaseController {
         httpRequest.body().asJson(),
         (request) -> {
           Request req = (Request) request;
+          String courseId = req.getRequest().containsKey(JsonKey.COURSE_ID) ? JsonKey.COURSE_ID : JsonKey.COLLECTION_ID;
+          req.getRequest().put(JsonKey.COURSE_ID, req.getRequest().get(courseId));
           new CourseBatchRequestValidator().validateUpdateCourseBatchRequest(req);
           return null;
         },

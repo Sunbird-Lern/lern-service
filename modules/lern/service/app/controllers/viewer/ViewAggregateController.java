@@ -31,6 +31,9 @@ public class ViewAggregateController extends BaseController {
     public CompletionStage<Result> agg(Http.Request httpRequest) {
         try {
             Request request = createAndInitRequest("aggregate", httpRequest.body().asJson(), httpRequest);
+            // Derive the acting userId from the auth token — never trust a client-supplied userId.
+            String userId = (String) request.getContext().getOrDefault(JsonKey.REQUESTED_FOR, request.getContext().get(JsonKey.REQUESTED_BY));
+            request.getRequest().put(JsonKey.USER_ID, userId);
             validate(request);
             return actorResponseHandler(viewerAggregatorActor, request, timeout, null, httpRequest);
         } catch (Exception e) {

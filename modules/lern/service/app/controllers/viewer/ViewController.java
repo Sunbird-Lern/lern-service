@@ -2,6 +2,7 @@ package controllers.viewer;
 
 import controllers.BaseController;
 import org.apache.pekko.actor.ActorRef;
+import org.sunbird.keys.JsonKey;
 import org.sunbird.request.Request;
 import play.mvc.Http;
 import play.mvc.Result;
@@ -43,6 +44,9 @@ public class ViewController extends BaseController {
     private CompletionStage<Result> dispatch(String operation, Http.Request httpRequest) {
         try {
             Request request = createAndInitRequest(operation, httpRequest.body().asJson(), httpRequest);
+            // Derive the acting userId from the auth token — never trust a client-supplied userId.
+            String userId = (String) request.getContext().getOrDefault(JsonKey.REQUESTED_FOR, request.getContext().get(JsonKey.REQUESTED_BY));
+            request.getRequest().put(JsonKey.USER_ID, userId);
             return actorResponseHandler(viewConsumptionActor, request, timeout, null, httpRequest);
         } catch (Exception e) {
             return CompletableFuture.completedFuture(createCommonExceptionResponse(e, httpRequest));
