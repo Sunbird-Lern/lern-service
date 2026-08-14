@@ -79,11 +79,7 @@ class ActivityAggregatorActor extends BaseEnrolmentActor {
 
   private def isMonolith: Boolean = !"distributed".equalsIgnoreCase(ProjectUtil.getConfigValue("deployment_mode"))
 
-  /**
-   * Backward-compat adapter for /v1/activity/agg: dispatch to the viewer view/agg APIs. Contents (if any)
-   * -> viewStart/viewEnd (ucc write + rollup); none -> aggregate (recompute from ucc). courseId/batchId map
-   * to collectionId/contextId. Transport per deployment_mode: monolith -> in-JVM tell; distributed -> HTTP.
-   */
+  // /v1/activity/agg adapter -> viewer: contents map to viewStart/viewEnd, none -> aggregate; transport monolith tell vs distributed HTTP
   private def delegateToViewer(userId: String, courseId: String, batchId: String,
                                contents: util.List[util.Map[String, AnyRef]], token: String,
                                ctx: RequestContext): Unit = {
@@ -110,6 +106,10 @@ class ActivityAggregatorActor extends BaseEnrolmentActor {
           put("batchId", batchId)
           put(JsonKey.USER_ID, userId)
           Option(c.get("progressdetails")).orElse(Option(c.get("progressDetails"))).foreach(pd => put("progressDetails", pd))
+          Option(c.get(JsonKey.PROGRESS)).foreach(p => put(JsonKey.PROGRESS, p))
+          Option(c.get(JsonKey.VIEW_COUNT)).foreach(v => put(JsonKey.VIEW_COUNT, v))
+          Option(c.get(JsonKey.LAST_ACCESS_TIME)).foreach(v => put(JsonKey.LAST_ACCESS_TIME, v))
+          Option(c.get(JsonKey.LAST_COMPLETED_TIME)).foreach(v => put(JsonKey.LAST_COMPLETED_TIME, v))
         }})
       }
     } else {

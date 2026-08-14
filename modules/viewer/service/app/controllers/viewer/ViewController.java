@@ -19,12 +19,7 @@ import javax.inject.Named;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
-/**
- * Granular view lifecycle APIs. Dispatches to ViewConsumptionActor (view-consumption-actor).
- *   POST /v1/view/start  -> viewStart
- *   POST /v1/view/update -> viewUpdate
- *   POST /v1/view/end    -> viewEnd
- */
+// view lifecycle APIs -> ViewConsumptionActor (view-consumption-actor)
 public class ViewController extends BaseController {
 
     private final ActorRef viewConsumptionActor;
@@ -69,9 +64,7 @@ public class ViewController extends BaseController {
         }
     }
 
-    // Reject requests missing keys the actor unconditionally dereferences, so callers get a 400 with the
-    // offending field instead of an opaque 500/NPE. Contract is courseId/batchId/contentId; userId is
-    // derived from the auth token above, so it is no longer a client-supplied mandatory field.
+    // reject requests missing courseId/batchId/contentId so callers get a 400, not an opaque NPE
     private void validate(String operation, Request request) {
         switch (operation) {
             case "viewStart": case "viewUpdate": case "viewEnd":

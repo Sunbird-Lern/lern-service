@@ -3,11 +3,7 @@ package org.sunbird.viewer.actor
 import org.apache.commons.lang3.StringUtils
 import org.sunbird.request.Request
 
-/**
- * Canonical viewer request keys — the viewer contract is courseId / batchId / contentId only.
- * Legacy courseId/batchId resolution is the caller's job (the content-consumption adapter maps them
- * before dispatching), so no fallback lives here. Null/blank-safe extraction in one place.
- */
+// viewer contract is courseId / batchId / contentId only; legacy-key resolution is the caller's job (no fallback here)
 object ViewerRequestKeys {
 
   private def value(request: Request, key: String): Option[String] =

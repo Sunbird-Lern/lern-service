@@ -14,13 +14,7 @@ import javax.inject.Named;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
-/**
- * Viewer Service — read + summary APIs (monolith wiring).
- * Dispatches to viewer-summary-actor (bound in LernServiceActorStartModule).
- *   POST   /v1/summary/read
- *   GET    /v1/summary/list/:userId
- *   DELETE /v1/summary/delete/:userId
- */
+// read + summary APIs -> viewer-summary-actor (bound in LernServiceActorStartModule)
 public class ViewSummaryController extends BaseController {
 
     @Inject

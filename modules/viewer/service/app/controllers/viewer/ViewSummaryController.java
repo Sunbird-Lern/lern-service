@@ -15,12 +15,7 @@ import javax.inject.Named;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
-/**
- * Summary APIs. Dispatches to ViewerSummaryActor (viewer-summary-actor).
- *   POST   /v1/summary/read
- *   GET    /v1/summary/list/:userId
- *   DELETE /v1/summary/delete/:userId
- */
+// summary APIs -> ViewerSummaryActor (viewer-summary-actor)
 public class ViewSummaryController extends BaseController {
 
     private final ActorRef viewerSummaryActor;

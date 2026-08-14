@@ -12,13 +12,7 @@ import javax.inject.Named;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
-/**
- * Viewer Service — granular view lifecycle APIs (monolith wiring).
- * Dispatches to view-consumption-actor (bound in LernServiceActorStartModule).
- *   POST /v1/view/start  -> viewStart
- *   POST /v1/view/update -> viewUpdate
- *   POST /v1/view/end    -> viewEnd (synchronous recursive roll-up before responding)
- */
+// view lifecycle APIs -> view-consumption-actor (bound in LernServiceActorStartModule)
 public class ViewController extends BaseController {
 
     @Inject

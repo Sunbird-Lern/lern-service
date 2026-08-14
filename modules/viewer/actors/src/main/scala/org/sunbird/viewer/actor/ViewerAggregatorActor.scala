@@ -15,21 +15,7 @@ import org.sunbird.request.{Request, RequestContext}
 import java.util
 import scala.collection.JavaConverters._
 
-/**
- * Sync, in-request recursive rollup for the viewer module. Invoked from viewEnd (per-userId serialized).
- *
- * REUSE: all aggregation math is ActivityAggregateUtil (same calls ActivityAggregatorActor uses).
- * The util treats courseId as the activity_id slot and batchId as the context slot — it does not
- * care about the names. Viewer deltas vs ActivityAggregatorActor:
- *   - optionality is PER-USER: `optional_nodes` from user_enrolments (NOT hierarchy getOptionalNodes).
- *     required = collectionLeafNodes.diff(userOpt) at leaf AND every ancestor level.
- *   - recompute from DB state each call -> idempotent, safe under per-user serialization.
- *
- * ASSUMPTIONS to verify against live schema (v2 snake_case):
- *   - user_content_consumption PK (userid, courseid, batchid, contentid); status per content.
- *   - user_enrolments keyed (userid, courseid, batchid) with optional_nodes set<text>.
- *   - user_activity_agg is the aggregate target (activity_id = collection do-id).
- */
+// Recursive rollup (reuses ActivityAggregateUtil); optionality is per-user (user_enrolments.optional_nodes), recomputed from DB each call -> idempotent.
 class ViewerAggregatorActor extends BaseEnrolmentActor {
 
   private var cassandraOperation: CassandraOperation = ServiceFactory.getInstance
@@ -92,8 +78,7 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
     }.toMap
     val childCollections = ancestors.values.flatten.filter(_ != courseId).toList.distinct
 
-    // effectiveOptional LEAVES (§5.1) = author-marked hierarchy `optionalnodes` (content-level, all nodes)
-    //   ∪ leaves of per-learner optional courses (course-level, expanded to leaves so the leaf-vs-leaf diff works).
+    // effectiveOptional leaves = author-marked hierarchy optionalnodes ∪ leaves of per-learner optional courses
     val treeNodes = courseId :: childCollections
     val hierarchyOptionalLeaves = treeNodes.flatMap(n => hierarchyRelationsUtil.getOptionalNodes(courseId, n, ctx)).distinct
     val optionalCourseLeaves = perLearnerOptionalCourses.flatMap(c => hierarchyRelationsUtil.getLeafNodes(courseId, c, ctx)).distinct
@@ -118,8 +103,7 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
     moduleAggs.foreach(a => nodeProgress(a.activityAgg.activity_id) =
       (completedCountOf(a), collectionsWithLeafNodes.getOrElse(a.activityAgg.activity_id, Nil)))
 
-    // 7. Update user_enrolments status for EVERY enrolled node in this tree (approach #1: key off the
-    //    child enrolment rows that already exist; root included).
+    // 7. Update user_enrolments status for every enrolled node in this tree (keyed off existing rows; root included)
     writeAllNodeEnrolments(userId, courseId, batchId, nodeProgress.toMap, contentStatusMap, ctx)
   }
 
@@ -132,10 +116,7 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
       cassandraOperation.batchUpdateWithPutAll(activityAggDBInfo.getKeySpace, activityAggDBInfo.getTableName, aggQueries, ctx)
   }
 
-  /**
-   * Approach #1: update user_enrolments status for every node in this tree that has an enrolment row.
-   * Matches each row on courseid ∈ tree AND this LP's batchid (§4: standalone enrolments untouched).
-   */
+  // update every node's enrolment row in this tree; matches on courseid ∈ tree AND this LP's batchid (standalone enrolments untouched)
   private def writeAllNodeEnrolments(userId: String, rootId: String, batchId: String,
                                      nodeProgress: Map[String, (Int, List[String])],
                                      contentStatusMap: Map[String, ContentStatus], ctx: RequestContext): Unit = {
@@ -145,8 +126,7 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
       .getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]])
       .asInstanceOf[util.List[util.Map[String, AnyRef]]]
     enrolRows.asScala.foreach { row =>
-      // createResponse maps columns to camelCase field names (courseid->courseId, batchid->batchId
-      // via cassandratablecolumn.properties), so result rows are always camelCase.
+      // createResponse maps DB columns to camelCase (courseid->courseId, batchid->batchId)
       val nodeId = Option(row.get("courseId")).map(_.toString).orNull
       val nodeCtx = Option(row.get("batchId")).map(_.toString).orNull
       // This LP only (root=batchId, child=batchId:childId); a standalone enrolment's batchid differs (§4).
@@ -158,8 +138,7 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
         val currentStatus = Option(row.get("status")).map(_.asInstanceOf[Number].intValue()).getOrElse(0)
         val nodeContentStatus: Map[String, AnyRef] =
           requiredLeaves.flatMap(l => contentStatusMap.get(l).map(cs => l -> Integer.valueOf(cs.status).asInstanceOf[AnyRef])).toMap
-        // updateRecordV2 replaces the whole contentstatus column — merge into the row's existing map so a
-        // root-keyed rollup that only sees some leaves doesn't clobber the rest (see mergeContentStatus).
+        // updateRecordV2 replaces the whole contentstatus column, so merge into the existing map to avoid clobbering unseen leaves
         val mergedContentStatus = ViewerAggregatorActor.mergeContentStatus(row.get("contentStatus"), nodeContentStatus)
         val selectMap = new util.HashMap[String, AnyRef]() {{
           put("userid", userId); put("courseid", nodeId); put("batchid", nodeCtx)
@@ -178,12 +157,7 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
     }
   }
 
-  /**
-   * Read this user's ucc rows for the collection, scoped to the context.
-   * (userid, courseid, batchid) is a clustering-prefix slice on PK
-   * (userid, courseid, batchid, contentid) -> efficient, no scan.
-   * batchId omitted only when absent (no-context viewer), falling back to collection-wide read.
-   */
+  // clustering-prefix slice on ucc PK (userid, courseid, batchid); batchId omitted only when absent (no-context read)
   private def readConsumption(userId: String, courseId: String, batchId: String, ctx: RequestContext): util.List[util.Map[String, AnyRef]] = {
     val filters = new util.HashMap[String, AnyRef]() {{
       put("userid", userId)
@@ -221,9 +195,7 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
 }
 
 object ViewerAggregatorActor {
-  // Merge freshly computed per-leaf statuses into the enrolment row's existing contentstatus map instead of
-  // replacing it: updateRecordV2 overwrites the whole column, so a root-keyed rollup that only sees some
-  // leaves must not wipe the rest (C2). `existing` may be null; fresh values win on key conflicts.
+  // merge fresh per-leaf statuses into the existing contentstatus map (updateRecordV2 overwrites the whole column); fresh wins on conflict
   private[actor] def mergeContentStatus(existing: AnyRef, fresh: Map[String, AnyRef]): java.util.Map[String, AnyRef] = {
     val merged = new java.util.HashMap[String, AnyRef]()
     Option(existing).foreach(m => merged.putAll(m.asInstanceOf[java.util.Map[String, AnyRef]]))

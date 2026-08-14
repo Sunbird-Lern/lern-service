@@ -14,15 +14,7 @@ import org.sunbird.utils.CloudStorageUtil
 import java.util
 import scala.collection.JavaConverters._
 
-/**
- * Summary APIs for the viewer module — enrolment-level (distinct from the per-content view actor).
- * Reads/deletes user_enrolments only; never writes consumption. Raw ucc reads (viewRead) live on
- * ViewConsumptionActor.
- *
- *   summaryRead   -> per-enrolment progress/status/contentstatus for one collection
- *   summaryList   -> all enrolment summaries for a user
- *   summaryDelete -> delete enrolment rows (all, or one collection+context)
- */
+// enrolment-level summary APIs (read/delete user_enrolments only; never writes consumption)
 class ViewerSummaryActor extends BaseEnrolmentActor {
 
   private var cassandraOperation = ServiceFactory.getInstance
@@ -45,8 +37,6 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
     val courseId = ViewerRequestKeys.courseId(request).orNull
     val batchId = ViewerRequestKeys.batchId(request).orNull
 
-    // Identified by courseId (courseid). user_enrolments carries progress/status/completionpercentage
-    // + per-content contentstatus for the enrolment — no activity_type needed.
     val enrolFilters = new util.HashMap[String, AnyRef]()
     enrolFilters.put("userid", userId)
     if (StringUtils.isNotBlank(courseId)) enrolFilters.put("courseid", courseId)
@@ -72,10 +62,7 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
     sender().tell(response, self)
   }
 
-  /**
-   * Download a user's enrolment summaries. format=json (default) returns the rows under "response";
-   * format=csv uploads the CSV to cloud storage (generic CloudStorageUtil) and returns its "url".
-   */
+  // format=json (default) returns rows; format=csv uploads the CSV and returns its signed url
   private def summaryDownload(request: Request): Unit = {
     val ctx = request.getRequestContext
     val userId = Option(request.get(JsonKey.USER_ID).asInstanceOf[String])
@@ -91,12 +78,7 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
     sender().tell(response, self)
   }
 
-  /**
-   * Write the summary CSV to a temp file and upload it to cloud storage; return the object URL.
-   * Provider-agnostic via CloudStorageUtil (StorageServiceFactory). All config-driven, nothing hardcoded:
-   *   sunbird_cloud_service_provider (provider), sunbird_content_cloud_storage_container (existing container),
-   *   viewer_summary_upload_path (object-key prefix; blank = container root). Object = <prefix>/<userId>_viewer_summary.csv
-   */
+  // upload the CSV via CloudStorageUtil (provider/container/prefix all config-driven) and return a signed url
   private def uploadSummaryCsv(userId: String, csv: String): String = {
     val storageType = ProjectUtil.getConfigValue("sunbird_cloud_service_provider")
     val container = Option(ProjectUtil.getConfigValue("viewer_summary_cloud_storage_container")).filter(StringUtils.isNotBlank)
@@ -113,8 +95,7 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
     } finally tmp.delete()
   }
 
-  // (csv header, result-row key) — getRecords/createResponse returns camelCase field names
-  // (courseid->courseId, completionpercentage->completionPercentage, ...), so read those keys.
+  // (csv header, result-row key); createResponse returns camelCase field names
   private val csvCols = List(
     ("courseid", "courseId"), ("batchid", "batchId"), ("progress", "progress"),
     ("status", "status"), ("completionpercentage", "completionPercentage"), ("completedon", "completedOn"))

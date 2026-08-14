@@ -98,6 +98,23 @@ class ViewConsumptionActorTest extends AnyFlatSpec with Matchers with MockFactor
     result should not be null
   }
 
+  "viewStart" should "keep the higher existing progress on merge (monotonic)" in {
+    val ops = mock[CassandraOperation]
+    val rows = new util.ArrayList[util.Map[String, AnyRef]](); rows.add(new util.HashMap[String, AnyRef]() {{
+      put("userid", "u1"); put("courseid", "c1"); put("batchid", "b1"); put("contentid", "ct1")
+      put("status", Integer.valueOf(1)); put("progress", Integer.valueOf(80))
+    }})
+    (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
+      .expects(*, *, *, *, *).returns(rowsWith(rows))
+    (ops.upsertRecord(_: String, _: String, _: util.Map[String, AnyRef], _: RequestContext))
+      .expects(where { (_: String, _: String, row: util.Map[String, AnyRef], _: RequestContext) => row.get("progress") == Integer.valueOf(80) })
+      .returns(new Response()).once()
+    stubEnrolmentRead(ops, emptyRows)
+    val req = viewRequest("viewStart"); req.put("progress", Integer.valueOf(50)) // lower than existing 80
+    val result = callActor(req, Props(new ViewConsumptionActor(replyingAggregator).setCassandraOperation(ops)))
+    result should not be null
+  }
+
   "viewUpdate" should "upsert when the row exists and is not completed" in {
     val ops = mock[CassandraOperation]
     val rows = new util.ArrayList[util.Map[String, AnyRef]](); rows.add(uccRow(1))

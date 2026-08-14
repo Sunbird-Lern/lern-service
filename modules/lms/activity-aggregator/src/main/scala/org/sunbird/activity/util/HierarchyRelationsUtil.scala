@@ -88,10 +88,7 @@ class HierarchyRelationsUtil(cassandraOperation: CassandraOperation) {
 object HierarchyRelationsUtil {
   def apply(cassandraOperation: CassandraOperation): HierarchyRelationsUtil = new HierarchyRelationsUtil(cassandraOperation)
 
-  // JVM-wide TTL cache of relationship_key -> node_ids. The hierarchy tree changes only on collection
-  // republish; we accept up to TTL of staleness (structure-only, self-heals on next recompute) instead
-  // of detecting republish. Empty results are NOT cached, so a freshly-published collection isn't held
-  // stale. Set hierarchy_relations_cache_ttl=0 to disable.
+  // JVM-wide TTL cache of relationship_key -> node_ids; accepts up to TTL of staleness on republish (empty results not cached; ttl=0 disables)
   // ponytail: TTL eviction; go version-keyed/event-driven only if republish-during-consumption bites.
   private val ttlMillis: Long =
     Option(ProjectUtil.getConfigValue("hierarchy_relations_cache_ttl"))

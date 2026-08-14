@@ -104,8 +104,7 @@ class ContentConsumptionActor @Inject() (
               if (CollectionUtils.isNotEmpty(contentList)) (contentList ++ assessmentConsumptions).asJava else assessmentConsumptions.asJava
             } else contentList
             logger.info(requestContext, "Final content-consumption data: " + finalContentList)
-            // viewer.enabled -> the Viewer Service owns CONTENT consumption (/v1/view/start|end: ucc write +
-            // recursive rollup). Content-state API contract preserved.
+            // viewer.enabled -> Viewer Service owns content consumption (ucc write + rollup); content-state contract preserved
             val contentConsumptionResponse =
               if (isViewerEnabled) delegateContentsToViewer(finalContentList, request, requestBy, requestedFor)
               else processContents(finalContentList, requestContext, requestBy, requestedFor)
@@ -484,8 +483,7 @@ class ContentConsumptionActor @Inject() (
         }
     }
 
-    /** Dispatch content/state items to the viewer (status>=2 -> viewEnd else viewStart), applying the legacy
-     *  batch-validity guards (invalid/closed batches skipped + reported); courseId falls back to collectionId. */
+    // dispatch content/state to the viewer (status>=2 -> viewEnd else viewStart), keeping the legacy invalid/closed-batch guards
     private def delegateContentsToViewer(contentList: java.util.List[java.util.Map[String, AnyRef]],
                                          originalRequest: Request,
                                          requestedBy: String, requestedFor: String): Option[Response] = {
@@ -539,11 +537,7 @@ class ContentConsumptionActor @Inject() (
         val response = new Response(); response.putAll(responseMessage); Option(response)
     }
 
-    /**
-     * Backward-compat adapter for content/state/read: fetch the ucc rows from the viewer (viewRead) instead
-     * of a direct Cassandra read. Returns the same row shape getContentsConsumption produces (monolith:
-     * native Cassandra types; distributed: coerced back from JSON), so the caller's post-processing is unchanged.
-     */
+    // content/state/read adapter: fetch ucc rows via viewRead; same row shape as getContentsConsumption so post-processing is unchanged
     private def readContentsFromViewer(userId: String, courseId: String, batchId: String,
                                        contentIds: java.util.List[String], originalRequest: Request): java.util.List[java.util.Map[String, AnyRef]] = {
         val ctx = originalRequest.getRequestContext
@@ -589,9 +583,7 @@ class ContentConsumptionActor @Inject() (
         val courseId = request.get(JsonKey.COURSE_ID).asInstanceOf[String]
         val contentIds = request.getRequest.getOrDefault(JsonKey.CONTENT_IDS, new java.util.ArrayList[String]()).asInstanceOf[java.util.List[String]]
         val fields = request.getRequest.getOrDefault(JsonKey.FIELDS, new java.util.ArrayList[String](){{ add(JsonKey.PROGRESS) }}).asInstanceOf[java.util.List[String]]
-        // viewer.enabled -> Content-State-Read is served by the Viewer Service (/v1/view/read), so raw
-        // ucc reads can be archived away from this API. Same rows, so the existing post-processing
-        // (field filtering, json parse, date format, optional assessment score) is reused unchanged.
+        // viewer.enabled -> content-state read served by the Viewer Service (/v1/view/read); same rows, so post-processing is reused unchanged
         val contentsConsumed =
           if (isViewerEnabled) readContentsFromViewer(userId, courseId, batchId, contentIds, request)
           else getContentsConsumption(userId, courseId, contentIds, batchId, request.getRequestContext)

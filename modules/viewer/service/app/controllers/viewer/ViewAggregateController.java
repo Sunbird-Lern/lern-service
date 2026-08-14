@@ -14,14 +14,7 @@ import javax.inject.Named;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
-/**
- * Viewer resync API — recomputes a learner's collection roll-up from user_content_consumption.
- * Idempotent (recompute-from-source), so safe to call repeatedly: backfill, drift repair, or a
- * recompute after a collection is republished. Mirrors the legacy POST /v1/activity/agg, but targets
- * the viewer aggregator (viewer-aggregator-actor, op "aggregate"). Runs on the userId-hashed pool, so
- * a resync serialises with any live /v1/view/end for that learner — no race with real-time roll-ups.
- *   POST /v1/view/agg   { request: { userId, courseId, batchId } }
- */
+// idempotent resync -> viewer-aggregator-actor "aggregate"; recomputes a learner's roll-up from user_content_consumption
 public class ViewAggregateController extends BaseController {
 
     private final ActorRef viewerAggregatorActor;

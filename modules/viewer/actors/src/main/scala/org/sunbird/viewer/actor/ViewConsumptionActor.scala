@@ -16,18 +16,7 @@ import java.util
 import javax.inject.{Inject, Named}
 import scala.collection.JavaConverters._
 
-/**
- * Granular view lifecycle writes to user_content_consumption (ucc).
- *
- * Write model = read-modify-upsert with MONOTONIC merge (mirrors ContentConsumptionActor;
- * NOT Paxos LWT). Race-free by monotonicity + Cassandra per-cell LWW + per-userId serialization:
- *   viewStart  -> INSERT only if absent (status 1); if present, no-op.
- *   viewUpdate -> merge only if row exists; revisits (already status 2) ignored.
- *   viewEnd    -> status 2 + completed time; then async aggregation (fire-and-forget tell).
- *
- * ucc PK (viewer schema §2): (userid, courseid, batchid, contentid).
- * No collection context -> courseid = batchid = contentid.
- */
+// View lifecycle writes to user_content_consumption: read-modify-upsert with monotonic merge, per-userId serialized (not LWT).
 class ViewConsumptionActor @Inject() (
     @Named("viewer-aggregator-actor") viewerAggregatorActor: ActorRef
 ) extends BaseEnrolmentActor {
@@ -38,17 +27,11 @@ class ViewConsumptionActor @Inject() (
   private val CONSUMPTION_TABLE = "user_content_consumption"
   private val enrolmentDBInfo = Util.dbInfoMap.get(JsonKey.LEARNER_COURSE_DB)
 
-  /**
-   * Stamp the enrolment's last-content-access on every view op (mirrors standard content-consumption):
-   * user_enrolments.lastcontentaccesstime/lastreadcontentid/lastreadcontentstatus. Keyed by the ucc
-   * primary key (userid, courseid, batchid). This is what summary/list surfaces as access time.
-   */
   private def touchEnrolmentAccess(key: util.HashMap[String, AnyRef], status: Int, ctx: RequestContext): Unit = {
     val selectMap = new util.HashMap[String, AnyRef]() {{
       put("userid", key.get("userid")); put("courseid", key.get("courseid")); put("batchid", key.get("batchid"))
     }}
-    // Only stamp an EXISTING enrolment. updateRecordV2's ifExists is a no-op (plain UPDATE upserts in
-    // Cassandra), so without this guard a no-context/unenrolled view would fabricate a phantom enrolment row.
+    // only stamp an EXISTING enrolment — a plain UPDATE would fabricate a phantom row for an unenrolled view
     val existing = cassandraOperation.getRecordByIdentifier(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, selectMap, null, ctx)
       .getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]]).asInstanceOf[util.List[util.Map[String, AnyRef]]]
     if (existing.isEmpty) { logger.info(ctx, s"view: access skip(no-enrolment) | user=${key.get("userid")} course=${key.get("courseid")} batch=${key.get("batchid")}"); return }
@@ -71,7 +54,7 @@ class ViewConsumptionActor @Inject() (
     }
   }
 
-  /** Raw ucc rows for a user's content(s) under a collection. context=all -> ignore batchid. */
+  // context=all -> ignore batchid (read across all contexts)
   private def viewRead(request: Request): Unit = {
     val ctx = request.getRequestContext
     val userId = request.get(JsonKey.USER_ID).asInstanceOf[String]
@@ -105,8 +88,7 @@ class ViewConsumptionActor @Inject() (
       cassandraOperation.upsertRecord(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
       logger.info(ctx, s"view: start inserted | user=${key.get("userid")} course=${key.get("courseid")} batch=${key.get("batchid")} content=${key.get("contentid")}")
     } else {
-      // Row already exists: still merge client progress/viewcount/lastAccessTime monotonically
-      // (mirrors legacy ContentConsumptionActor.processContentConsumption) even though status/insert is a no-op.
+      // row exists: merge client progress/viewcount/lastAccessTime monotonically (max / later-of)
       val row = new util.HashMap[String, AnyRef](key)
       if (applyClientFields(request, existing, row)) {
         row.put("last_updated_time", ProjectUtil.getTimeStamp)
@@ -142,22 +124,21 @@ class ViewConsumptionActor @Inject() (
     val existing = readRow(key, ctx)
     val row = new util.HashMap[String, AnyRef](key)
     row.put("status", Integer.valueOf(2))
-    row.put("progress", Integer.valueOf(100))
+    row.put("progress", Integer.valueOf(100)) // viewEnd always completes
     Option(request.get("progressDetails")).foreach(pd => row.put("progressdetails", mapper.writeValueAsString(pd)))
     row.put("last_completed_time", mergeCompletedTime(existing, request))
     row.put("last_access_time", mergeTime(existing, "last_access_time", request, JsonKey.LAST_ACCESS_TIME))
-    applyClientFields(request, existing, row)
-    row.put("progress", Integer.valueOf(100)) // viewEnd always completes -> progress pinned to 100, mirrors legacy
+    Option(request.get(JsonKey.VIEW_COUNT)).foreach(v =>
+      row.put("viewcount", Integer.valueOf(math.max(intOf(v.asInstanceOf[AnyRef]), if (existing != null) intOf(existing.get("viewcount")) else 0))))
     row.put("last_updated_time", ProjectUtil.getTimeStamp)
     cassandraOperation.upsertRecord(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
     logger.info(ctx, s"view: end completed | user=${key.get("userid")} course=${key.get("courseid")} batch=${key.get("batchid")} content=${key.get("contentid")}")
     touchEnrolmentAccess(key, 2, ctx)
-    // Async rollup: fire-and-forget tell to the aggregator; respond immediately (does not wait).
     triggerAggregation(request, ctx)
     sender().tell(successResponse(), self)
   }
 
-  /** Fire-and-forget tell to ViewerAggregatorActor; the rollup runs async — the response does not wait. */
+  // fire-and-forget tell to the aggregator; rollup runs async, the response does not wait
   private def triggerAggregation(request: Request, ctx: RequestContext): Unit = {
     val key = viewKey(request)
     val aggRequest = new Request()
@@ -166,17 +147,11 @@ class ViewConsumptionActor @Inject() (
     aggRequest.put(JsonKey.USER_ID, key.get("userid"))
     aggRequest.put("courseId", key.get("courseid"))
     aggRequest.put("batchId", key.get("batchid"))
-    // Async, fire-and-forget: the rollup + LP progression run in the background on the aggregator
-    // (per-user serialized). The hot path does not wait for it — the change from before is ask -> tell.
     logger.info(ctx, s"view: rollup triggered | user=${key.get("userid")} course=${key.get("courseid")} batch=${key.get("batchid")}")
     viewerAggregatorActor.tell(aggRequest, ActorRef.noSender)
   }
 
-  /**
-   * Build the ucc primary key (live column names userid, courseid, batchid, contentid).
-   * Backward-compatible request keys: courseId (else legacy courseId), batchId (else legacy
-   * batchId). No collection ctx -> courseid = batchid = contentId.
-   */
+  // ucc primary key; no collection ctx -> courseid = batchid = contentId
   private def viewKey(request: Request): util.HashMap[String, AnyRef] = {
     // explicit userId (internal delegation) else requestedFor/requestedBy (from token on direct API calls)
     val userId = Option(request.get(JsonKey.USER_ID).asInstanceOf[String]).filter(StringUtils.isNotBlank)
