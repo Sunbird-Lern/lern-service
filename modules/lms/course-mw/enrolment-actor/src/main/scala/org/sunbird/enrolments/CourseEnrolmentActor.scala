@@ -164,6 +164,7 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
             enrolment.put(JsonKey.LEAF_NODE_COUNT, courseContent.get(JsonKey.LEAF_NODE_COUNT))
             enrolment.put(JsonKey.COURSE_LOGO_URL, courseContent.get(JsonKey.APP_ICON))
             enrolment.put(JsonKey.CONTENT_ID, enrolment.get(JsonKey.COURSE_ID))
+            enrolment.put(JsonKey.COLLECTION_ID, enrolment.get(JsonKey.COURSE_ID))
             enrolment.put(JsonKey.CONTENT, courseContent)
             enrolment
         }).toList.asJava
