@@ -1,13 +1,16 @@
 package org.sunbird.viewer.actor
 
+import com.google.gson.Gson
 import org.apache.commons.collections4.CollectionUtils
-import org.sunbird.activity.domain.{ContentStatus, UserContentConsumption, UserEnrolmentAgg}
-import org.sunbird.activity.util.{ActivityAggregateUtil, HierarchyRelationsUtil}
+import org.sunbird.activity.domain.{ActorObject, ContentStatus, EventContext, EventData, EventObject, TelemetryEvent, UserContentConsumption, UserEnrolmentAgg}
+import org.sunbird.activity.util.{ActivityAggregateUtil, CertificateUtil, HierarchyRelationsUtil}
 import org.sunbird.cassandra.CassandraOperation
+import org.sunbird.common.ProjectUtil
 import org.sunbird.exception.ProjectCommonException
 import org.sunbird.response.ResponseCode
 import org.sunbird.enrolments.BaseEnrolmentActor
 import org.sunbird.helper.ServiceFactory
+import org.sunbird.kafka.KafkaClient
 import org.sunbird.keys.JsonKey
 import org.sunbird.learner.util.Util
 import org.sunbird.request.{Request, RequestContext}
@@ -21,6 +24,9 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
   private var cassandraOperation: CassandraOperation = ServiceFactory.getInstance
   private var hierarchyRelationsUtil: HierarchyRelationsUtil = HierarchyRelationsUtil(cassandraOperation)
   private val activityAggUtil = new ActivityAggregateUtil()
+  private var certificateUtil: CertificateUtil = CertificateUtil()
+  private val gson = new Gson()
+  private def auditEventTopic = Option(ProjectUtil.getConfigValue("kafka_topics_audit_event")).getOrElse("dev.telemetry.raw")
 
   private val enrolmentDBInfo = Util.dbInfoMap.get(JsonKey.LEARNER_COURSE_DB)
   private val activityAggDBInfo = Util.dbInfoMap.get(JsonKey.GROUP_ACTIVITY_DB)
@@ -151,9 +157,30 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
           if (status == 2 && currentStatus != 2) put("completedon", new java.util.Date())
         }}
         cassandraOperation.updateRecordV2(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, selectMap, updateMap, true, ctx)
-        if (status == 2 && currentStatus != 2)
+        if (status == 2 && currentStatus != 2) {
           logger.info(ctx, s"viewer.rollup: node completed | user=$userId course=$nodeId batch=$nodeCtx")
+          publishCompletionEvents(userId, nodeId, nodeCtx, ctx)
+        }
       }
+    }
+  }
+
+  // on completion: same events as the legacy activity-aggregator — issue-certificate + enrol-complete audit (best-effort; a kafka hiccup must not fail the rollup)
+  private def publishCompletionEvents(userId: String, courseId: String, batchId: String, ctx: RequestContext): Unit = {
+    try {
+      certificateUtil.publishCertificateIssueEvent(userId, courseId, batchId, ctx)
+      val auditEvent = TelemetryEvent(
+        actor = ActorObject(id = userId, `type` = "User"),
+        edata = EventData(props = Array("status", "completedon"), `type` = "enrol-complete"),
+        context = EventContext(cdata = Array(
+          Map("type" -> "CourseBatch", "id" -> batchId).asJava,
+          Map("type" -> "Course", "id" -> courseId).asJava
+        )),
+        `object` = EventObject(id = userId, `type` = "User", rollup = Map("l1" -> courseId).asJava)
+      )
+      KafkaClient.send(gson.toJson(auditEvent), auditEventTopic)
+    } catch {
+      case ex: Exception => logger.error(ctx, s"viewer.rollup: completion event publish failed | user=$userId course=$courseId batch=$batchId", ex)
     }
   }
 

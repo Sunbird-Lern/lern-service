@@ -95,16 +95,23 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
 
   // (csv header, result-row key); createResponse returns camelCase field names
   private val csvCols = List(
-    ("courseid", "courseId"), ("batchid", "batchId"), ("progress", "progress"),
-    ("status", "status"), ("completionpercentage", "completionPercentage"), ("completedon", "completedOn"))
+    ("courseid", "courseId"), ("batchid", "batchId"), ("status", "status"),
+    ("completionpercentage", "completionPercentage"), ("progress", "progress"),
+    ("completedon", "completedOn"), ("enrolleddate", "enrolledDate"),
+    ("lastcontentaccesstime", "lastContentAccessTime"), ("certificatescount", "issuedCertificates"))
   // RFC-4180: quote any field containing a comma, quote, or line break; escape embedded quotes as "".
   private def csvField(v: String): String =
     if (v.exists(c => c == ',' || c == '"' || c == '\n' || c == '\r')) "\"" + v.replace("\"", "\"\"") + "\""
     else v
+  // issuedCertificates is a list -> emit its count; every other column -> the string value
+  private def csvCell(r: util.Map[String, AnyRef], key: String): String = key match {
+    case "issuedCertificates" => Option(r.get(key)).collect { case c: util.Collection[_] => c.size.toString }.getOrElse("0")
+    case _ => Option(r.get(key)).map(_.toString).getOrElse("")
+  }
   private def toCsv(rows: util.List[util.Map[String, AnyRef]]): String = {
     val sb = new StringBuilder(csvCols.map(_._1).mkString(",")).append("\n")
     rows.asScala.foreach { r =>
-      sb.append(csvCols.map { case (_, key) => csvField(Option(r.get(key)).map(_.toString).getOrElse("")) }.mkString(",")).append("\n")
+      sb.append(csvCols.map { case (_, key) => csvField(csvCell(r, key)) }.mkString(",")).append("\n")
     }
     sb.toString
   }
