@@ -7,9 +7,9 @@ import org.sunbird.enrolments.BaseEnrolmentActor
 import org.sunbird.helper.ServiceFactory
 import org.sunbird.keys.JsonKey
 import org.sunbird.learner.util.Util
+import org.sunbird.utils.CloudStorageUtil
 import org.sunbird.request.{Request, RequestContext}
 import org.sunbird.response.Response
-import org.sunbird.utils.CloudStorageUtil
 
 import java.util
 import scala.collection.JavaConverters._
@@ -62,7 +62,7 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
     sender().tell(response, self)
   }
 
-  // format=json (default) returns rows; format=csv uploads the CSV and returns its signed url
+  // format=json (default) returns rows; format=csv uploads the CSV and returns its url
   private def summaryDownload(request: Request): Unit = {
     val ctx = request.getRequestContext
     val userId = Option(request.get(JsonKey.USER_ID).asInstanceOf[String])
@@ -78,7 +78,7 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
     sender().tell(response, self)
   }
 
-  // upload the CSV via CloudStorageUtil (provider/container/prefix all config-driven) and return a signed url
+  // upload the CSV via CloudStorageUtil (provider/container/prefix config-driven) and return the object url
   private def uploadSummaryCsv(userId: String, csv: String): String = {
     val storageType = ProjectUtil.getConfigValue("sunbird_cloud_service_provider")
     val container = Option(ProjectUtil.getConfigValue("viewer_summary_cloud_storage_container")).filter(StringUtils.isNotBlank)
@@ -90,8 +90,6 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
       val w = new java.io.PrintWriter(tmp, "UTF-8")
       try w.write(csv) finally w.close()
       CloudStorageUtil.upload(storageType, container, objectKey, tmp.getAbsolutePath)
-      // return a time-limited signed URL for the private learner data (mirrors BulkUploadManagementActor)
-      CloudStorageUtil.getSignedUrl(storageType, container, objectKey)
     } finally tmp.delete()
   }
 
