@@ -295,7 +295,7 @@ class CourseConsumptionActorTest extends FlatSpec with Matchers with MockFactory
         ((keyspace: _root_.scala.Predef.String, table: _root_.scala.Predef.String, filters: _root_.java.util.Map[_root_.scala.Predef.String, AnyRef], fields: _root_.java.util.List[_root_.scala.Predef.String], requestContext: RequestContext) => cassandraOperation.getRecords(keyspace, table, filters, fields, requestContext)).expects(*, *, *, *, *).returns(response)
         val result = callActor(getStateReadRequestWithProgressField(), Props(new ContentConsumptionActor(mockActivityAggregatorActor, mockAssessmentAggregatorActor).setCassandraOperation(cassandraOperation, false)))
 
-        result.getResult().get("response").toString.shouldEqual("[{progressDetails={key1=val1, key2=val2}, contentId=do_456, batchId=0123, courseId=do_123, collectionId=do_123, progressdetails={}}]")
+        result.getResult().get("response").toString.shouldEqual("[{progressDetails={key1=val1, key2=val2}, contentId=do_456, batchId=0123, courseId=do_123, progressdetails={}}]")
         assert(null != result)
     }
 
