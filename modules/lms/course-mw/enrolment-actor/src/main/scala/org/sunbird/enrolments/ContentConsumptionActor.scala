@@ -205,12 +205,17 @@ class ContentConsumptionActor @Inject() (
                     userContents.foreach(entry => {
                         val userId = entry._1
                         if(validUserIds.contains(userId)) {
-                            val courseId = entry._2.head.getOrDefault(JsonKey.COURSE_ID, "").asInstanceOf[String]
+                            val courseId = if (entry._2.head.containsKey(JsonKey.COURSE_ID)) entry._2.head.getOrDefault(JsonKey.COURSE_ID, "").asInstanceOf[String] else entry._2.head.getOrDefault(JsonKey.COLLECTION_ID, "").asInstanceOf[String]
+                            if(entry._2.head.containsKey(JsonKey.COLLECTION_ID)) entry._2.head.remove(JsonKey.COLLECTION_ID)
                             val contentIds = entry._2.map(e => e.getOrDefault(JsonKey.CONTENT_ID, "").asInstanceOf[String]).distinct.asJava
                             val existingContents = getContentsConsumption(userId, courseId, contentIds, batchId, requestContext).groupBy(x => x.get("contentId").asInstanceOf[String]).map(e => e._1 -> e._2.toList.head).toMap
                             val contents:List[java.util.Map[String, AnyRef]] = entry._2.toList.map(inputContent => {
                                 val existingContent = existingContents.getOrElse(inputContent.get("contentId").asInstanceOf[String], new java.util.HashMap[String, AnyRef])
-                                CassandraUtil.changeCassandraColumnMapping(processContentConsumption(inputContent, existingContent, userId))
+                                val m = CassandraUtil.changeCassandraColumnMapping(processContentConsumption(inputContent, existingContent, userId))
+                                // ucc columns were renamed courseid->collectionid, batchid->contextid; the global column map still yields courseid/batchid
+                                Option(m.remove("courseid")).foreach(v => m.put("collectionid", v))
+                                Option(m.remove("batchid")).foreach(v => m.put("contextid", v))
+                                m
                             })
                             cassandraOperation.batchInsertLogged(consumptionDBInfo.getKeySpace, consumptionDBInfo.getTableName, contents, requestContext)
                             val updateData = getLatestReadDetails(userId, batchId, contents)
@@ -465,9 +470,13 @@ class ContentConsumptionActor @Inject() (
     /** Write op (view/start|end, assessment/submit): monolith asks the in-JVM actor, distributed POSTs. */
     private def viewerWrite(actorName: String, httpApi: String, operation: String,
                             body: java.util.Map[String, AnyRef], token: String, ctx: RequestContext): Boolean =
-        if (isMonolith) viewerAsk(actorName, operation, body, ctx) != null
-        else StringUtils.isNotBlank(HttpClientUtil.post(viewerBaseUrl + httpApi,
-            mapper.writeValueAsString(new java.util.HashMap[String, AnyRef]() {{ put(JsonKey.REQUEST, body) }}), viewerHeaders(token), ctx))
+        // success = a Response reply / responseCode OK; onReceiveException replies with the (non-null) exception, so a bare null-check would report failures as SUCCESS
+        if (isMonolith) viewerAsk(actorName, operation, body, ctx) match { case _: Response => true; case _ => false }
+        else {
+            val resp = HttpClientUtil.post(viewerBaseUrl + httpApi,
+                mapper.writeValueAsString(new java.util.HashMap[String, AnyRef]() {{ put(JsonKey.REQUEST, body) }}), viewerHeaders(token), ctx)
+            StringUtils.isNotBlank(resp) && (try "OK" == mapper.readTree(resp).path("responseCode").asText("") catch { case _: Exception => false })
+        }
     /** Read op (view/read): ucc rows. Monolith returns native Cassandra types; distributed parses JSON + coerces. */
     private def viewerRead(actorName: String, httpApi: String, operation: String,
                            body: java.util.Map[String, AnyRef], token: String, ctx: RequestContext): java.util.List[java.util.Map[String, AnyRef]] = {
@@ -573,6 +582,9 @@ class ContentConsumptionActor @Inject() (
                             put("batchId", batchId)
                             put(JsonKey.USER_ID, userId)
                             put(JsonKey.ASSESSMENT_EVENTS, evs)
+                            // forward client attemptId/assessmentTs (documented contract) so replays upsert and offline-sync ts is preserved
+                            Option(a.get(JsonKey.ATTEMPT_ID)).foreach(v => put(JsonKey.ATTEMPT_ID, v))
+                            Option(a.get(JsonKey.ASSESSMENT_TS)).orElse(Option(a.get("assessmentTimestamp"))).foreach(v => put(JsonKey.ASSESSMENT_TS, v))
                         }}
                         responseMessage.put(batchId, if (viewerWrite("view-consumption-actor", "/v1/assessment/submit", "viewAssess", body, token, ctx)) JsonKey.SUCCESS else "FAILED")
                     } catch {
@@ -641,7 +653,11 @@ class ContentConsumptionActor @Inject() (
         val response = new Response
         if(CollectionUtils.isNotEmpty(contentsConsumed)) {
             val filteredContents = contentsConsumed.map(m => {
+                // surface renamed ucc columns as the courseId/batchId contract (no-op for the viewer path, which already aliases in viewRead)
+                Option(m.remove("collectionid")).foreach(v => m.put("courseId", v))
+                Option(m.remove("contextid")).foreach(v => m.put("batchId", v))
                 ProjectUtil.removeUnwantedFields(m, JsonKey.DATE_TIME, JsonKey.USER_ID, JsonKey.ADDED_BY, JsonKey.LAST_UPDATED_TIME, JsonKey.OLD_LAST_ACCESS_TIME, JsonKey.OLD_LAST_UPDATED_TIME, JsonKey.OLD_LAST_COMPLETED_TIME)
+                m.put(JsonKey.COLLECTION_ID, m.getOrDefault(JsonKey.COURSE_ID, ""))
                 jsonFields.foreach(field =>
                     if(m.get(field) != null)
                         m.put(field, mapper.readTree(m.get(field).asInstanceOf[String]))

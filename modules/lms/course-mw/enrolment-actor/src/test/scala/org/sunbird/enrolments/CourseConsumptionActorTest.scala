@@ -89,6 +89,24 @@ class CourseConsumptionActorTest extends FlatSpec with Matchers with MockFactory
         assert(null!= result)
     }
 
+    "update Consumption (viewer disabled)" should "write ucc with the renamed collectionid/contextid columns" in {
+        val cassandraOperation = mock[CassandraOperation]
+        val esService = mock[ElasticSearchService]
+        val response = new Response()
+        response.put("response", new java.util.ArrayList[java.util.Map[String, AnyRef]]())
+        (esService.search(_: SearchDTO, _: String, _: RequestContext)).expects(*,*,*).returns(concurrent.Future{validBatchData()})
+        (cassandraOperation.getRecords(_: String, _: String, _: java.util.Map[String, AnyRef], _: java.util.List[String], _:RequestContext)).expects(*,*,*,*,*).returns(response)
+        // lock the rename fix: the legacy write must target collectionid/contextid, never the renamed-away courseid/batchid
+        (cassandraOperation.batchInsertLogged(_: String, _: String, _: java.util.List[java.util.Map[String, AnyRef]], _:RequestContext))
+          .expects(where { (_: String, _: String, rows: java.util.List[java.util.Map[String, AnyRef]], _: RequestContext) =>
+              !rows.isEmpty && rows.get(0).containsKey("collectionid") && rows.get(0).containsKey("contextid") &&
+                !rows.get(0).containsKey("courseid") && !rows.get(0).containsKey("batchid")
+          })
+        (cassandraOperation.updateRecordV2(_: String, _: String, _: java.util.Map[String, AnyRef], _: java.util.Map[String, AnyRef], _: Boolean, _:RequestContext)).expects("sunbird_courses", "user_enrolments",*,*,true,*)
+        val result = callActor(getStateUpdateRequest(), Props(new ContentConsumptionActor(mockActivityAggregatorActor, mockAssessmentAggregatorActor).setCassandraOperation(cassandraOperation, false).setEsService(esService)))
+        assert(null != result)
+    }
+
     "sync enrolment" should "return success on updating the progress" in {
         val cassandraOperation = mock[CassandraOperation]
         val esService = mock[ElasticSearchService]
@@ -295,7 +313,7 @@ class CourseConsumptionActorTest extends FlatSpec with Matchers with MockFactory
         ((keyspace: _root_.scala.Predef.String, table: _root_.scala.Predef.String, filters: _root_.java.util.Map[_root_.scala.Predef.String, AnyRef], fields: _root_.java.util.List[_root_.scala.Predef.String], requestContext: RequestContext) => cassandraOperation.getRecords(keyspace, table, filters, fields, requestContext)).expects(*, *, *, *, *).returns(response)
         val result = callActor(getStateReadRequestWithProgressField(), Props(new ContentConsumptionActor(mockActivityAggregatorActor, mockAssessmentAggregatorActor).setCassandraOperation(cassandraOperation, false)))
 
-        result.getResult().get("response").toString.shouldEqual("[{progressDetails={key1=val1, key2=val2}, contentId=do_456, batchId=0123, courseId=do_123, progressdetails={}}]")
+        result.getResult().get("response").toString.shouldEqual("[{progressDetails={key1=val1, key2=val2}, contentId=do_456, batchId=0123, courseId=do_123, collectionId=do_123, progressdetails={}}]")
         assert(null != result)
     }
 
