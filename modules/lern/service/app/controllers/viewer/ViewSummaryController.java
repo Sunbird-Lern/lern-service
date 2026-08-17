@@ -65,6 +65,9 @@ public class ViewSummaryController extends BaseController {
     private CompletionStage<Result> dispatchBody(String operation, Http.Request httpRequest) {
         try {
             Request request = createAndInitRequest(operation, httpRequest.body().asJson(), httpRequest);
+            // userId from the auth token, never the body — matches ViewController.dispatch and blocks reading another user's summary
+            String userId = (String) request.getContext().getOrDefault(JsonKey.REQUESTED_FOR, request.getContext().get(JsonKey.REQUESTED_BY));
+            request.getRequest().put(JsonKey.USER_ID, userId);
             return actorResponseHandler(viewerSummaryActor, request, timeout, null, httpRequest);
         } catch (Exception e) {
             return CompletableFuture.completedFuture(createCommonExceptionResponse(e, httpRequest));
