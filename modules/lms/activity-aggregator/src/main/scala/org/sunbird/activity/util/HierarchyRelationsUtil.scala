@@ -22,7 +22,10 @@ class HierarchyRelationsUtil(cassandraOperation: CassandraOperation) {
     Option(ProjectUtil.getConfigValue("hierarchy_relations_redis_index")).map(_.toInt).getOrElse(10)
   private def redisEnabled: Boolean = RedisCacheUtil.isRedisEnabled
 
-  def readFromDB(key: String, requestContext: RequestContext): List[String] = {
+  def readFromDB(key: String, requestContext: RequestContext): List[String] =
+    HierarchyRelationsUtil.cached(key)(readFromDBUncached(key, requestContext))
+
+  private def readFromDBUncached(key: String, requestContext: RequestContext): List[String] = {
     if (redisEnabled) {
       try {
         val nodes = redisCacheUtil.getList(key, hierarchyRelationsRedisIndex)
@@ -102,4 +105,23 @@ class HierarchyRelationsUtil(cassandraOperation: CassandraOperation) {
 
 object HierarchyRelationsUtil {
   def apply(cassandraOperation: CassandraOperation): HierarchyRelationsUtil = new HierarchyRelationsUtil(cassandraOperation)
+
+  // JVM-wide TTL cache of relationship_key -> node_ids; accepts up to TTL of staleness on republish (empty results not cached; ttl=0 disables)
+  // ponytail: TTL eviction; go version-keyed/event-driven only if republish-during-consumption bites.
+  private val ttlMillis: Long =
+    Option(ProjectUtil.getConfigValue("hierarchy_relations_cache_ttl"))
+      .filter(_.trim.nonEmpty).map(_.trim.toLong).getOrElse(300L) * 1000L
+  private val cache = new java.util.concurrent.ConcurrentHashMap[String, (Long, List[String])]()
+
+  private def cached(key: String)(load: => List[String]): List[String] = {
+    if (ttlMillis <= 0) return load
+    val now = System.currentTimeMillis()
+    val hit = cache.get(key)
+    if (hit != null && hit._1 > now) hit._2
+    else {
+      val v = load
+      if (v.nonEmpty) cache.put(key, (now + ttlMillis, v))
+      v
+    }
+  }
 }
