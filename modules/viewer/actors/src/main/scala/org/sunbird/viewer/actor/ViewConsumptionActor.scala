@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import org.apache.commons.collections4.CollectionUtils
 import org.apache.commons.lang3.StringUtils
 import org.apache.pekko.actor.ActorRef
+import org.sunbird.assessment.models._
+import org.sunbird.assessment.service.{AssessmentService, CassandraService, ContentService}
+import org.sunbird.assessment.util.AssessmentParser
 import org.sunbird.common.ProjectUtil
 import org.sunbird.enrolments.BaseEnrolmentActor
 import org.sunbird.helper.ServiceFactory
@@ -26,6 +29,10 @@ class ViewConsumptionActor @Inject() (
   private val consumptionDBInfo = Util.dbInfoMap.get(JsonKey.LEARNER_CONTENT_DB)
   private val CONSUMPTION_TABLE = "user_content_consumption"
   private val enrolmentDBInfo = Util.dbInfoMap.get(JsonKey.LEARNER_COURSE_DB)
+  // assessment scoring reuses the assessment-aggregator services in-process (same math + persistence as the legacy job);
+  // assessmentCassandra shares the injected CassandraOperation so setCassandraOperation() controls it in tests too
+  private lazy val assessmentService = new AssessmentService(new ContentService())
+  private lazy val assessmentCassandra = new CassandraService(Some(cassandraOperation))
 
   private def touchEnrolmentAccess(key: util.HashMap[String, AnyRef], status: Int, ctx: RequestContext): Unit = {
     val selectMap = new util.HashMap[String, AnyRef]() {{
@@ -50,8 +57,83 @@ class ViewConsumptionActor @Inject() (
       case "viewUpdate"     => viewUpdate(request)
       case "viewEnd"        => viewEnd(request)
       case "viewRead"       => viewRead(request)
+      case "viewAssess"     => viewAssess(request)
+      case "assessmentRead" => assessmentRead(request)
       case _                => onReceiveUnsupportedOperation(request.getOperation)
     }
+  }
+
+  // /v1/assessment/submit: score the attempt via the assessment services (same as legacy AssessmentAggregatorActor),
+  // then treat the assessment leaf as completed content -> ucc status=2 + the same rollup as viewEnd.
+  private def viewAssess(request: Request): Unit = {
+    val ctx = request.getRequestContext
+    val key = viewKey(request)
+    val userId = key.get("userid").asInstanceOf[String]
+    val collectionId = key.get("collectionid").asInstanceOf[String]
+    val contextId = key.get("contextid").asInstanceOf[String]
+    val contentId = key.get("contentid").asInstanceOf[String]
+
+    val eventsRaw = Option(request.get(JsonKey.ASSESSMENT_EVENTS)).orElse(Option(request.get(JsonKey.EVENTS)))
+      .map(_.asInstanceOf[util.List[util.Map[String, AnyRef]]]).getOrElse(new util.ArrayList[util.Map[String, AnyRef]]())
+    val events: List[AssessmentEvent] = eventsRaw.asScala.map(AssessmentParser.mapToEvent).toList
+
+    if (events.nonEmpty) {
+      val ts = Option(request.get("assessmentTs")).orElse(Option(request.get("assessmentTimestamp")))
+        .map(_.asInstanceOf[Number].longValue()).getOrElse(System.currentTimeMillis())
+      val attemptId = Option(request.get(JsonKey.ATTEMPT_ID)).map(_.toString).filter(StringUtils.isNotBlank)
+        .getOrElse(java.util.UUID.randomUUID().toString) // no client attemptId -> fresh attempt (avoids overwriting a prior one)
+      val unique = assessmentService.getUniqueQuestions(events)
+      val metrics = assessmentService.computeScoreMetrics(unique)
+      // collectionId/contextId are the resolved ucc-key values; CassandraService maps them to collection_id/context_id
+      val result = AssessmentResult(attemptId, userId, collectionId, contextId, contentId,
+        metrics.totalScore, metrics.totalMaxScore, metrics.grandTotal, metrics.questions, System.currentTimeMillis(), ts)
+      assessmentCassandra.saveAssessment(result, ctx)
+      val stored = assessmentCassandra.getUserAssessments(userId, collectionId, contextId, contentId, ctx)
+      val agg = assessmentService.computeUserAggregates(userId, collectionId, contextId, stored)
+      assessmentCassandra.updateUserActivity(userId, collectionId, contextId, agg, ctx)
+    } else {
+      logger.warn(ctx, s"viewAssess: no assessment events for userId=$userId contentId=$contentId; marking complete only", null)
+    }
+
+    val row = new util.HashMap[String, AnyRef](key)
+    row.put("status", Integer.valueOf(2))
+    row.put("last_completed_time", ProjectUtil.getTimeStamp)
+    row.put("last_updated_time", ProjectUtil.getTimeStamp)
+    cassandraOperation.upsertRecord(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
+    touchEnrolmentAccess(key, 2, ctx)
+    triggerAggregation(request, ctx)
+    val out = new Response(); out.put(contentId, JsonKey.SUCCESS); sender().tell(out, self)
+  }
+
+  // /v1/assessment/read: best score / max score per content from assessment_aggregator
+  private def assessmentRead(request: Request): Unit = {
+    val ctx = request.getRequestContext
+    val userId = request.get(JsonKey.USER_ID).asInstanceOf[String]
+    val collectionId = ViewerRequestKeys.courseId(request).orNull
+    val contextId = ViewerRequestKeys.batchId(request).orNull
+    val contentIds: List[String] = request.get("contentId") match {
+      case l: util.List[_] => l.asScala.map(_.asInstanceOf[String]).toList
+      case s: String if StringUtils.isNotBlank(s) => List(s)
+      case _ => List.empty
+    }
+    val contents = new util.ArrayList[util.Map[String, AnyRef]]()
+    contentIds.foreach { cid =>
+      val stored = assessmentCassandra.getUserAssessments(userId, collectionId, contextId, cid, ctx)
+      if (stored.nonEmpty) {
+        val best = stored.maxBy(_.totalScore)
+        val m = new util.HashMap[String, AnyRef]()
+        m.put("identifier", cid)
+        m.put("score", best.totalScore.asInstanceOf[AnyRef])
+        m.put("max_score", best.totalMaxScore.asInstanceOf[AnyRef])
+        contents.add(m)
+      }
+    }
+    val out = new Response()
+    out.put(JsonKey.USER_ID, userId)
+    out.put("courseId", collectionId)
+    out.put("batchId", contextId)
+    out.put("contents", contents)
+    sender().tell(out, self)
   }
 
   // resolves partial keys like viewKey: collectionid <- courseId?:content, contextid <- batchId?:courseId?:content; context=all ignores contextid

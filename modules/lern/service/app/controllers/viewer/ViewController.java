@@ -35,6 +35,14 @@ public class ViewController extends BaseController {
         return dispatch("viewRead", httpRequest);
     }
 
+    public CompletionStage<Result> assessmentSubmit(Http.Request httpRequest) {
+        return dispatch("viewAssess", httpRequest);
+    }
+
+    public CompletionStage<Result> assessmentRead(Http.Request httpRequest) {
+        return dispatch("assessmentRead", httpRequest);
+    }
+
     private CompletionStage<Result> dispatch(String operation, Http.Request httpRequest) {
         try {
             Request request = createAndInitRequest(operation, httpRequest.body().asJson(), httpRequest);

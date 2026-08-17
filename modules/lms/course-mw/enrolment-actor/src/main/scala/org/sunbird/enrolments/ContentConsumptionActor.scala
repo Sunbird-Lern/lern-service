@@ -88,27 +88,32 @@ class ContentConsumptionActor @Inject() (
             val requestContext = request.getRequestContext
             val assessmentEvents = request.getRequest.getOrDefault(JsonKey.ASSESSMENT_EVENTS, new java.util.ArrayList[java.util.Map[String, AnyRef]]).asInstanceOf[java.util.List[java.util.Map[String, AnyRef]]]
             val contentList = request.getRequest.getOrDefault(JsonKey.CONTENTS, new java.util.ArrayList[java.util.Map[String, AnyRef]]).asInstanceOf[java.util.List[java.util.Map[String, AnyRef]]]
-            // assessment events also counted as completed content so an assessment-only leaf completes (scoring stays in processAssessments)
-            val finalContentList = if(CollectionUtils.isNotEmpty(assessmentEvents)) {
-              logger.info(requestContext, "Assessment Consumption events exist: " + assessmentEvents.size())
-              val assessmentConsumptions = assessmentEvents.map(e => {
-                InternalContentConsumption(e.get("courseId").asInstanceOf[String], e.get("batchId").asInstanceOf[String], e.get("contentId").asInstanceOf[String])
-              }).filter(cc => cc.validConsumption()).map(cc => {
-                val consumption: util.Map[String, AnyRef] = new util.HashMap[String, AnyRef]()
-                consumption.put("courseId", cc.courseId)
-                consumption.put("batchId", cc.batchId)
-                consumption.put("contentId", cc.contentId)
-                consumption.put("status", 2.asInstanceOf[AnyRef])
-                consumption
-              })
-              if (CollectionUtils.isNotEmpty(contentList)) (contentList ++ assessmentConsumptions).asJava else assessmentConsumptions.asJava
-            } else contentList
-            logger.info(requestContext, "Final content-consumption data: " + finalContentList)
-            // viewer.enabled -> Viewer Service owns content consumption (ucc write + rollup); content-state contract preserved
+            // viewer.enabled -> Viewer Service owns BOTH: contents -> /v1/view/start|end, assessments -> /v1/assessment/submit
+            // (submit scores + marks status=2 + runs the rollup itself, so assessments are NOT merged into contents here).
+            // viewer disabled -> legacy: merge assessments as completed contents, then processContents + processAssessments.
             val contentConsumptionResponse =
-              if (isViewerEnabled) delegateContentsToViewer(finalContentList, request, requestBy, requestedFor)
-              else processContents(finalContentList, requestContext, requestBy, requestedFor)
-            val assessmentResponse = processAssessments(assessmentEvents, requestContext, requestBy, requestedFor)
+              if (isViewerEnabled) delegateContentsToViewer(contentList, request, requestBy, requestedFor)
+              else {
+                val finalContentList = if(CollectionUtils.isNotEmpty(assessmentEvents)) {
+                  logger.info(requestContext, "Assessment Consumption events exist: " + assessmentEvents.size())
+                  val assessmentConsumptions = assessmentEvents.map(e => {
+                    InternalContentConsumption(e.get("courseId").asInstanceOf[String], e.get("batchId").asInstanceOf[String], e.get("contentId").asInstanceOf[String])
+                  }).filter(cc => cc.validConsumption()).map(cc => {
+                    val consumption: util.Map[String, AnyRef] = new util.HashMap[String, AnyRef]()
+                    consumption.put("courseId", cc.courseId)
+                    consumption.put("batchId", cc.batchId)
+                    consumption.put("contentId", cc.contentId)
+                    consumption.put("status", 2.asInstanceOf[AnyRef])
+                    consumption
+                  })
+                  if (CollectionUtils.isNotEmpty(contentList)) (contentList ++ assessmentConsumptions).asJava else assessmentConsumptions.asJava
+                } else contentList
+                logger.info(requestContext, "Final content-consumption data: " + finalContentList)
+                processContents(finalContentList, requestContext, requestBy, requestedFor)
+              }
+            val assessmentResponse =
+              if (isViewerEnabled) delegateAssessmentsToViewer(assessmentEvents, request, requestBy, requestedFor)
+              else processAssessments(assessmentEvents, requestContext, requestBy, requestedFor)
             val finalResponse = assessmentResponse.getOrElse(new Response())
             finalResponse.putAll(contentConsumptionResponse.getOrElse(new Response()).getResult)
             sender().tell(finalResponse, self)
@@ -528,6 +533,52 @@ class ContentConsumptionActor @Inject() (
                         case ex: Exception =>
                             logger.error(ctx, s"delegateContentsToViewer failed for contentId=$contentId: ${ex.getMessage}", ex)
                             responseMessage.put(contentId, "FAILED")
+                    }
+                })
+            }
+        }
+        if (CollectionUtils.isNotEmpty(completedBatchIds)) responseMessage.put("NOT_A_ON_GOING_BATCH", completedBatchIds)
+        if (CollectionUtils.isNotEmpty(invalidBatchIds)) responseMessage.put("BATCH_NOT_EXISTS", invalidBatchIds)
+        val response = new Response(); response.putAll(responseMessage); Option(response)
+    }
+
+    // dispatch assessment submissions to the viewer (/v1/assessment/submit -> viewAssess: score + status=2 + rollup),
+    // applying the same invalid/closed-batch guards as delegateContentsToViewer
+    private def delegateAssessmentsToViewer(assessmentEvents: java.util.List[java.util.Map[String, AnyRef]],
+                                            originalRequest: Request,
+                                            requestedBy: String, requestedFor: String): Option[Response] = {
+        if (CollectionUtils.isEmpty(assessmentEvents)) return None
+        val ctx = originalRequest.getRequestContext
+        val userId = if (StringUtils.isNotBlank(requestedFor)) requestedFor else requestedBy
+        val token = originalRequest.getContext.get(JsonKey.X_AUTH_TOKEN).asInstanceOf[String]
+        val byBatch: Map[String, List[java.util.Map[String, AnyRef]]] = assessmentEvents.asScala
+          .filter(e => StringUtils.isNotBlank(e.getOrDefault(JsonKey.BATCH_ID, "").asInstanceOf[String])).toList
+          .groupBy(_.get(JsonKey.BATCH_ID).asInstanceOf[String])
+        val batchIds = byBatch.keySet.toList.asJava
+        val batches: Map[String, List[java.util.Map[String, AnyRef]]] =
+          getBatches(ctx, new java.util.ArrayList[String](batchIds), null).toList.groupBy(_.get(JsonKey.BATCH_ID).asInstanceOf[String])
+        val invalidBatchIds = byBatch.keySet.diff(batches.keySet).toList.asJava
+        batches.values.foreach(bl => bl.foreach(b => CourseBatchUtil.enrichBatchStatusFromDates(b)))
+        val completedBatchIds = batches.filter(b => 1 != b._2.head.get(JsonKey.STATUS).asInstanceOf[Integer]).keys.toList.asJava
+        val responseMessage = new java.util.HashMap[String, AnyRef]()
+        byBatch.foreach { case (batchId, events) =>
+            if (!invalidBatchIds.contains(batchId) && !completedBatchIds.contains(batchId)) {
+                events.foreach(a => {
+                    try {
+                        val courseId = a.get(JsonKey.COURSE_ID).asInstanceOf[String]
+                        val evs = a.getOrDefault(JsonKey.ASSESSMENT_EVENTS_KEY, new java.util.ArrayList[java.util.Map[String, AnyRef]]())
+                        val body = new java.util.HashMap[String, AnyRef]() {{
+                            put("contentId", a.get(JsonKey.CONTENT_ID))
+                            put("courseId", courseId)
+                            put("batchId", batchId)
+                            put(JsonKey.USER_ID, userId)
+                            put(JsonKey.ASSESSMENT_EVENTS, evs)
+                        }}
+                        responseMessage.put(batchId, if (viewerWrite("view-consumption-actor", "/v1/assessment/submit", "viewAssess", body, token, ctx)) JsonKey.SUCCESS else "FAILED")
+                    } catch {
+                        case ex: Exception =>
+                            logger.error(ctx, s"delegateAssessmentsToViewer failed for batchId=$batchId: ${ex.getMessage}", ex)
+                            responseMessage.put(batchId, "FAILED")
                     }
                 })
             }
