@@ -290,6 +290,8 @@ POST     /v1/view/start                     @controllers.viewer.ViewController.v
 POST     /v1/view/update                    @controllers.viewer.ViewController.viewUpdate(request: play.mvc.Http.Request)
 POST     /v1/view/end                       @controllers.viewer.ViewController.viewEnd(request: play.mvc.Http.Request)
 POST     /v1/view/read                      @controllers.viewer.ViewController.viewRead(request: play.mvc.Http.Request)
+POST     /v1/assessment/submit              @controllers.viewer.ViewController.assessmentSubmit(request: play.mvc.Http.Request)
+POST     /v1/assessment/read                @controllers.viewer.ViewController.assessmentRead(request: play.mvc.Http.Request)
 POST     /v1/view/agg                       @controllers.viewer.ViewAggregateController.agg(request: play.mvc.Http.Request)
 POST     /v1/summary/read                   @controllers.viewer.ViewSummaryController.summaryRead(request: play.mvc.Http.Request)
 GET      /v1/summary/list/:userId           @controllers.viewer.ViewSummaryController.summaryList(userId: String, request: play.mvc.Http.Request)

@@ -88,27 +88,32 @@ class ContentConsumptionActor @Inject() (
             val requestContext = request.getRequestContext
             val assessmentEvents = request.getRequest.getOrDefault(JsonKey.ASSESSMENT_EVENTS, new java.util.ArrayList[java.util.Map[String, AnyRef]]).asInstanceOf[java.util.List[java.util.Map[String, AnyRef]]]
             val contentList = request.getRequest.getOrDefault(JsonKey.CONTENTS, new java.util.ArrayList[java.util.Map[String, AnyRef]]).asInstanceOf[java.util.List[java.util.Map[String, AnyRef]]]
-            // assessment events also counted as completed content so an assessment-only leaf completes (scoring stays in processAssessments)
-            val finalContentList = if(CollectionUtils.isNotEmpty(assessmentEvents)) {
-              logger.info(requestContext, "Assessment Consumption events exist: " + assessmentEvents.size())
-              val assessmentConsumptions = assessmentEvents.map(e => {
-                InternalContentConsumption(e.get("courseId").asInstanceOf[String], e.get("batchId").asInstanceOf[String], e.get("contentId").asInstanceOf[String])
-              }).filter(cc => cc.validConsumption()).map(cc => {
-                val consumption: util.Map[String, AnyRef] = new util.HashMap[String, AnyRef]()
-                consumption.put("courseId", cc.courseId)
-                consumption.put("batchId", cc.batchId)
-                consumption.put("contentId", cc.contentId)
-                consumption.put("status", 2.asInstanceOf[AnyRef])
-                consumption
-              })
-              if (CollectionUtils.isNotEmpty(contentList)) (contentList ++ assessmentConsumptions).asJava else assessmentConsumptions.asJava
-            } else contentList
-            logger.info(requestContext, "Final content-consumption data: " + finalContentList)
-            // viewer.enabled -> Viewer Service owns content consumption (ucc write + rollup); content-state contract preserved
+            // viewer.enabled -> Viewer Service owns BOTH: contents -> /v1/view/start|end, assessments -> /v1/assessment/submit
+            // (submit scores + marks status=2 + runs the rollup itself, so assessments are NOT merged into contents here).
+            // viewer disabled -> legacy: merge assessments as completed contents, then processContents + processAssessments.
             val contentConsumptionResponse =
-              if (isViewerEnabled) delegateContentsToViewer(finalContentList, request, requestBy, requestedFor)
-              else processContents(finalContentList, requestContext, requestBy, requestedFor)
-            val assessmentResponse = processAssessments(assessmentEvents, requestContext, requestBy, requestedFor)
+              if (isViewerEnabled) delegateContentsToViewer(contentList, request, requestBy, requestedFor)
+              else {
+                val finalContentList = if(CollectionUtils.isNotEmpty(assessmentEvents)) {
+                  logger.info(requestContext, "Assessment Consumption events exist: " + assessmentEvents.size())
+                  val assessmentConsumptions = assessmentEvents.map(e => {
+                    InternalContentConsumption(e.get("courseId").asInstanceOf[String], e.get("batchId").asInstanceOf[String], e.get("contentId").asInstanceOf[String])
+                  }).filter(cc => cc.validConsumption()).map(cc => {
+                    val consumption: util.Map[String, AnyRef] = new util.HashMap[String, AnyRef]()
+                    consumption.put("courseId", cc.courseId)
+                    consumption.put("batchId", cc.batchId)
+                    consumption.put("contentId", cc.contentId)
+                    consumption.put("status", 2.asInstanceOf[AnyRef])
+                    consumption
+                  })
+                  if (CollectionUtils.isNotEmpty(contentList)) (contentList ++ assessmentConsumptions).asJava else assessmentConsumptions.asJava
+                } else contentList
+                logger.info(requestContext, "Final content-consumption data: " + finalContentList)
+                processContents(finalContentList, requestContext, requestBy, requestedFor)
+              }
+            val assessmentResponse =
+              if (isViewerEnabled) delegateAssessmentsToViewer(assessmentEvents, request, requestBy, requestedFor)
+              else processAssessments(assessmentEvents, requestContext, requestBy, requestedFor)
             val finalResponse = assessmentResponse.getOrElse(new Response())
             finalResponse.putAll(contentConsumptionResponse.getOrElse(new Response()).getResult)
             sender().tell(finalResponse, self)
@@ -200,12 +205,17 @@ class ContentConsumptionActor @Inject() (
                     userContents.foreach(entry => {
                         val userId = entry._1
                         if(validUserIds.contains(userId)) {
-                            val courseId = entry._2.head.getOrDefault(JsonKey.COURSE_ID, "").asInstanceOf[String]
+                            val courseId = if (entry._2.head.containsKey(JsonKey.COURSE_ID)) entry._2.head.getOrDefault(JsonKey.COURSE_ID, "").asInstanceOf[String] else entry._2.head.getOrDefault(JsonKey.COLLECTION_ID, "").asInstanceOf[String]
+                            if(entry._2.head.containsKey(JsonKey.COLLECTION_ID)) entry._2.head.remove(JsonKey.COLLECTION_ID)
                             val contentIds = entry._2.map(e => e.getOrDefault(JsonKey.CONTENT_ID, "").asInstanceOf[String]).distinct.asJava
                             val existingContents = getContentsConsumption(userId, courseId, contentIds, batchId, requestContext).groupBy(x => x.get("contentId").asInstanceOf[String]).map(e => e._1 -> e._2.toList.head).toMap
                             val contents:List[java.util.Map[String, AnyRef]] = entry._2.toList.map(inputContent => {
                                 val existingContent = existingContents.getOrElse(inputContent.get("contentId").asInstanceOf[String], new java.util.HashMap[String, AnyRef])
-                                CassandraUtil.changeCassandraColumnMapping(processContentConsumption(inputContent, existingContent, userId))
+                                val m = CassandraUtil.changeCassandraColumnMapping(processContentConsumption(inputContent, existingContent, userId))
+                                // ucc columns were renamed courseid->collectionid, batchid->contextid; the global column map still yields courseid/batchid
+                                Option(m.remove("courseid")).foreach(v => m.put("collectionid", v))
+                                Option(m.remove("batchid")).foreach(v => m.put("contextid", v))
+                                m
                             })
                             cassandraOperation.batchInsertLogged(consumptionDBInfo.getKeySpace, consumptionDBInfo.getTableName, contents, requestContext)
                             val updateData = getLatestReadDetails(userId, batchId, contents)
@@ -460,9 +470,13 @@ class ContentConsumptionActor @Inject() (
     /** Write op (view/start|end, assessment/submit): monolith asks the in-JVM actor, distributed POSTs. */
     private def viewerWrite(actorName: String, httpApi: String, operation: String,
                             body: java.util.Map[String, AnyRef], token: String, ctx: RequestContext): Boolean =
-        if (isMonolith) viewerAsk(actorName, operation, body, ctx) != null
-        else StringUtils.isNotBlank(HttpClientUtil.post(viewerBaseUrl + httpApi,
-            mapper.writeValueAsString(new java.util.HashMap[String, AnyRef]() {{ put(JsonKey.REQUEST, body) }}), viewerHeaders(token), ctx))
+        // success = a Response reply / responseCode OK; onReceiveException replies with the (non-null) exception, so a bare null-check would report failures as SUCCESS
+        if (isMonolith) viewerAsk(actorName, operation, body, ctx) match { case _: Response => true; case _ => false }
+        else {
+            val resp = HttpClientUtil.post(viewerBaseUrl + httpApi,
+                mapper.writeValueAsString(new java.util.HashMap[String, AnyRef]() {{ put(JsonKey.REQUEST, body) }}), viewerHeaders(token), ctx)
+            StringUtils.isNotBlank(resp) && (try "OK" == mapper.readTree(resp).path("responseCode").asText("") catch { case _: Exception => false })
+        }
     /** Read op (view/read): ucc rows. Monolith returns native Cassandra types; distributed parses JSON + coerces. */
     private def viewerRead(actorName: String, httpApi: String, operation: String,
                            body: java.util.Map[String, AnyRef], token: String, ctx: RequestContext): java.util.List[java.util.Map[String, AnyRef]] = {
@@ -537,6 +551,55 @@ class ContentConsumptionActor @Inject() (
         val response = new Response(); response.putAll(responseMessage); Option(response)
     }
 
+    // dispatch assessment submissions to the viewer (/v1/assessment/submit -> viewAssess: score + status=2 + rollup),
+    // applying the same invalid/closed-batch guards as delegateContentsToViewer
+    private def delegateAssessmentsToViewer(assessmentEvents: java.util.List[java.util.Map[String, AnyRef]],
+                                            originalRequest: Request,
+                                            requestedBy: String, requestedFor: String): Option[Response] = {
+        if (CollectionUtils.isEmpty(assessmentEvents)) return None
+        val ctx = originalRequest.getRequestContext
+        val userId = if (StringUtils.isNotBlank(requestedFor)) requestedFor else requestedBy
+        val token = originalRequest.getContext.get(JsonKey.X_AUTH_TOKEN).asInstanceOf[String]
+        val byBatch: Map[String, List[java.util.Map[String, AnyRef]]] = assessmentEvents.asScala
+          .filter(e => StringUtils.isNotBlank(e.getOrDefault(JsonKey.BATCH_ID, "").asInstanceOf[String])).toList
+          .groupBy(_.get(JsonKey.BATCH_ID).asInstanceOf[String])
+        val batchIds = byBatch.keySet.toList.asJava
+        val batches: Map[String, List[java.util.Map[String, AnyRef]]] =
+          getBatches(ctx, new java.util.ArrayList[String](batchIds), null).toList.groupBy(_.get(JsonKey.BATCH_ID).asInstanceOf[String])
+        val invalidBatchIds = byBatch.keySet.diff(batches.keySet).toList.asJava
+        batches.values.foreach(bl => bl.foreach(b => CourseBatchUtil.enrichBatchStatusFromDates(b)))
+        val completedBatchIds = batches.filter(b => 1 != b._2.head.get(JsonKey.STATUS).asInstanceOf[Integer]).keys.toList.asJava
+        val responseMessage = new java.util.HashMap[String, AnyRef]()
+        byBatch.foreach { case (batchId, events) =>
+            if (!invalidBatchIds.contains(batchId) && !completedBatchIds.contains(batchId)) {
+                events.foreach(a => {
+                    try {
+                        val courseId = a.get(JsonKey.COURSE_ID).asInstanceOf[String]
+                        val evs = a.getOrDefault(JsonKey.ASSESSMENT_EVENTS_KEY, new java.util.ArrayList[java.util.Map[String, AnyRef]]())
+                        val body = new java.util.HashMap[String, AnyRef]() {{
+                            put("contentId", a.get(JsonKey.CONTENT_ID))
+                            put("courseId", courseId)
+                            put("batchId", batchId)
+                            put(JsonKey.USER_ID, userId)
+                            put(JsonKey.ASSESSMENT_EVENTS, evs)
+                            // forward client attemptId/assessmentTs (documented contract) so replays upsert and offline-sync ts is preserved
+                            Option(a.get(JsonKey.ATTEMPT_ID)).foreach(v => put(JsonKey.ATTEMPT_ID, v))
+                            Option(a.get(JsonKey.ASSESSMENT_TS)).orElse(Option(a.get("assessmentTimestamp"))).foreach(v => put(JsonKey.ASSESSMENT_TS, v))
+                        }}
+                        responseMessage.put(batchId, if (viewerWrite("view-consumption-actor", "/v1/assessment/submit", "viewAssess", body, token, ctx)) JsonKey.SUCCESS else "FAILED")
+                    } catch {
+                        case ex: Exception =>
+                            logger.error(ctx, s"delegateAssessmentsToViewer failed for batchId=$batchId: ${ex.getMessage}", ex)
+                            responseMessage.put(batchId, "FAILED")
+                    }
+                })
+            }
+        }
+        if (CollectionUtils.isNotEmpty(completedBatchIds)) responseMessage.put("NOT_A_ON_GOING_BATCH", completedBatchIds)
+        if (CollectionUtils.isNotEmpty(invalidBatchIds)) responseMessage.put("BATCH_NOT_EXISTS", invalidBatchIds)
+        val response = new Response(); response.putAll(responseMessage); Option(response)
+    }
+
     // content/state/read adapter: fetch ucc rows via viewRead; same row shape as getContentsConsumption so post-processing is unchanged
     private def readContentsFromViewer(userId: String, courseId: String, batchId: String,
                                        contentIds: java.util.List[String], originalRequest: Request): java.util.List[java.util.Map[String, AnyRef]] = {
@@ -590,7 +653,11 @@ class ContentConsumptionActor @Inject() (
         val response = new Response
         if(CollectionUtils.isNotEmpty(contentsConsumed)) {
             val filteredContents = contentsConsumed.map(m => {
+                // surface renamed ucc columns as the courseId/batchId contract (no-op for the viewer path, which already aliases in viewRead)
+                Option(m.remove("collectionid")).foreach(v => m.put("courseId", v))
+                Option(m.remove("contextid")).foreach(v => m.put("batchId", v))
                 ProjectUtil.removeUnwantedFields(m, JsonKey.DATE_TIME, JsonKey.USER_ID, JsonKey.ADDED_BY, JsonKey.LAST_UPDATED_TIME, JsonKey.OLD_LAST_ACCESS_TIME, JsonKey.OLD_LAST_UPDATED_TIME, JsonKey.OLD_LAST_COMPLETED_TIME)
+                m.put(JsonKey.COLLECTION_ID, m.getOrDefault(JsonKey.COURSE_ID, ""))
                 jsonFields.foreach(field =>
                     if(m.get(field) != null)
                         m.put(field, mapper.readTree(m.get(field).asInstanceOf[String]))

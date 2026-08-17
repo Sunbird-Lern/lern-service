@@ -212,4 +212,25 @@ class ViewConsumptionActorTest extends AnyFlatSpec with Matchers with MockFactor
     val out = result.getResult.get("response").asInstanceOf[util.List[util.Map[String, AnyRef]]]
     out.size() shouldBe 1
   }
+
+  "assessmentRead" should "return the best score/max score per content" in {
+    val ops = mock[CassandraOperation]
+    val attempts = new util.ArrayList[util.Map[String, AnyRef]]()
+    attempts.add(new util.HashMap[String, AnyRef]() {{
+      put("attempt_id", "a1"); put("content_id", "ct1")
+      put("total_score", java.lang.Double.valueOf(6.0)); put("total_max_score", java.lang.Double.valueOf(10.0))
+    }})
+    attempts.add(new util.HashMap[String, AnyRef]() {{
+      put("attempt_id", "a2"); put("content_id", "ct1")
+      put("total_score", java.lang.Double.valueOf(8.0)); put("total_max_score", java.lang.Double.valueOf(10.0))
+    }})
+    (ops.getRecordsByProperties(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
+      .expects(*, *, *, *, *).returns(rowsWith(attempts))
+    val result = callActor(viewRequest("assessmentRead"),
+      Props(new ViewConsumptionActor(replyingAggregator).setCassandraOperation(ops)))
+    val contents = result.getResult.get("contents").asInstanceOf[util.List[util.Map[String, AnyRef]]]
+    contents.size() shouldBe 1
+    contents.get(0).get("identifier") shouldBe "ct1"
+    contents.get(0).get("score").asInstanceOf[Double] shouldBe 8.0   // best attempt wins
+  }
 }

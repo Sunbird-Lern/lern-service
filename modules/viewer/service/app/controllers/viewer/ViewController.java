@@ -45,6 +45,14 @@ public class ViewController extends BaseController {
         return dispatch("viewRead", httpRequest);
     }
 
+    public CompletionStage<Result> assessmentSubmit(Http.Request httpRequest) {
+        return dispatch("viewAssess", httpRequest);
+    }
+
+    public CompletionStage<Result> assessmentRead(Http.Request httpRequest) {
+        return dispatch("assessmentRead", httpRequest);
+    }
+
     public Result health(Http.Request httpRequest) {
         ObjectNode json = Json.newObject();
         json.put("healthy", true);
@@ -67,10 +75,10 @@ public class ViewController extends BaseController {
     // only contentId is mandatory; collectionId(courseId)/contextId(batchId) are optional and cascade in the actor (design scenarios 1-3)
     private void validate(String operation, Request request) {
         switch (operation) {
-            case "viewStart": case "viewUpdate": case "viewEnd":
+            case "viewStart": case "viewUpdate": case "viewEnd": case "viewAssess":
                 requireNonBlank(request, "contentId");
                 break;
-            default: // viewRead + others: userId is derived from the token; keys are optional
+            default: // viewRead / assessmentRead + others: userId is derived from the token; keys are optional
         }
     }
 
