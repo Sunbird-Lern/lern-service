@@ -93,6 +93,12 @@ class HierarchyRelationsUtil(cassandraOperation: CassandraOperation) {
     ancestors
   }
 
+  def getTrackableNodes(rootId: String, requestContext: RequestContext): List[String] = {
+    val key = s"$rootId:$rootId:trackablenodes"
+    logger.info(requestContext, s"HierarchyRelationsUtil: Getting trackable nodes for rootId: $rootId")
+    readFromDB(key, requestContext)
+  }
+
   def getRequiredLeafNodes(courseId: String, collectionId: String, requestContext: RequestContext): List[String] = {
     logger.info(requestContext, s"HierarchyRelationsUtil: Getting required leaf nodes (excluding optional) for courseId: $courseId, collectionId: $collectionId")
     val leafNodes = getLeafNodes(courseId, collectionId, requestContext)
@@ -106,8 +112,6 @@ class HierarchyRelationsUtil(cassandraOperation: CassandraOperation) {
 object HierarchyRelationsUtil {
   def apply(cassandraOperation: CassandraOperation): HierarchyRelationsUtil = new HierarchyRelationsUtil(cassandraOperation)
 
-  // JVM-wide TTL cache of relationship_key -> node_ids; accepts up to TTL of staleness on republish (empty results not cached; ttl=0 disables)
-  // ponytail: TTL eviction; go version-keyed/event-driven only if republish-during-consumption bites.
   private val ttlMillis: Long =
     Option(ProjectUtil.getConfigValue("hierarchy_relations_cache_ttl"))
       .filter(_.trim.nonEmpty).map(_.trim.toLong).getOrElse(300L) * 1000L

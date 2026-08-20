@@ -57,6 +57,8 @@ class ViewerAggregatorActorTest extends AnyFlatSpec with Matchers with MockFacto
   "aggregate" should "early-return with no writes when there is no consumption" in {
     val ops = mock[CassandraOperation]
     val hru = mock[HierarchyRelationsUtil]
+    // not an LP (empty trackablenodes) -> the LP bootstrap branch is skipped
+    (hru.getTrackableNodes(_: String, _: RequestContext)).expects(*, *).returns(Nil)
     // readConsumption -> empty; must NOT reach batchUpdateWithPutAll / updateRecordV2
     (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
       .expects(*, *, *, *, *).returns(emptyRows)

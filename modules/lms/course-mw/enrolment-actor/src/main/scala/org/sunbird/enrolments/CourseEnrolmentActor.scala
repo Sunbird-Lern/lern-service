@@ -10,6 +10,7 @@ import org.sunbird.exception.ProjectCommonException
 import org.sunbird.response.Response
 import org.sunbird.common.ProjectUtil
 import org.sunbird.common.ProjectUtil.EnrolmentType
+import org.sunbird.http.HttpClientUtil
 import org.sunbird.common.PropertiesCache
 import org.sunbird.operations.lms.ActorOperations
 import org.sunbird.keys.JsonKey
@@ -98,6 +99,25 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
         sender().tell(successResponse(), self)
         generateTelemetryAudit(userId, courseId, batchId, data, "enrol", JsonKey.CREATE, request.getContext)
         notifyUser(userId, batchData, JsonKey.ADD)
+        fireLpBootstrap(userId, courseId, batchId, request)
+    }
+
+    private def fireLpBootstrap(userId: String, courseId: String, batchId: String, request: Request): Unit = {
+        val requestId = Option(request.getContext.get(JsonKey.REQUEST_ID)).map(_.toString).getOrElse("")
+        if ("system".equals(requestId)) return
+        if (!java.lang.Boolean.parseBoolean(ProjectUtil.getConfigValue("viewer_enabled"))) return
+        try {
+            if (!"distributed".equalsIgnoreCase(ProjectUtil.getConfigValue("deployment_mode"))) {
+                val agg = new Request(); agg.setRequestContext(request.getRequestContext); agg.setOperation("aggregate")
+                agg.put(JsonKey.USER_ID, userId); agg.put("courseId", courseId); agg.put("batchId", batchId)
+                context.actorSelection("/user/viewer-aggregator-actor").tell(agg, ActorRef.noSender)
+            } else {
+                val base = Option(ProjectUtil.getConfigValue("viewer_service_base_url")).filter(StringUtils.isNotBlank).getOrElse("http://viewer-service:9000")
+                val headers = new util.HashMap[String, String]() {{ put("Content-Type", "application/json") }}
+                HttpClientUtil.post(base + "/v1/view/agg", s"""{"request":{"userId":"$userId","courseId":"$courseId","batchId":"$batchId"}}""", headers, request.getRequestContext)
+            }
+            logger.info(request.getRequestContext, s"enrol: LP bootstrap fired | user=$userId course=$courseId batch=$batchId")
+        } catch { case ex: Exception => logger.error(request.getRequestContext, s"enrol: LP bootstrap failed: ${ex.getMessage}", ex) }
     }
 
     def unEnroll(request:Request): Unit = {
