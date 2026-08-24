@@ -1,7 +1,8 @@
 package org.sunbird.viewer.engine
 
 import org.apache.pekko.actor.ActorContext
-import org.sunbird.activity.util.{CertificateUtil, HierarchyRelationsUtil, LpPolicyUtil}
+import org.sunbird.activity.util.{CertificateUtil, HierarchyRelationsUtil}
+import org.sunbird.viewer.util.LpPolicyUtil
 import org.sunbird.assessment.service.CassandraService
 import org.sunbird.cassandra.CassandraOperation
 import org.sunbird.keys.JsonKey

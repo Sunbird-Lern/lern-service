@@ -3,7 +3,8 @@ package org.sunbird.viewer.engine
 import org.scalamock.scalatest.MockFactory
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
-import org.sunbird.activity.util.{CertificateUtil, LpMeta, LpPolicyUtil, NodeMeta}
+import org.sunbird.activity.util.CertificateUtil
+import org.sunbird.viewer.util.{LpMeta, LpPolicyUtil, NodeMeta}
 import org.sunbird.assessment.service.CassandraService
 import org.sunbird.cassandra.CassandraOperation
 import org.sunbird.request.RequestContext

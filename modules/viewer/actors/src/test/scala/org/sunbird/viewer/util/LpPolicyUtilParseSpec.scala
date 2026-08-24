@@ -2,7 +2,7 @@ package org.sunbird.viewer.util
 
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
-import org.sunbird.activity.util.{LpPolicyUtil, NodeMeta}
+import org.sunbird.viewer.util.{LpPolicyUtil, NodeMeta}
 
 class LpPolicyUtilParseSpec extends AnyFlatSpec with Matchers {
 

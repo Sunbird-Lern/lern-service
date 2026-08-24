@@ -1,4 +1,4 @@
-package org.sunbird.activity.util
+package org.sunbird.viewer.util
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.sunbird.common.ProjectUtil
