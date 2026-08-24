@@ -1,13 +1,13 @@
 package org.sunbird.viewer.engine
 
 import org.apache.commons.collections4.CollectionUtils
-import org.sunbird.activity.util.{CertificateUtil, LpPolicyUtil}
+import org.sunbird.activity.util.CertificateUtil
 import org.sunbird.assessment.service.CassandraService
 import org.sunbird.cassandra.CassandraOperation
 import org.sunbird.keys.JsonKey
 import org.sunbird.logging.LoggerUtil
 import org.sunbird.request.RequestContext
-import org.sunbird.viewer.util.ProgressionPolicy
+import org.sunbird.viewer.util.{LpPolicyUtil, ProgressionPolicy}
 
 import java.util
 import scala.collection.JavaConverters._
@@ -111,9 +111,8 @@ class LpProgressionEngine(cassandraOperation: CassandraOperation,
 
   private def skillsFromAssessment(userId: String, rootId: String, courseId: String, batchId: String, ctx: RequestContext): Set[String] = {
     val meta = lpPolicyUtil.lpMeta(rootId, ctx)
-    val childBatch = batchId + ":" + courseId
     val correct = lpPolicyUtil.questionSetsOf(courseId, meta).flatMap { qs =>
-      val attempts = assessmentService.getUserAssessments(userId, courseId, childBatch, qs, ctx)
+      val attempts = assessmentService.getUserAssessments(userId, rootId, batchId, qs, ctx)
       if (attempts.isEmpty) Nil
       else attempts.maxBy(_.totalScore).questions.collect { case q if q.maxScore > 0 && q.score == q.maxScore => q.questionId }
     }.distinct
