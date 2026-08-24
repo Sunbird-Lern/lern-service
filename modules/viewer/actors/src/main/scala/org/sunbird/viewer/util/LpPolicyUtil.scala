@@ -85,7 +85,8 @@ class LpPolicyUtil {
   private def searchUrl: String = ProjectUtil.getConfigValue("service_search_base_path") + "/v3/search"
 
   private def post(body: String): String = {
-    val r = HttpUtil.doPostRequest(searchUrl, body, new util.HashMap[String, String]())
+    val headers = new util.HashMap[String, String]() {{ put("Content-Type", "application/json") }}
+    val r = HttpUtil.doPostRequest(searchUrl, body, headers)
     if (r != null && r.getStatusCode == 200) r.getBody else "{}"
   }
 
