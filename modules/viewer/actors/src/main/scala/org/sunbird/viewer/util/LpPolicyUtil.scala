@@ -1,6 +1,8 @@
 package org.sunbird.viewer.util
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import org.apache.commons.lang3.StringUtils
+import org.slf4j.LoggerFactory
 import org.sunbird.common.ProjectUtil
 import org.sunbird.http.HttpUtil
 import org.sunbird.request.RequestContext
@@ -13,14 +15,21 @@ case class LpMeta(policy: String, framework: String, categoryCode: String, nodes
 
 object LpPolicyUtil {
   private val mapper = new ObjectMapper()
+  private val logger = LoggerFactory.getLogger(classOf[LpPolicyUtil])
 
   private val PRACTICE_QUESTION_SET = "Practice Question Set"
   private val ASSESSMENT_PRIMARY_CATEGORY: String =
     Option(ProjectUtil.getConfigValue("lp_assessment_primary_category")).map(_.trim).filter(_.nonEmpty).getOrElse("Evaluation Course")
 
   private def result(json: String): util.Map[String, AnyRef] =
-    mapper.readValue(json, classOf[util.Map[String, AnyRef]])
-      .getOrDefault("result", new util.HashMap[String, AnyRef]()).asInstanceOf[util.Map[String, AnyRef]]
+    try {
+      mapper.readValue(json, classOf[util.Map[String, AnyRef]])
+        .getOrDefault("result", new util.HashMap[String, AnyRef]()).asInstanceOf[util.Map[String, AnyRef]]
+    } catch {
+      case ex: Exception =>
+        logger.warn("LpPolicyUtil: failed to parse response body; degrading to empty result", ex)
+        new util.HashMap[String, AnyRef]()
+    }
 
   private def rows(res: util.Map[String, AnyRef]): List[util.Map[String, AnyRef]] =
     res.asScala.values.collect { case l: util.List[_] =>
@@ -86,8 +95,18 @@ class LpPolicyUtil {
 
   private def post(body: String): String = {
     val headers = new util.HashMap[String, String]() {{ put("Content-Type", "application/json") }}
-    val r = HttpUtil.doPostRequest(searchUrl, body, headers)
-    if (r != null && r.getStatusCode == 200) r.getBody else "{}"
+    try {
+      val r = HttpUtil.doPostRequest(searchUrl, body, headers)
+      if (r != null && r.getStatusCode == 200 && StringUtils.isNotBlank(r.getBody)) r.getBody
+      else {
+        logger.warn(s"LpPolicyUtil: search degraded (status=${if (r != null) r.getStatusCode else -1}) url=$searchUrl")
+        "{}"
+      }
+    } catch {
+      case ex: Exception =>
+        logger.warn(s"LpPolicyUtil: search call failed url=$searchUrl; degrading to empty result", ex)
+        "{}"
+    }
   }
 
   private def searchByIds(ids: List[String], fields: List[String]): String = {
@@ -100,10 +119,16 @@ class LpPolicyUtil {
   private def frameworkCategoryCode(frameworkId: String): Option[String] =
     if (frameworkId == null || frameworkId.isEmpty) None
     else cachedCode(frameworkId) {
-      val base = ProjectUtil.getConfigValue("content_service_base_url")
-      val api = Option(ProjectUtil.getConfigValue("sunbird_framework_read_api")).filter(_.nonEmpty).getOrElse("/v1/framework/read")
-      val body = HttpUtil.sendGetRequest(base + api + "/" + frameworkId, new util.HashMap[String, String]())
-      parseFrameworkCategoryCode(if (body == null) "{}" else body)
+      try {
+        val base = Option(ProjectUtil.getConfigValue("sunbird_api_base_url")).filter(StringUtils.isNotBlank).getOrElse("http://localhost:5000")
+        val api = Option(ProjectUtil.getConfigValue("sunbird_framework_read_api")).filter(_.nonEmpty).getOrElse("/v1/framework/read")
+        val body = HttpUtil.sendGetRequest(base + api + "/" + frameworkId, new util.HashMap[String, String]())
+        parseFrameworkCategoryCode(if (StringUtils.isBlank(body)) "{}" else body)
+      } catch {
+        case ex: Exception =>
+          logger.warn(s"LpPolicyUtil: framework read failed for $frameworkId; skills will resolve empty", ex)
+          None
+      }
     }
 
   def lpMeta(rootId: String, ctx: RequestContext): LpMeta = cachedMeta(rootId) {
