@@ -277,7 +277,9 @@ class ActivityAggregatorActor extends BaseEnrolmentActor {
                                          requestContext: RequestContext
                                        ): List[UserEnrolmentAgg] = {
     logger.info(requestContext, s"computeCourseAggregations: Computing course-level aggregation for courseId: $courseId")
-    val courseAggOpt = activityAggUtil.computeCourseActivityAgg(userConsumption, leafNodes, optionalNodes, requestContext)
+    // legacy (non-LP) path: a plain course has no child batches, so every node keeps the single batch context
+    val flatCtx: String => String = _ => "cb:" + userConsumption.batchId
+    val courseAggOpt = activityAggUtil.computeCourseActivityAgg(userConsumption, leafNodes, optionalNodes, flatCtx, requestContext)
     val courseAggs = if (courseAggOpt.nonEmpty) {
       logger.info(requestContext, s"computeCourseAggregations: Course aggregation computed successfully")
       List(courseAggOpt.get)
@@ -303,7 +305,7 @@ class ActivityAggregatorActor extends BaseEnrolmentActor {
         (collectionId, collectionLeafNodes)
       }).toMap
 
-      val moduleAggs = activityAggUtil.computeModuleActivityAgg(userConsumption, courseId, ancestors, collectionsWithLeafNodes, requestContext)
+      val moduleAggs = activityAggUtil.computeModuleActivityAgg(userConsumption, courseId, ancestors, collectionsWithLeafNodes, flatCtx, requestContext)
       logger.info(requestContext, s"computeCourseAggregations: Computed ${moduleAggs.size} module aggregations")
       courseAggs ++ moduleAggs
     } else {

@@ -98,11 +98,23 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
     val optionalCourseLeaves = perLearnerOptionalCourses.flatMap(c => hierarchyRelationsUtil.getLeafNodes(courseId, c, ctx)).distinct
     val effectiveOptional: List[String] = (hierarchyOptionalLeaves ++ optionalCourseLeaves).distinct
 
-    val courseAgg = activityAggUtil.computeCourseActivityAgg(uc, leafNodes, effectiveOptional, ctx)
+    // per-node batch context: the LP root + its levels keep the LP batch (cb:B); a course — and any
+    // unit/module under it — use that course's child batch (cb:B:course).
+    val trackableSet: Set[String] = hierarchyRelationsUtil.getTrackableNodes(courseId, ctx).toSet
+    def ownerCourseOf(node: String): Option[String] =
+      if (trackableSet.contains(node)) Some(node)
+      else ancestors.values.collectFirst {
+        case anc if anc.contains(node) => anc.dropWhile(_ != node).drop(1).find(trackableSet.contains)
+      }.flatten
+    val contextOf: String => String = node =>
+      if (node == courseId) "cb:" + batchId
+      else ownerCourseOf(node).map(c => "cb:" + batchId + ":" + c).getOrElse("cb:" + batchId)
+
+    val courseAgg = activityAggUtil.computeCourseActivityAgg(uc, leafNodes, effectiveOptional, contextOf, ctx)
     val collectionsWithLeafNodes: Map[String, List[String]] = childCollections.map { col =>
       (col, hierarchyRelationsUtil.getLeafNodes(courseId, col, ctx).diff(effectiveOptional))
     }.toMap
-    val moduleAggs = activityAggUtil.computeModuleActivityAgg(uc, courseId, ancestors, collectionsWithLeafNodes, ctx)
+    val moduleAggs = activityAggUtil.computeModuleActivityAgg(uc, courseId, ancestors, collectionsWithLeafNodes, contextOf, ctx)
 
     val allAggs: List[UserEnrolmentAgg] = courseAgg.toList ++ moduleAggs
 

@@ -131,11 +131,12 @@ class ActivityAggregateUtil {
                                  userConsumption: UserContentConsumption,
                                  leafNodes: List[String],
                                  optionalNodes: List[String],
+                                 contextOf: String => String,
                                  requestContext: RequestContext
                                ): Option[UserEnrolmentAgg] = {
     val courseId = userConsumption.courseId
     val userId = userConsumption.userId
-    val contextId = "cb:" + userConsumption.batchId
+    val contextId = contextOf(courseId)
 
     logger.info(requestContext, s"computeCourseActivityAgg: courseId: $courseId, userId: $userId, leafNodes: ${leafNodes.size}, optionalNodes: ${optionalNodes.size}")
 
@@ -188,10 +189,10 @@ class ActivityAggregateUtil {
                                  courseId: String,
                                  ancestors: Map[String, List[String]],
                                  collectionsWithLeafNodes: Map[String, List[String]],
+                                 contextOf: String => String,
                                  requestContext: RequestContext
                                ): List[UserEnrolmentAgg] = {
     val userId = userConsumption.userId
-    val contextId = "cb:" + userConsumption.batchId
     val childCollections = ancestors.values.flatten.filter(a => !StringUtils.equals(a, courseId)).toList.distinct
     val userCompletedContents = userConsumption.contents.filter(cc => cc._2.status == 2).map(cc => cc._2.contentId).toList.distinct
     childCollections.flatMap(collectionId => {
@@ -201,7 +202,7 @@ class ActivityAggregateUtil {
           "Course",
           userId,
           collectionId,
-          contextId,
+          contextOf(collectionId),
           Map("completedCount" -> completedCount.toDouble),
           Map("completedCount" -> System.currentTimeMillis())
         )
