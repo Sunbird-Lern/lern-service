@@ -149,7 +149,7 @@ class ActivityAggregateUtilTest extends AnyFlatSpec with Matchers {
     val leafNodes = List("content1", "content2", "content3", "content4")
     val optionalNodes = List.empty[String]
 
-    val result = aggUtil.computeCourseActivityAgg(consumption, leafNodes, optionalNodes, requestContext)
+    val result = aggUtil.computeCourseActivityAgg(consumption, leafNodes, optionalNodes, (_ => "cb:" + consumption.batchId), requestContext)
 
     result.isDefined shouldBe true
     val agg = result.get.activityAgg
@@ -166,7 +166,7 @@ class ActivityAggregateUtilTest extends AnyFlatSpec with Matchers {
     val leafNodes = List("content1", "content2", "content3")
     val optionalNodes = List("content3") // content3 is optional
 
-    val result = aggUtil.computeCourseActivityAgg(consumption, leafNodes, optionalNodes, requestContext)
+    val result = aggUtil.computeCourseActivityAgg(consumption, leafNodes, optionalNodes, (_ => "cb:" + consumption.batchId), requestContext)
 
     result.isDefined shouldBe true
     val collProgress = result.get.collectionProgress
@@ -186,7 +186,7 @@ class ActivityAggregateUtilTest extends AnyFlatSpec with Matchers {
     val leafNodes = List("content1", "content2")
     val optionalNodes = List.empty[String]
 
-    val result = aggUtil.computeCourseActivityAgg(consumption, leafNodes, optionalNodes, requestContext)
+    val result = aggUtil.computeCourseActivityAgg(consumption, leafNodes, optionalNodes, (_ => "cb:" + consumption.batchId), requestContext)
 
     result.isDefined shouldBe true
     val collProgress = result.get.collectionProgress.get
