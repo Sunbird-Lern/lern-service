@@ -28,6 +28,7 @@ import org.sunbird.learner.actors.coursebatch.service.UserCoursesService;
 import org.sunbird.learner.constants.CourseJsonKey;
 import org.sunbird.learner.util.ContentUtil;
 import org.sunbird.learner.util.CourseBatchUtil;
+import org.sunbird.learner.util.HierarchyTrackableUtil;
 import org.sunbird.learner.util.Util;
 import org.sunbird.models.course.batch.CourseBatch;
 import org.sunbird.telemetry.util.TelemetryUtil;
@@ -135,14 +136,19 @@ public class CourseBatchManagementActor extends BaseActor {
       batchOperationNotifier(actorMessage, courseBatch, null);
     }
     String rootBatchId = (String) actorMessage.getContext().getOrDefault(ROOT_BATCH_ID, courseBatchId);
-    triggerChildBatchCreation(actorMessage, courseId, rootBatchId);
+    if (HierarchyTrackableUtil.hasNestedTrackables(courseId, actorMessage.getRequestContext())) {
+      triggerChildBatchCreation(actorMessage, courseId, rootBatchId);
+    } else {
+      logger.info(actorMessage.getRequestContext(),
+          "createCourseBatch: no nested trackables; skipping child batch creation for course=" + courseId);
+    }
   }
 
 
   private void triggerChildBatchCreation(Request parent, String parentCourseId, String rootBatchId) {
     RequestContext ctx = parent.getRequestContext();
     try {
-      for (String childCourseId : getTrackableNodes(parentCourseId, ctx)) {
+      for (String childCourseId : HierarchyTrackableUtil.getTrackableNodes(parentCourseId, ctx)) {
         if (StringUtils.equalsIgnoreCase(childCourseId, parentCourseId)) continue;
         String childBatchId = rootBatchId + ":" + childCourseId;
         if (batchExists(childCourseId, childBatchId, ctx)) continue;
@@ -170,22 +176,6 @@ public class CourseBatchManagementActor extends BaseActor {
       if (ResponseCode.invalidCourseBatchId.getErrorCode().equals(e.getErrorCode())) return false;
       throw e;
     }
-  }
-
-  @SuppressWarnings("unchecked")
-  private List<String> getTrackableNodes(String rootId, RequestContext ctx) {
-    String keyspace = Optional.ofNullable(ProjectUtil.getConfigValue("hierarchy_store_keyspace"))
-        .filter(StringUtils::isNotBlank).orElse("dev_hierarchy_store");
-    String table = Optional.ofNullable(ProjectUtil.getConfigValue("hierarchy_relations_table"))
-        .filter(StringUtils::isNotBlank).orElse("hierarchy_relations");
-    Map<String, Object> filters = new HashMap<>();
-    filters.put("relationship_key", rootId + ":" + rootId + ":trackablenodes");
-    List<Map<String, Object>> rows = (List<Map<String, Object>>) cassandraOperation
-        .getRecordsByProperties(keyspace, table, filters, ctx)
-        .getResult().getOrDefault(JsonKey.RESPONSE, new ArrayList<>());
-    if (rows.isEmpty()) return Collections.emptyList();
-    List<String> nodeIds = (List<String>) rows.get(0).get("node_ids");
-    return nodeIds == null ? Collections.emptyList() : nodeIds;
   }
 
   private boolean courseNotificationActive() {

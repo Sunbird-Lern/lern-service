@@ -106,6 +106,7 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
         val requestId = Option(request.getContext.get(JsonKey.REQUEST_ID)).map(_.toString).getOrElse("")
         if ("system".equals(requestId)) return
         if (!java.lang.Boolean.parseBoolean(ProjectUtil.getConfigValue("viewer_enabled"))) return
+        if (!HierarchyTrackableUtil.hasNestedTrackables(courseId, request.getRequestContext)) return
         try {
             if (!"distributed".equalsIgnoreCase(ProjectUtil.getConfigValue("deployment_mode"))) {
                 val agg = new Request(); agg.setRequestContext(request.getRequestContext); agg.setOperation("aggregate")
