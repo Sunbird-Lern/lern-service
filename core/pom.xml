@@ -88,7 +88,7 @@
         
         <!-- Redis Dependencies -->
         <redisson.version>3.22.0</redisson.version>
-        <jedis.version>2.10.2</jedis.version>
+        <jedis.version>7.5.0</jedis.version>
         
         <!-- Scala Dependencies -->
         <scala.version>2.13.12</scala.version>
