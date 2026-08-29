@@ -57,7 +57,7 @@
         <!-- Keycloak and RestEasy -->
         <keycloak.version>21.1.2</keycloak.version>
         <jaxrs-api.version>3.0.12.Final</jaxrs-api.version>
-        <resteasy-client.version>4.7.9.Final</resteasy-client.version>
+        <resteasy-client.version>7.0.2.Final</resteasy-client.version>
         <resteasy-jackson2-provider.version>4.7.9.Final</resteasy-jackson2-provider.version>
         
         <!-- Google Libraries -->
