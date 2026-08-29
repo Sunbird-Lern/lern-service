@@ -28,6 +28,11 @@ import scala.collection.JavaConverters._
  *  - **Monthly mode** (no dates): returns per-month counts for the last 12 months via a
  *    single `date_histogram` aggregation, bucketed by calendar month.
  *
+ * Both modes accept an optional `createdFor` (an org id), which scopes the count/breakdown
+ * to that org via a `rootOrgId` term filter on the `user` index — this is the same field
+ * used elsewhere in this codebase for org-scoped user lookups (see e.g.
+ * UserDeletionBackgroundJobActor). Without it, counts are platform-wide.
+ *
  * The `createdAt` field in the `user` index must be mapped as `date` with `format: yyyy-MM-dd`.
  * Range queries and `date_histogram` aggregations work natively on this type — no `.raw`
  * sub-field is needed.
@@ -41,19 +46,20 @@ class EsExecutor extends QueryExecutor {
   private val mapper = new ObjectMapper()
 
   override def execute(renderedQuery: String, params: List[Any], requestContext: RequestContext): List[Map[String, Any]] = {
-    val config   = mapper.readValue(renderedQuery, classOf[java.util.Map[String, AnyRef]])
-    val fromDate = Option(config.get("fromDate")).map(_.toString).filter(_.nonEmpty)
-    val toDate   = Option(config.get("toDate")).map(_.toString).filter(_.nonEmpty)
+    val config     = mapper.readValue(renderedQuery, classOf[java.util.Map[String, AnyRef]])
+    val fromDate   = Option(config.get("fromDate")).map(_.toString).filter(_.nonEmpty)
+    val toDate     = Option(config.get("toDate")).map(_.toString).filter(_.nonEmpty)
+    val createdFor = Option(config.get("createdFor")).map(_.toString).filter(_.nonEmpty)
 
     (fromDate, toDate) match {
       case (Some(from), Some(to)) =>
         validateDateFormat(from, "fromDate")
         validateDateFormat(to, "toDate")
-        logger.info(requestContext, s"EsExecutor: range count from=$from to=$to")
-        List(Map[String, Any]("userCount" -> rangeCount(from, to, requestContext)))
+        logger.info(requestContext, s"EsExecutor: range count from=$from to=$to createdFor=${createdFor.getOrElse("<none>")}")
+        List(Map[String, Any]("userCount" -> rangeCount(from, to, createdFor, requestContext)))
       case (None, None) =>
-        logger.info(requestContext, "EsExecutor: no dates provided — computing last 12 months")
-        monthlyBreakdown(requestContext)
+        logger.info(requestContext, s"EsExecutor: no dates provided — computing last 12 months, createdFor=${createdFor.getOrElse("<none>")}")
+        monthlyBreakdown(createdFor, requestContext)
       case (Some(_), None) =>
         throw new ProjectCommonException(
           ResponseCode.invalidRequestData.getErrorCode,
@@ -69,13 +75,25 @@ class EsExecutor extends QueryExecutor {
     }
   }
 
-  private def rangeCount(fromDate: String, toDate: String, ctx: RequestContext): Long = {
-    val query         = QueryBuilders.rangeQuery("createdAt").gte(fromDate).lt(toDate)
+  private def rangeCount(fromDate: String, toDate: String, createdFor: Option[String], ctx: RequestContext): Long = {
+    val dateQuery     = QueryBuilders.rangeQuery("createdAt").gte(fromDate).lt(toDate)
+    val query         = withOrgScope(dateQuery, createdFor)
     val sourceBuilder = new SearchSourceBuilder().query(query).size(0)
     val request       = new SearchRequest(ProjectUtil.EsType.user.getTypeName()).source(sourceBuilder)
-    logger.info(ctx, s"EsExecutor.rangeCount: from=$fromDate to=$toDate")
+    logger.info(ctx, s"EsExecutor.rangeCount: from=$fromDate to=$toDate createdFor=${createdFor.getOrElse("<none>")}")
     val response = ConnectionManager.getRestClient().search(request, RequestOptions.DEFAULT)
     response.getHits.getTotalHits.value
+  }
+
+  /** Wraps a base query with a rootOrgId term filter when createdFor is present; otherwise returns it unchanged. */
+  private def withOrgScope(baseQuery: org.opensearch.index.query.QueryBuilder, createdFor: Option[String]) = {
+    createdFor match {
+      case Some(orgId) =>
+        QueryBuilders.boolQuery()
+          .must(baseQuery)
+          .filter(QueryBuilders.termQuery("rootOrgId", orgId))
+      case None => baseQuery
+    }
   }
 
   private def validateDateFormat(date: String, fieldName: String): Unit = {
@@ -87,7 +105,7 @@ class EsExecutor extends QueryExecutor {
       )
   }
 
-  private def monthlyBreakdown(ctx: RequestContext): List[Map[String, Any]] = {
+  private def monthlyBreakdown(createdFor: Option[String], ctx: RequestContext): List[Map[String, Any]] = {
     val today = LocalDate.now(ZoneOffset.UTC)
     val from  = today.minusMonths(11).withDayOfMonth(1)
     val to    = today.plusMonths(1).withDayOfMonth(1) // exclusive upper bound
@@ -99,11 +117,12 @@ class EsExecutor extends QueryExecutor {
       .minDocCount(0)
       .extendedBounds(new LongBounds(from.toString.substring(0, 7), today.toString.substring(0, 7)))
 
-    val query         = QueryBuilders.rangeQuery("createdAt").gte(from.toString).lt(to.toString)
+    val dateQuery     = QueryBuilders.rangeQuery("createdAt").gte(from.toString).lt(to.toString)
+    val query         = withOrgScope(dateQuery, createdFor)
     val sourceBuilder = new SearchSourceBuilder().query(query).aggregation(agg).size(0)
     val request       = new SearchRequest(ProjectUtil.EsType.user.getTypeName()).source(sourceBuilder)
 
-    logger.info(ctx, s"EsExecutor.monthlyBreakdown: from=$from to=$to")
+    logger.info(ctx, s"EsExecutor.monthlyBreakdown: from=$from to=$to createdFor=${createdFor.getOrElse("<none>")}")
     val response = ConnectionManager.getRestClient().search(request, RequestOptions.DEFAULT)
 
     val aggs = response.getAggregations
