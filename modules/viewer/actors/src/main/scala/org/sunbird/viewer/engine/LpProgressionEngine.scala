@@ -91,8 +91,14 @@ class LpProgressionEngine(cassandraOperation: CassandraOperation,
     }
     val childBatchOf = (c: String) => batchId + ":" + c
     val courseComplete = (c: String) => status.get((c, childBatchOf(c))).contains(2)
-    if (preAssessment.exists(pa => !courseComplete(pa))) return true
-    val achieved = preAssessment.map(pa => skillsFromAssessment(userId, rootId, pa, batchId, ctx)).getOrElse(Set.empty)
+    // Only Adaptive defers optionality until the pre-assessment is taken (it needs the proven-skills
+    // result). PriorLearning waives already-completed courses and must not be gated on an assessment.
+    if (policy.equalsIgnoreCase("Adaptive") && preAssessment.exists(pa => !courseComplete(pa))) return true
+    // skills-from-pre-assessment only applies to Adaptive; PriorLearning waives purely on prior completion
+    val achieved =
+      if (policy.equalsIgnoreCase("Adaptive"))
+        preAssessment.map(pa => skillsFromAssessment(userId, rootId, pa, batchId, ctx)).getOrElse(Set.empty)
+      else Set.empty[String]
     val completedCourses = status.collect { case ((c, _), 2) => c }.toSet
     val priorCompleted =
       if (policy.equalsIgnoreCase("PriorLearning")) trackable.filter(completedCourses.contains).toSet
