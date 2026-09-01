@@ -48,8 +48,11 @@ class LpProgressionEngine(cassandraOperation: CassandraOperation,
     }
 
     val requiredCourses = trackable.filterNot(optional.contains)
+    val waived = trackable.count(optional.contains)
+    val done = requiredCourses.count(courseComplete) + waived
+    val total = trackable.size
     val allComplete = levels.nonEmpty && levels.forall(levelComplete)
-    writeRootProgress(userId, rootId, batchId, requiredCourses.count(courseComplete), requiredCourses.size,
+    writeRootProgress(userId, rootId, batchId, done, total,
       allComplete, status.get((rootId, batchId)).getOrElse(0), ctx)
 
     if (allComplete) {

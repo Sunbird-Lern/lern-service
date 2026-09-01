@@ -119,4 +119,26 @@ class LpProgressionEngineSpec extends AnyFlatSpec with Matchers with MockFactory
 
     disp.enrolled shouldBe empty // misconfigured Adaptive LP opens no course (no updateRecordV2 either)
   }
+
+  "advance" should "count a waived course as complete in LP progress against the full denominator" in {
+    val ops = mock[CassandraOperation]
+    val lp = mock[LpPolicyUtil]
+    val disp = new FakeDispatcher
+    val cert = mock[CertificateUtil]
+    // crsA waived (prior/tested-out), crsB not done -> done = 0 required + 1 waived = 1, total = 2
+    // -> 50% / In-Progress. Old behavior (optional dropped from denominator) would have read 0/1 = 0%.
+    (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
+      .expects(*, *, *, *, *).returns(optionalRows("crsA")).anyNumberOfTimes()
+    val updates = ListBuffer.empty[util.Map[String, AnyRef]]
+    (ops.updateRecordV2(_: String, _: String, _: util.Map[String, AnyRef], _: util.Map[String, AnyRef], _: Boolean, _: RequestContext))
+      .expects(*, *, *, *, *, *).onCall { (_: String, _: String, _: util.Map[String, AnyRef], upd: util.Map[String, AnyRef], _: Boolean, _: RequestContext) =>
+        updates += upd; new Response() }.anyNumberOfTimes()
+
+    engineWith(ops, lp, disp, cert).advance("uW", "lp", "bW", trackable, Map.empty, ancestorsOf, ctx)
+
+    val root = updates.find(_.containsKey("completionpercentage")).get // the writeRootProgress update
+    root.get("progress") shouldBe Integer.valueOf(1)
+    root.get("completionpercentage") shouldBe Integer.valueOf(50)
+    root.get("status") shouldBe Integer.valueOf(1)
+  }
 }
