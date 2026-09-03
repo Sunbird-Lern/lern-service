@@ -121,10 +121,14 @@ class ViewConsumptionActor @Inject() (
     cassandraOperation.upsertRecord(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
     touchEnrolmentAccess(key, 2, ctx)
     triggerAggregation(request, ctx)
-    val out = new Response(); out.put(contentId, JsonKey.SUCCESS); sender().tell(out, self)
+    sender().tell(ackResponse(contentId, "Score Updated"), self)
   }
 
-  // /v1/assessment/read: best score / max score per content from assessment_aggregator
+  private def ackResponse(contentId: String, message: String): Response = {
+    val out = new Response(); out.put(contentId, message); out
+  }
+
+  // /v1/assessment/read: all attempts (score/max_score) per content from assessment_aggregator
   private def assessmentRead(request: Request): Unit = {
     val ctx = request.getRequestContext
     val userId = request.get(JsonKey.USER_ID).asInstanceOf[String]
@@ -135,26 +139,27 @@ class ViewConsumptionActor @Inject() (
       case s: String if StringUtils.isNotBlank(s) => List(s)
       case _ => List.empty
     }
-    val contents = new util.ArrayList[util.Map[String, AnyRef]]()
+    // assessments are per-attempt (not best-per-content), each tagged with its contentId
+    val assessments = new util.ArrayList[util.Map[String, AnyRef]]()
     contentIds.foreach { cid =>
       // same cascade viewAssess wrote with: collectionid <- courseId?:content, contextid <- batchId?:courseId?:content
       val collectionId = courseIdOpt.getOrElse(cid)
       val contextId = batchIdOpt.orElse(courseIdOpt).getOrElse(cid)
       val stored = assessmentCassandra.getUserAssessments(userId, collectionId, contextId, cid, ctx)
-      if (stored.nonEmpty) {
-        val best = stored.maxBy(_.totalScore)
+      stored.foreach { a =>
         val m = new util.HashMap[String, AnyRef]()
-        m.put("identifier", cid)
-        m.put("score", best.totalScore.asInstanceOf[AnyRef])
-        m.put("max_score", best.totalMaxScore.asInstanceOf[AnyRef])
-        contents.add(m)
+        m.put("contentId", cid)
+        m.put("attemptId", a.attemptId)
+        m.put("score", a.totalScore.asInstanceOf[AnyRef])
+        m.put("max_score", a.totalMaxScore.asInstanceOf[AnyRef])
+        assessments.add(m)
       }
     }
     val out = new Response()
     out.put(JsonKey.USER_ID, userId)
-    out.put("courseId", courseIdOpt.orNull)
-    out.put("batchId", batchIdOpt.orNull)
-    out.put("contents", contents)
+    out.put("collectionId", courseIdOpt.orNull)
+    out.put("contextId", batchIdOpt.orNull)
+    out.put("assessments", assessments)
     sender().tell(out, self)
   }
 
@@ -171,6 +176,9 @@ class ViewConsumptionActor @Inject() (
       case _ => null
     }
     val hasContent = contentIds != null && !contentIds.isEmpty
+    // read must be anchored: a specific content (organic) or a collection (whole-collection read). contextall drops the context only.
+    if (!hasContent && courseIdOpt.isEmpty)
+      ProjectCommonException.throwClientErrorException(ResponseCode.mandatoryParamsMissing, "contentId or collectionId is required")
     // individual content (no collection): PK collapses to the single contentId for collection+context (scenario 1)
     val singleContent = if (courseIdOpt.isEmpty && hasContent && contentIds.size == 1) contentIds.get(0) else null
     val collectionId = courseIdOpt.getOrElse(singleContent)
@@ -184,12 +192,39 @@ class ViewConsumptionActor @Inject() (
       filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)
     val rows = response.getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]])
       .asInstanceOf[util.List[util.Map[String, AnyRef]]]
-    // surface the renamed ucc columns back as the courseId/batchId API contract
-    rows.asScala.foreach { r =>
-      Option(r.remove("collectionid")).foreach(v => r.put("courseId", v))
-      Option(r.remove("contextid")).foreach(v => r.put("batchId", v))
-    }
-    val out = new Response(); out.put(JsonKey.RESPONSE, rows); sender().tell(out, self)
+    // per-item operational fields (viewCount/last*Time/completionPercentage) are retained so content/state can reconstruct its ucc row
+    val contents = new util.ArrayList[util.Map[String, AnyRef]]()
+    rows.asScala.foreach(r => contents.add(toContentItem(r)))
+    val out = new Response()
+    out.put(JsonKey.USER_ID, userId)
+    out.put("collectionId", courseIdOpt.orNull)
+    out.put("contextId", batchIdOpt.orNull)
+    out.put("type", if (allContexts) "contextall" else "content")
+    out.put("contents", contents)
+    sender().tell(out, self)
+  }
+
+  // copy-and-normalize: ucc PK columns collectionid/contextid/progressdetails are unmapped (lowercase);
+  // the rest (contentId/viewCount/lastAccessTime/...) are already camelCased by CassandraUtil, so pass through.
+  private def toContentItem(r: util.Map[String, AnyRef]): util.Map[String, AnyRef] = {
+    val item = new util.HashMap[String, AnyRef](r)
+    renameKey(item, "collectionid", "collectionId")
+    renameKey(item, "contextid", "contextId")
+    renameKey(item, "contentid", "contentId")
+    Option(item.remove("progressdetails")).orElse(Option(item.remove("progressDetails")))
+      .foreach(v => item.put("progressDetails", parseProgressDetails(v)))
+    item.remove("userid"); item.remove("userId")
+    item.remove("last_updated_time"); item.remove("lastUpdatedTime")
+    item
+  }
+
+  private def renameKey(m: util.Map[String, AnyRef], from: String, to: String): Unit =
+    Option(m.remove(from)).foreach(v => m.put(to, v))
+
+  private def parseProgressDetails(v: AnyRef): AnyRef = v match {
+    case s: String if StringUtils.isNotBlank(s) =>
+      try mapper.readValue(s, classOf[util.Map[String, AnyRef]]) catch { case _: Throwable => s }
+    case other => other
   }
 
   private def viewStart(request: Request): Unit = {
@@ -214,7 +249,7 @@ class ViewConsumptionActor @Inject() (
       logger.info(ctx, s"view: start noop(exists) | user=${key.get("userid")} content=${key.get("contentid")}")
     }
     touchEnrolmentAccess(key, 1, ctx)
-    sender().tell(successResponse(), self)
+    sender().tell(ackResponse(key.get("contentid").asInstanceOf[String], "Progress started"), self)
   }
 
   private def viewUpdate(request: Request): Unit = {
@@ -232,7 +267,7 @@ class ViewConsumptionActor @Inject() (
       logger.info(ctx, s"view: update merged | user=${key.get("userid")} content=${key.get("contentid")}")
     } else logger.info(ctx, s"view: update skip(absent-or-completed) | user=${key.get("userid")} content=${key.get("contentid")}")
     touchEnrolmentAccess(key, math.max(1, if (existing != null) statusOf(existing) else 1), ctx)
-    sender().tell(successResponse(), self)
+    sender().tell(ackResponse(key.get("contentid").asInstanceOf[String], "Progress Updated"), self)
   }
 
   private def viewEnd(request: Request): Unit = {
@@ -252,7 +287,7 @@ class ViewConsumptionActor @Inject() (
     logger.info(ctx, s"view: end completed | user=${key.get("userid")} course=${key.get("collectionid")} batch=${key.get("contextid")} content=${key.get("contentid")}")
     touchEnrolmentAccess(key, 2, ctx)
     triggerAggregation(request, ctx)
-    sender().tell(successResponse(), self)
+    sender().tell(ackResponse(key.get("contentid").asInstanceOf[String], "Progress ended"), self)
   }
 
   // fire-and-forget tell to the aggregator; rollup runs async, the response does not wait

@@ -65,6 +65,9 @@ public class ViewController extends BaseController {
             // userId is derived from the auth token, never the client body
             String userId = (String) request.getContext().getOrDefault(JsonKey.REQUESTED_FOR, request.getContext().get(JsonKey.REQUESTED_BY));
             request.getRequest().put(JsonKey.USER_ID, userId);
+            // optional ?context=all (view.read) -> read all contents irrespective of context (type:"contextall")
+            String context = httpRequest.getQueryString("context");
+            if (StringUtils.isNotBlank(context)) request.getRequest().put("context", context);
             validate(operation, request);
             return actorResponseHandler(viewConsumptionActor, request, timeout, null, httpRequest);
         } catch (Exception e) {
