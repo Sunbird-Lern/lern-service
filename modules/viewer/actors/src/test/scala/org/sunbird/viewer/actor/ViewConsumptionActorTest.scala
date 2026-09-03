@@ -206,12 +206,15 @@ class ViewConsumptionActorTest extends AnyFlatSpec with Matchers with MockFactor
   // spec: result = { userId, contentId, type:"content", contents:[{ collectionId, contextId, contentId, status, progressDetails{…} }] }
   "viewRead" should "return the spec-shaped result (contents wrapper, spec keys, nested progressDetails)" in {
     val ops = mock[CassandraOperation]
-    // production casing: CassandraUtil camelCases mapped columns (contentId/viewCount/lastAccessTime) but leaves collectionid/contextid/progressdetails lowercase
+    // production casing: CassandraUtil camelCases mapped columns (contentId/viewCount/lastAccessTime) but leaves collectionid/contextid/progressdetails lowercase.
+    // legacy content-state columns (dateTime/oldLast*/completedCount/completionPercentage) share the table but must NOT leak into view.read.
     val rows = new util.ArrayList[util.Map[String, AnyRef]](); rows.add(new util.HashMap[String, AnyRef]() {{
       put("userId", "u1"); put("collectionid", "c1"); put("contextid", "b1"); put("contentId", "ct1")
       put("status", Integer.valueOf(2)); put("progress", Integer.valueOf(100))
       put("progressdetails", "{\"mimeType\":\"application/video\",\"progress\":100}")
       put("viewCount", Integer.valueOf(3)); put("lastAccessTime", new java.util.Date(1000L))
+      put("dateTime", new java.util.Date(1L)); put("addedBy", "u9"); put("oldLastAccessTime", "2020-01-01")
+      put("completedCount", Integer.valueOf(5)); put("completionPercentage", java.lang.Float.valueOf(50.0f))
     }})
     (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
       .expects(*, *, *, *, *).returns(rowsWith(rows))
@@ -231,9 +234,16 @@ class ViewConsumptionActorTest extends AnyFlatSpec with Matchers with MockFactor
     item.get("contentId") shouldBe "ct1"
     item.get("status") shouldBe Integer.valueOf(2)
     item.get("progressDetails").isInstanceOf[util.Map[_, _]] shouldBe true  // object, not JSON string
-    item.get("progress") shouldBe Integer.valueOf(100)                      // operational fields retained for content/state
+    item.get("progress") shouldBe Integer.valueOf(100)                      // viewer-owned fields kept
     item.get("viewCount") shouldBe Integer.valueOf(3)
-    item.containsKey("userId") shouldBe false                               // internal-only, stripped from the item
+    item.containsKey("userId") shouldBe false                               // already top-level, not repeated per item
+    // kept: completedCount/completionPercentage/dateTime/addedBy pass through
+    item.get("completedCount") shouldBe Integer.valueOf(5)
+    item.get("completionPercentage") shouldBe java.lang.Float.valueOf(50.0f)
+    item.containsKey("dateTime") shouldBe true
+    item.get("addedBy") shouldBe "u9"
+    // dropped: only the old_* migration columns
+    item.containsKey("oldLastAccessTime") shouldBe false
   }
 
   // spec: result = { userId, contentId, collectionId, contextId, assessments:[{ attemptId, score, max_score }] } (per attempt)

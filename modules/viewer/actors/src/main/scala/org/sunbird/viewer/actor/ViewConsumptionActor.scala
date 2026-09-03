@@ -204,22 +204,28 @@ class ViewConsumptionActor @Inject() (
     sender().tell(out, self)
   }
 
-  // copy-and-normalize: ucc PK columns collectionid/contextid/progressdetails are unmapped (lowercase);
-  // the rest (contentId/viewCount/lastAccessTime/...) are already camelCased by CassandraUtil, so pass through.
+  // allow-list: view.read emits only the fields we need; any other column in the row (old_*, userId, lastUpdatedTime, …)
+  // is ignored by default. Accepts both key casings (prod camelCase from CassandraUtil / raw lowercase).
   private def toContentItem(r: util.Map[String, AnyRef]): util.Map[String, AnyRef] = {
-    val item = new util.HashMap[String, AnyRef](r)
-    renameKey(item, "collectionid", "collectionId")
-    renameKey(item, "contextid", "contextId")
-    renameKey(item, "contentid", "contentId")
-    Option(item.remove("progressdetails")).orElse(Option(item.remove("progressDetails")))
-      .foreach(v => item.put("progressDetails", parseProgressDetails(v)))
-    item.remove("userid"); item.remove("userId")
-    item.remove("last_updated_time"); item.remove("lastUpdatedTime")
+    val item = new util.HashMap[String, AnyRef]()
+    putIf(item, "contentId", firstVal(r, "contentId", "contentid"))
+    putIf(item, "collectionId", firstVal(r, "collectionid", "collectionId"))
+    putIf(item, "contextId", firstVal(r, "contextid", "contextId"))
+    putIf(item, "status", firstVal(r, "status"))
+    putIf(item, "progress", firstVal(r, "progress"))
+    putIf(item, "viewCount", firstVal(r, "viewCount", "viewcount"))
+    putIf(item, "completedCount", firstVal(r, "completedCount", "completedcount"))
+    putIf(item, "completionPercentage", firstVal(r, "completionPercentage", "completionpercentage"))
+    putIf(item, "lastAccessTime", firstVal(r, "lastAccessTime", "last_access_time"))
+    putIf(item, "lastCompletedTime", firstVal(r, "lastCompletedTime", "last_completed_time"))
+    putIf(item, "dateTime", firstVal(r, "dateTime", "datetime"))
+    putIf(item, "addedBy", firstVal(r, "addedBy", "addedby"))
+    Option(firstVal(r, "progressdetails", "progressDetails")).foreach(v => item.put("progressDetails", parseProgressDetails(v)))
     item
   }
 
-  private def renameKey(m: util.Map[String, AnyRef], from: String, to: String): Unit =
-    Option(m.remove(from)).foreach(v => m.put(to, v))
+  private def firstVal(r: util.Map[String, AnyRef], keys: String*): AnyRef = keys.iterator.map(r.get).find(_ != null).orNull
+  private def putIf(m: util.Map[String, AnyRef], k: String, v: AnyRef): Unit = if (v != null) m.put(k, v)
 
   private def parseProgressDetails(v: AnyRef): AnyRef = v match {
     case s: String if StringUtils.isNotBlank(s) =>
