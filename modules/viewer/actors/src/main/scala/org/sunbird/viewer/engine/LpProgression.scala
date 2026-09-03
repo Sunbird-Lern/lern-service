@@ -3,7 +3,7 @@ package org.sunbird.viewer.engine
 import org.apache.pekko.actor.ActorContext
 import org.sunbird.activity.util.{CertificateUtil, HierarchyRelationsUtil}
 import org.sunbird.viewer.util.LpPolicyUtil
-import org.sunbird.assessment.service.CassandraService
+import org.sunbird.viewer.competency.CompetencyService
 import org.sunbird.cassandra.CassandraOperation
 import org.sunbird.keys.JsonKey
 import org.sunbird.logging.LoggerUtil
@@ -22,27 +22,27 @@ class LpProgression(context: ActorContext,
 
   private val logger = new LoggerUtil(classOf[LpProgression])
   private val lpPolicyUtil = LpPolicyUtil()
-  private val assessmentService = new CassandraService(Some(cassandraOperation))
   private val enrolDispatcher = EnrolDispatcher(context)
+  private[viewer] val competencyService = CompetencyService(cassandraOperation, enrolKeyspace)
   private val lpEngine = new LpProgressionEngine(
-    cassandraOperation, enrolKeyspace, enrolTable, lpPolicyUtil, assessmentService, enrolDispatcher, certificateUtil)
+    cassandraOperation, enrolKeyspace, enrolTable, lpPolicyUtil, enrolDispatcher, certificateUtil, competencyService)
 
   def onAggregated(userId: String, courseId: String, batchId: String, completedNow: Set[String], ctx: RequestContext): Unit = {
     val trackable = hierarchyRelationsUtil.getTrackableNodes(courseId, ctx)
     if (trackable.nonEmpty) {
       logger.info(ctx, s"viewer.lp: advance | user=$userId root=$courseId n=${trackable.size}")
-      advanceLp(userId, courseId, batchId, trackable, ctx)
+      advanceLp(userId, courseId, batchId, trackable, completedNow, ctx)
     } else if (completedNow.contains(courseId)) bridgeToRoot(userId, courseId, batchId, ctx)
   }
 
   private def advanceLp(userId: String, rootId: String, batchId: String,
-                        trackable: List[String], ctx: RequestContext): Unit = {
+                        trackable: List[String], completedNow: Set[String], ctx: RequestContext): Unit = {
     val status = enrolStatusSnapshot(userId, ctx)
     val ancestorsOf = (course: String) =>
       hierarchyRelationsUtil.getLeafNodes(rootId, course, ctx).headOption
         .map(leaf => hierarchyRelationsUtil.getAncestors(rootId, leaf, ctx))
         .getOrElse(List.empty[String])
-    lpEngine.advance(userId, rootId, batchId, trackable, status, ancestorsOf, ctx)
+    lpEngine.advance(userId, rootId, batchId, trackable, status, ancestorsOf, completedNow, ctx)
   }
 
   private def enrolStatusSnapshot(userId: String, ctx: RequestContext): Map[(String, String), Int] = {

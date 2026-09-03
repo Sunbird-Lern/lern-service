@@ -126,7 +126,11 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
     moduleAggs.foreach(a => nodeProgress(a.activityAgg.activity_id) =
       (completedCountOf(a), collectionsWithLeafNodes.getOrElse(a.activityAgg.activity_id, Nil)))
 
-    val completedNow = writeAllNodeEnrolments(userId, courseId, batchId, nodeProgress.toMap, contentStatusMap, ctx)
+    // An LP root's progress/status is owned by LpProgressionEngine (course counts), not by the
+    // leaf rollup. Writing both here and there let the leaf write consume the 0->2 transition that
+    // guards the LP certificate, so the rollup only maintains contentStatus on an LP root.
+    val isLpRoot = trackableSet.nonEmpty
+    val completedNow = writeAllNodeEnrolments(userId, courseId, batchId, nodeProgress.toMap, contentStatusMap, isLpRoot, ctx)
 
     lpProgression.onAggregated(userId, courseId, batchId, completedNow, ctx)
   }
@@ -142,7 +146,8 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
 
   private def writeAllNodeEnrolments(userId: String, rootId: String, batchId: String,
                                      nodeProgress: Map[String, (Int, List[String])],
-                                     contentStatusMap: Map[String, ContentStatus], ctx: RequestContext): Set[String] = {
+                                     contentStatusMap: Map[String, ContentStatus],
+                                     isLpRoot: Boolean, ctx: RequestContext): Set[String] = {
     val completedNow = scala.collection.mutable.Set[String]()
     val filters = new util.HashMap[String, AnyRef]() {{ put("userid", userId) }}
     val enrolRows = cassandraOperation.getRecords(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName,
@@ -161,25 +166,47 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
         val nodeContentStatus: Map[String, AnyRef] =
           requiredLeaves.flatMap(l => contentStatusMap.get(l).map(cs => l -> Integer.valueOf(cs.status).asInstanceOf[AnyRef])).toMap
         val mergedContentStatus = ViewerAggregatorActor.mergeContentStatus(row.get("contentStatus"), nodeContentStatus)
+        val rootOwnedByLp = isLpRoot && nodeId == rootId
         val selectMap = new util.HashMap[String, AnyRef]() {{
           put("userid", userId); put("courseid", nodeId); put("batchid", nodeCtx)
         }}
         val updateMap = new util.HashMap[String, AnyRef]() {{
-          put("progress", Integer.valueOf(completedCount))
-          put("status", Integer.valueOf(status))
-          put("completionpercentage", Integer.valueOf(pct))
           put("contentstatus", mergedContentStatus)
-          if (status == 2 && currentStatus != 2) put("completedon", new java.util.Date())
+          if (!rootOwnedByLp) {
+            put("progress", Integer.valueOf(completedCount))
+            put("status", Integer.valueOf(status))
+            put("completionpercentage", Integer.valueOf(pct))
+            if (status == 2 && currentStatus != 2) put("completedon", new java.util.Date())
+          }
         }}
         cassandraOperation.updateRecordV2(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, selectMap, updateMap, true, ctx)
         if (status == 2) completedNow += nodeId
-        if (status == 2 && currentStatus != 2) {
+        if (status == 2 && currentStatus != 2 && !rootOwnedByLp) {
           logger.info(ctx, s"viewer.rollup: node completed | user=$userId course=$nodeId batch=$nodeCtx")
           publishCompletionEvents(userId, nodeId, nodeCtx, ctx)
+          creditCompetencies(userId, nodeId, nodeCtx, isLpRoot, ctx)
         }
       }
     }
     completedNow.toSet
+  }
+
+  /**
+   * Credits a standalone course's tagged competencies. LP-nested courses are credited by
+   * LpProgressionEngine, which also has the LP's framework and its question sets.
+   */
+  private def creditCompetencies(userId: String, nodeId: String, nodeBatchId: String,
+                                 isLpRoot: Boolean, ctx: RequestContext): Unit = {
+    if (isLpRoot) return
+    try {
+      lpProgression.competencyService.frameworkOf(nodeId, ctx).foreach { fw =>
+        lpProgression.competencyService.onNodeCompleted(userId, fw, nodeId, nodeBatchId,
+          isRoot = false, System.currentTimeMillis(), ctx)
+      }
+    } catch {
+      case ex: Exception =>
+        logger.error(ctx, s"viewer.rollup: competency credit failed | user=$userId course=$nodeId", ex)
+    }
   }
 
   private def publishCompletionEvents(userId: String, courseId: String, batchId: String, ctx: RequestContext): Unit = {

@@ -52,28 +52,64 @@ class ProgressionPolicySpec extends AnyFlatSpec with Matchers {
       ProgressionPolicy.coursesOfLevel("L2", order, ancestorsOf, "do_lp")
   }
 
-  "computeOptionalNodes" should "waive a fully-known non-assessment course but never an assessment" in {
+  "computeOptionalNodes" should "waive a course whose competencies are all held at the required level" in {
     val opt = ProgressionPolicy.computeOptionalNodes(
       policy = "Adaptive",
       courses = List("CRS-B", "CRS-C"),
-      skillsByCourse = Map("CRS-B" -> Set("s1"), "CRS-C" -> Set("s2")),
+      claimsByCourse = Map("CRS-B" -> List("c1" -> 3), "CRS-C" -> List("c2" -> 3)),
       assessmentCourses = Set("CRS-C"),
-      skillsAchieved = Set("s1", "s2"))
+      heldLevels = Map("c1" -> 3, "c2" -> 4))
     opt shouldBe Set("CRS-B") // CRS-C is an assessment -> never optional
+  }
+
+  it should "not waive a course held below the claimed level" in {
+    ProgressionPolicy.computeOptionalNodes(
+      policy = "Adaptive",
+      courses = List("CRS-B"),
+      claimsByCourse = Map("CRS-B" -> List("c1" -> 3)),
+      assessmentCourses = Set.empty,
+      heldLevels = Map("c1" -> 2)) shouldBe empty
+  }
+
+  it should "waive when the level held exceeds the level claimed" in {
+    ProgressionPolicy.computeOptionalNodes(
+      policy = "Adaptive",
+      courses = List("CRS-B"),
+      claimsByCourse = Map("CRS-B" -> List("c1" -> 2)),
+      assessmentCourses = Set.empty,
+      heldLevels = Map("c1" -> 4)) shouldBe Set("CRS-B")
+  }
+
+  it should "require every claimed competency, not just one" in {
+    ProgressionPolicy.computeOptionalNodes(
+      policy = "Adaptive",
+      courses = List("CRS-B"),
+      claimsByCourse = Map("CRS-B" -> List("c1" -> 2, "c2" -> 2)),
+      assessmentCourses = Set.empty,
+      heldLevels = Map("c1" -> 4)) shouldBe empty
+  }
+
+  it should "not waive an untagged course on competency grounds" in {
+    ProgressionPolicy.computeOptionalNodes(
+      policy = "Adaptive",
+      courses = List("CRS-B"),
+      claimsByCourse = Map.empty,
+      assessmentCourses = Set.empty,
+      heldLevels = Map("c1" -> 4)) shouldBe empty
   }
 
   it should "waive nothing under Strict" in {
     ProgressionPolicy.computeOptionalNodes("Strict", List("CRS-B"),
-      Map("CRS-B" -> Set("s1")), Set.empty, Set("s1")) shouldBe empty
+      Map("CRS-B" -> List("c1" -> 1)), Set.empty, Map("c1" -> 4)) shouldBe empty
   }
 
-  it should "waive a prior-completed course regardless of skills (PriorLearning)" in {
+  it should "waive a prior-completed course regardless of competencies (PriorLearning)" in {
     val opt = ProgressionPolicy.computeOptionalNodes(
       policy = "PriorLearning",
       courses = List("CRS-B", "CRS-C"),
-      skillsByCourse = Map("CRS-B" -> Set.empty, "CRS-C" -> Set.empty),
+      claimsByCourse = Map.empty,
       assessmentCourses = Set.empty,
-      skillsAchieved = Set.empty,
+      heldLevels = Map.empty,
       priorCompleted = Set("CRS-B"))
     opt shouldBe Set("CRS-B")
   }
@@ -82,9 +118,9 @@ class ProgressionPolicySpec extends AnyFlatSpec with Matchers {
     val opt = ProgressionPolicy.computeOptionalNodes(
       policy = "PriorLearning",
       courses = List("CRS-B"),
-      skillsByCourse = Map("CRS-B" -> Set.empty),
+      claimsByCourse = Map.empty,
       assessmentCourses = Set("CRS-B"),
-      skillsAchieved = Set.empty,
+      heldLevels = Map.empty,
       priorCompleted = Set("CRS-B"))
     opt shouldBe empty
   }

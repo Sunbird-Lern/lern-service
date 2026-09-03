@@ -10,16 +10,28 @@ import org.sunbird.request.RequestContext
 import java.util
 import scala.collection.JavaConverters._
 
-case class NodeMeta(primaryCategory: String, skills: Set[String], childNodes: List[String])
-case class LpMeta(policy: String, framework: String, categoryCode: String, nodes: Map[String, NodeMeta])
+case class NodeMeta(primaryCategory: String, childNodes: List[String])
+
+/**
+ * Structural metadata of a Learning Path: its progression policy, the competency framework it
+ * declares, and the primaryCategory/childNodes of its nodes.
+ *
+ * Competency claims are not read here. They come from CompetencyFrameworkUtil, against
+ * `competencyFramework` and the `competencies` field, rather than from the taxonomy framework's
+ * highest-index category.
+ */
+case class LpMeta(policy: String, competencyFramework: String, nodes: Map[String, NodeMeta])
 
 object LpPolicyUtil {
   private val mapper = new ObjectMapper()
   private val logger = LoggerFactory.getLogger(classOf[LpPolicyUtil])
 
-  private val PRACTICE_QUESTION_SET = "Practice Question Set"
+  private val PRACTICE_QUESTION_SET: String =
+    Option(ProjectUtil.getConfigValue("lp_question_set_primary_category")).map(_.trim).filter(_.nonEmpty)
+      .getOrElse("Practice Question Set")
   private val ASSESSMENT_PRIMARY_CATEGORY: String =
-    Option(ProjectUtil.getConfigValue("lp_assessment_primary_category")).map(_.trim).filter(_.nonEmpty).getOrElse("Evaluation Course")
+    Option(ProjectUtil.getConfigValue("lp_assessment_primary_category")).map(_.trim).filter(_.nonEmpty)
+      .getOrElse("Evaluation Course")
 
   private def result(json: String): util.Map[String, AnyRef] =
     try {
@@ -35,55 +47,37 @@ object LpPolicyUtil {
     res.asScala.values.collect { case l: util.List[_] =>
       l.asInstanceOf[util.List[util.Map[String, AnyRef]]].asScala }.flatten.toList
 
-  private def strs(v: AnyRef): Set[String] = v match {
-    case l: util.List[_] => l.asScala.map(_.toString).toSet
-    case s: String if s.nonEmpty => Set(s)
-    case _ => Set.empty
-  }
-
-  def parseFrameworkCategoryCode(json: String): Option[String] = {
-    val fw = result(json).getOrDefault("framework", new util.HashMap[String, AnyRef]()).asInstanceOf[util.Map[String, AnyRef]]
-    val cats = Option(fw.get("categories")).collect { case l: util.List[_] =>
-      l.asInstanceOf[util.List[util.Map[String, AnyRef]]].asScala.toList }.getOrElse(Nil)
-    if (cats.isEmpty) None
-    else Some(cats.maxBy(c => Option(c.get("index")).map(_.asInstanceOf[Number].doubleValue()).getOrElse(0.0))
-      .get("code").toString)
-  }
-
-  def parseLpNodes(json: String, categoryCode: String): Map[String, NodeMeta] =
+  def parseLpNodes(json: String): Map[String, NodeMeta] =
     rows(result(json)).flatMap { r =>
       Option(r.get("identifier")).map(_.toString).map { id =>
         id -> NodeMeta(
           Option(r.get("primaryCategory")).map(_.toString).getOrElse(""),
-          Option(if (categoryCode.isEmpty) null else r.get(categoryCode)).map(strs).getOrElse(Set.empty),
           Option(r.get("childNodes")).collect { case l: util.List[_] => l.asScala.map(_.toString).toList }.getOrElse(Nil))
       }
     }.toMap
 
   def parseField(json: String, id: String, field: String): Option[String] =
     rows(result(json)).find(r => Option(r.get("identifier")).map(_.toString).contains(id))
-      .flatMap(r => Option(r.get(field)).map(_.toString))
+      .flatMap(r => Option(r.get(field)).map(_.toString)).filter(_.nonEmpty)
 
   def isAssessment(courseId: String, nodes: Map[String, NodeMeta]): Boolean =
     nodes.get(courseId).exists(_.primaryCategory == ASSESSMENT_PRIMARY_CATEGORY)
 
   def questionSets(courseId: String, nodes: Map[String, NodeMeta]): List[String] =
-    nodes.get(courseId).toList.flatMap(_.childNodes).filter(id => nodes.get(id).exists(_.primaryCategory == PRACTICE_QUESTION_SET))
+    nodes.get(courseId).toList.flatMap(_.childNodes)
+      .filter(id => nodes.get(id).exists(_.primaryCategory == PRACTICE_QUESTION_SET))
 
   private val metaTtl: Long =
     Option(ProjectUtil.getConfigValue("lp_meta_cache_ttl")).filter(_.trim.nonEmpty).map(_.trim.toLong).getOrElse(3600L) * 1000L
-  private val codeTtl: Long =
-    Option(ProjectUtil.getConfigValue("framework_category_cache_ttl")).filter(_.trim.nonEmpty).map(_.trim.toLong).getOrElse(86400L) * 1000L
   private val metaCache = new java.util.concurrent.ConcurrentHashMap[String, (Long, LpMeta)]()
-  private val codeCache = new java.util.concurrent.ConcurrentHashMap[String, (Long, String)]()
+
   private def cachedMeta(k: String)(load: => LpMeta): LpMeta = {
     val now = System.currentTimeMillis(); val h = metaCache.get(k)
     if (h != null && h._1 > now) h._2 else { val v = load; if (v.nodes.nonEmpty) metaCache.put(k, (now + metaTtl, v)); v }
   }
-  private def cachedCode(k: String)(load: => Option[String]): Option[String] = {
-    val now = System.currentTimeMillis(); val h = codeCache.get(k)
-    if (h != null && h._1 > now) Some(h._2) else { val v = load; v.foreach(c => codeCache.put(k, (now + codeTtl, c))); v }
-  }
+
+  def invalidate(rootId: String): Unit =
+    if (StringUtils.isBlank(rootId)) metaCache.clear() else metaCache.remove(rootId)
 
   def apply(): LpPolicyUtil = new LpPolicyUtil()
 }
@@ -116,30 +110,13 @@ class LpPolicyUtil {
     post(mapper.writeValueAsString(new util.HashMap[String, AnyRef]() {{ put("request", request) }}))
   }
 
-  private def frameworkCategoryCode(frameworkId: String): Option[String] =
-    if (frameworkId == null || frameworkId.isEmpty) None
-    else cachedCode(frameworkId) {
-      try {
-        val base = Option(ProjectUtil.getConfigValue("sunbird_api_base_url")).filter(StringUtils.isNotBlank).getOrElse("http://localhost:5000")
-        val api = Option(ProjectUtil.getConfigValue("sunbird_framework_read_api")).filter(_.nonEmpty).getOrElse("/v1/framework/read")
-        val body = HttpUtil.sendGetRequest(base + api + "/" + frameworkId, new util.HashMap[String, String]())
-        parseFrameworkCategoryCode(if (StringUtils.isBlank(body)) "{}" else body)
-      } catch {
-        case ex: Exception =>
-          logger.warn(s"LpPolicyUtil: framework read failed for $frameworkId; skills will resolve empty", ex)
-          None
-      }
-    }
-
   def lpMeta(rootId: String, ctx: RequestContext): LpMeta = cachedMeta(rootId) {
-    val rootJson = searchByIds(List(rootId), List("policy", "framework", "childNodes"))
+    val rootJson = searchByIds(List(rootId), List("policy", "competencyFramework", "childNodes"))
     val policy = parseField(rootJson, rootId, "policy").getOrElse("Strict")
-    val framework = parseField(rootJson, rootId, "framework").getOrElse("")
-    val childNodes = parseLpNodes(rootJson, "").get(rootId).map(_.childNodes).getOrElse(Nil)
-    val categoryCode = frameworkCategoryCode(framework).getOrElse("")
+    val competencyFramework = parseField(rootJson, rootId, "competencyFramework").getOrElse("")
+    val childNodes = parseLpNodes(rootJson).get(rootId).map(_.childNodes).getOrElse(Nil)
     val ids = (rootId :: childNodes).distinct
-    val fields = if (categoryCode.isEmpty) List("primaryCategory", "childNodes") else List(categoryCode, "primaryCategory", "childNodes")
-    LpMeta(policy, framework, categoryCode, parseLpNodes(searchByIds(ids, fields), categoryCode))
+    LpMeta(policy, competencyFramework, parseLpNodes(searchByIds(ids, List("primaryCategory", "childNodes"))))
   }
 
   def policyOf(meta: LpMeta): String = meta.policy match {
@@ -147,13 +124,12 @@ class LpPolicyUtil {
     case p if p != null && p.equalsIgnoreCase("PriorLearning") => "PriorLearning"
     case _                                                     => "Strict"
   }
-  def isAssessmentCourse(courseId: String, meta: LpMeta): Boolean = isAssessment(courseId, meta.nodes)
-  def questionSetsOf(courseId: String, meta: LpMeta): List[String] = questionSets(courseId, meta.nodes)
-  def courseMeta(courseIds: List[String], meta: LpMeta): Map[String, (Set[String], Boolean)] =
-    courseIds.map(c => c -> (meta.nodes.get(c).map(_.skills).getOrElse(Set.empty), isAssessment(c, meta.nodes))).toMap
 
-  def skillsOfQuestions(questionIds: List[String], meta: LpMeta): Set[String] = {
-    if (questionIds.isEmpty || meta.categoryCode.isEmpty) return Set.empty
-    parseLpNodes(searchByIds(questionIds, List(meta.categoryCode)), meta.categoryCode).values.flatMap(_.skills).toSet
-  }
+  def isAssessmentCourse(courseId: String, meta: LpMeta): Boolean = isAssessment(courseId, meta.nodes)
+
+  def questionSetsOf(courseId: String, meta: LpMeta): List[String] = questionSets(courseId, meta.nodes)
+
+  /** Assessment flag per course. Competency claims come from CompetencyFrameworkUtil. */
+  def assessmentFlags(courseIds: List[String], meta: LpMeta): Map[String, Boolean] =
+    courseIds.map(c => c -> isAssessment(c, meta.nodes)).toMap
 }

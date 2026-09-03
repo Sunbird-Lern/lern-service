@@ -6,35 +6,37 @@ import org.sunbird.viewer.util.{LpPolicyUtil, NodeMeta}
 
 class LpPolicyUtilParseSpec extends AnyFlatSpec with Matchers {
 
-  "parseFrameworkCategoryCode" should "return the highest-index category code" in {
-    val json = """{"result":{"framework":{"identifier":"USF","categories":[
-      {"code":"board","index":1},{"code":"subject","index":2},{"code":"skill","index":3}]}}}"""
-    LpPolicyUtil.parseFrameworkCategoryCode(json) shouldBe Some("skill")
-  }
-
-  it should "return None when there are no categories" in {
-    LpPolicyUtil.parseFrameworkCategoryCode("""{"result":{"framework":{"categories":[]}}}""") shouldBe None
-  }
-
-  "parseLpNodes" should "map each node to its primaryCategory, <categoryCode> terms and childNodes" in {
+  "parseLpNodes" should "map each node to its primaryCategory and childNodes" in {
     val json = """{"result":{"count":2,"Content":[
-      {"identifier":"c1","primaryCategory":"Course","skill":["Python Programming"],"childNodes":["q1"]},
+      {"identifier":"c1","primaryCategory":"Course","childNodes":["q1"]},
       {"identifier":"c2","primaryCategory":"Practice Question Set","childNodes":[]}]}}"""
-    val nodes = LpPolicyUtil.parseLpNodes(json, "skill")
-    nodes("c1") shouldBe NodeMeta("Course", Set("Python Programming"), List("q1"))
+    val nodes = LpPolicyUtil.parseLpNodes(json)
+    nodes("c1") shouldBe NodeMeta("Course", List("q1"))
     nodes("c2").primaryCategory shouldBe "Practice Question Set"
-    nodes("c2").skills shouldBe empty
+    nodes("c2").childNodes shouldBe empty
   }
 
   it should "read whichever objectType array key is present (Question), not just content" in {
     val json = """{"result":{"count":1,"Question":[
-      {"identifier":"q1","primaryCategory":"Practice Question Set","skill":["JavaScript"]}]}}"""
-    LpPolicyUtil.parseLpNodes(json, "skill")("q1").skills shouldBe Set("JavaScript")
+      {"identifier":"q1","primaryCategory":"Practice Question Set"}]}}"""
+    LpPolicyUtil.parseLpNodes(json)("q1").primaryCategory shouldBe "Practice Question Set"
+  }
+
+  it should "default a missing primaryCategory to empty rather than failing" in {
+    LpPolicyUtil.parseLpNodes("""{"result":{"content":[{"identifier":"c1"}]}}""")("c1") shouldBe
+      NodeMeta("", Nil)
   }
 
   "parseField" should "read a scalar field for an identifier" in {
-    val json = """{"result":{"content":[{"identifier":"root","policy":"PriorLearning","framework":"USF"}]}}"""
+    val json = """{"result":{"content":[{"identifier":"root","policy":"PriorLearning","competencyFramework":"fw_health"}]}}"""
     LpPolicyUtil.parseField(json, "root", "policy") shouldBe Some("PriorLearning")
-    LpPolicyUtil.parseField(json, "root", "framework") shouldBe Some("USF")
+    LpPolicyUtil.parseField(json, "root", "competencyFramework") shouldBe Some("fw_health")
+  }
+
+  it should "return None for a blank or absent field" in {
+    val json = """{"result":{"content":[{"identifier":"root","competencyFramework":""}]}}"""
+    LpPolicyUtil.parseField(json, "root", "competencyFramework") shouldBe None
+    LpPolicyUtil.parseField(json, "root", "policy") shouldBe None
+    LpPolicyUtil.parseField(json, "missing", "policy") shouldBe None
   }
 }
