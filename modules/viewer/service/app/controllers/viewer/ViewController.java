@@ -66,8 +66,8 @@ public class ViewController extends BaseController {
             String userId = (String) request.getContext().getOrDefault(JsonKey.REQUESTED_FOR, request.getContext().get(JsonKey.REQUESTED_BY));
             request.getRequest().put(JsonKey.USER_ID, userId);
             // optional ?context=all (view.read) -> read all contents irrespective of context (type:"contextall")
-            String context = httpRequest.getQueryString("context");
-            if (StringUtils.isNotBlank(context)) request.getRequest().put("context", context);
+            httpRequest.queryString("context").filter(StringUtils::isNotBlank)
+                .ifPresent(ctx -> request.getRequest().put("context", ctx));
             validate(operation, request);
             return actorResponseHandler(viewConsumptionActor, request, timeout, null, httpRequest);
         } catch (Exception e) {
