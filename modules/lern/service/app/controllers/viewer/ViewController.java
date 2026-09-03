@@ -1,6 +1,7 @@
 package controllers.viewer;
 
 import controllers.BaseController;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.pekko.actor.ActorRef;
 import org.sunbird.keys.JsonKey;
 import org.sunbird.request.Request;
@@ -49,6 +50,9 @@ public class ViewController extends BaseController {
             // Derive the acting userId from the auth token — never trust a client-supplied userId.
             String userId = (String) request.getContext().getOrDefault(JsonKey.REQUESTED_FOR, request.getContext().get(JsonKey.REQUESTED_BY));
             request.getRequest().put(JsonKey.USER_ID, userId);
+            // optional ?context=all (view.read) -> read all contents irrespective of context (type:"contextall")
+            httpRequest.queryString("context").filter(StringUtils::isNotBlank)
+                .ifPresent(ctx -> request.getRequest().put("context", ctx));
             return actorResponseHandler(viewConsumptionActor, request, timeout, null, httpRequest);
         } catch (Exception e) {
             return CompletableFuture.completedFuture(createCommonExceptionResponse(e, httpRequest));
