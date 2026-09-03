@@ -2,12 +2,14 @@ package util;
 
 import org.sunbird.viewer.actor.ViewConsumptionActor;
 import org.sunbird.viewer.actor.ViewerAggregatorActor;
+import org.sunbird.viewer.actor.CompetencyActor;
 import org.sunbird.viewer.actor.ViewerSummaryActor;
 
 public enum ACTOR_NAMES {
   VIEW_CONSUMPTION_ACTOR(ViewConsumptionActor.class, "view-consumption-actor"),
   VIEWER_AGGREGATOR_ACTOR(ViewerAggregatorActor.class, "viewer-aggregator-actor"),
-  VIEWER_SUMMARY_ACTOR(ViewerSummaryActor.class, "viewer-summary-actor");
+  VIEWER_SUMMARY_ACTOR(ViewerSummaryActor.class, "viewer-summary-actor"),
+  COMPETENCY_ACTOR(CompetencyActor.class, "competency-actor");
 
   private ACTOR_NAMES(Class clazz, String name) {
     actorClass = clazz;

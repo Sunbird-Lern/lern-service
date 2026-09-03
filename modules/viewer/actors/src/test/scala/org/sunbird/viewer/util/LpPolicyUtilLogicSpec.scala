@@ -7,11 +7,11 @@ import org.sunbird.viewer.util.{LpPolicyUtil, NodeMeta}
 class LpPolicyUtilLogicSpec extends AnyFlatSpec with Matchers {
   private val nodes = Map(
     // assessment step = a "Evaluation Course" collection wrapping a PQS
-    "assess" -> NodeMeta("Evaluation Course", Set.empty, List("qsA")),
-    "qsA"    -> NodeMeta("Practice Question Set", Set.empty, Nil),
+    "assess" -> NodeMeta("Evaluation Course", List("qsA")),
+    "qsA"    -> NodeMeta("Practice Question Set", Nil),
     // a normal content course that merely embeds a self-check quiz — NOT an assessment
-    "crsA"   -> NodeMeta("Course", Set("Python Programming"), List("qsA")),
-    "crsB"   -> NodeMeta("Course", Set("JavaScript"), Nil))
+    "crsA"   -> NodeMeta("Course", List("qsA")),
+    "crsB"   -> NodeMeta("Course", Nil))
 
   "isAssessment" should "be true only for the Course-Assessment category, not for a course embedding a PQS" in {
     LpPolicyUtil.isAssessment("assess", nodes) shouldBe true

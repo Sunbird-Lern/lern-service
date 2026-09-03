@@ -62,6 +62,33 @@ done
 
 rm -rf "${MIGRATIONS_DIR}"
 
+# Repo-local CQL that is not yet in sunbird-spark-installer. Port these upstream before deploying.
+LOCAL_CQL_FILES=(
+    "modules/viewer/actors/src/main/resources/competency.cql"
+)
+
+for rel in "${LOCAL_CQL_FILES[@]}"; do
+    src="${SCRIPT_DIR}/../${rel}"
+    if [ ! -f "${src}" ]; then
+        echo "SKIP: ${rel} not found"
+        continue
+    fi
+    name="$(basename "${rel}")"
+    tmp="/tmp/lern_${name}"
+    sed "s/\${ENV}/${ENV}/g" "${src}" > "${tmp}"
+    docker cp "${tmp}" yugabyte:/tmp/"${name}"
+    if docker exec yugabyte /home/yugabyte/bin/ycqlsh 127.0.0.1 9042 \
+        --request-timeout=120 \
+        -u yugabyte -p yugabyte \
+        -f /tmp/"${name}" 2>&1; then
+        echo "OK: ${rel} (local)"
+    else
+        echo "FAIL: ${rel} (local)"
+        FAILED=$((FAILED + 1))
+    fi
+    rm -f "${tmp}"
+done
+
 echo ""
 if [ ${FAILED} -gt 0 ]; then
     echo "${FAILED} migration(s) failed."
