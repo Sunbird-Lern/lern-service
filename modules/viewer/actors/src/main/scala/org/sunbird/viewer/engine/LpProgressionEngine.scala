@@ -194,8 +194,12 @@ class LpProgressionEngine(cassandraOperation: CassandraOperation,
       .getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]]).asInstanceOf[util.List[util.Map[String, AnyRef]]]
     if (CollectionUtils.isNotEmpty(rows)) {
       val r = rows.get(0)
-      val nodes = Option(r.get("optional_nodes")).map(_.asInstanceOf[util.Collection[String]].asScala.toList).getOrElse(List())
-      val computed = Option(r.get("optionality_computed")).collect { case b: java.lang.Boolean => b.booleanValue() }.getOrElse(false)
+      // these two have no cassandratablecolumn.properties entry, so the column name comes back
+      // unchanged - but accept the camelCase form too, so adding a mapping later cannot break this
+      val nodes = Option(r.get("optional_nodes")).orElse(Option(r.get("optionalNodes")))
+        .map(_.asInstanceOf[util.Collection[String]].asScala.toList).getOrElse(List())
+      val computed = Option(r.get("optionality_computed")).orElse(Option(r.get("optionalityComputed")))
+        .collect { case b: java.lang.Boolean => b.booleanValue() }.getOrElse(false)
       (nodes, computed)
     } else (List(), false)
   }
@@ -213,9 +217,16 @@ class LpProgressionEngine(cassandraOperation: CassandraOperation,
     val rows = cassandraOperation.getRecords(enrolKeyspace, enrolTable, filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)
       .getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]]).asInstanceOf[util.List[util.Map[String, AnyRef]]]
     if (CollectionUtils.isEmpty(rows)) Map.empty[String, Int]
-    else Option(rows.get(0).get("contentstatus")).collect {
-      case m: util.Map[_, _] => m.asScala.toMap.collect { case (k: String, v: Number) => k -> v.intValue() }
-    }.getOrElse(Map.empty[String, Int])
+    else {
+      // `CassandraUtil.fetchColumnsMapping` renames every column through
+      // cassandratablecolumn.properties, where `contentstatus=contentStatus`. Reads therefore
+      // come back camelCased while writes use the raw column name, so both spellings are
+      // accepted here rather than trusting one.
+      val row = rows.get(0)
+      Option(row.get("contentStatus")).orElse(Option(row.get("contentstatus"))).collect {
+        case m: util.Map[_, _] => m.asScala.toMap.collect { case (k: String, v: Number) => k -> v.intValue() }
+      }.getOrElse(Map.empty[String, Int])
+    }
   }
 
 }
