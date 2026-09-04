@@ -12,6 +12,7 @@ import org.sunbird.cassandra.CassandraOperation
 import org.sunbird.request.{Request, RequestContext}
 import org.sunbird.response.Response
 
+import scala.collection.JavaConverters._
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.FiniteDuration
 
@@ -202,18 +203,51 @@ class ViewConsumptionActorTest extends AnyFlatSpec with Matchers with MockFactor
     result should not be null
   }
 
-  "viewRead" should "return the ucc rows" in {
+  // spec: result = { userId, contentId, type:"content", contents:[{ collectionId, contextId, contentId, status, progressDetails{…} }] }
+  "viewRead" should "return the spec-shaped result (contents wrapper, spec keys, nested progressDetails)" in {
     val ops = mock[CassandraOperation]
-    val rows = new util.ArrayList[util.Map[String, AnyRef]](); rows.add(uccRow(2))
+    // production casing: CassandraUtil camelCases mapped columns (contentId/viewCount/lastAccessTime) but leaves collectionid/contextid/progressdetails lowercase.
+    // legacy content-state columns (dateTime/oldLast*/completedCount/completionPercentage) share the table but must NOT leak into view.read.
+    val rows = new util.ArrayList[util.Map[String, AnyRef]](); rows.add(new util.HashMap[String, AnyRef]() {{
+      put("userId", "u1"); put("collectionid", "c1"); put("contextid", "b1"); put("contentId", "ct1")
+      put("status", Integer.valueOf(2)); put("progress", Integer.valueOf(100))
+      put("progressdetails", "{\"mimeType\":\"application/video\",\"progress\":100}")
+      put("viewCount", Integer.valueOf(3)); put("lastAccessTime", new java.util.Date(1000L))
+      put("dateTime", new java.util.Date(1L)); put("addedBy", "u9"); put("oldLastAccessTime", "2020-01-01")
+      put("completedCount", Integer.valueOf(5)); put("completionPercentage", java.lang.Float.valueOf(50.0f))
+    }})
     (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
       .expects(*, *, *, *, *).returns(rowsWith(rows))
     val result = callActor(viewRequest("viewRead"),
       Props(new ViewConsumptionActor(replyingAggregator).setCassandraOperation(ops)))
-    val out = result.getResult.get("response").asInstanceOf[util.List[util.Map[String, AnyRef]]]
-    out.size() shouldBe 1
+    val res = result.getResult
+    res.get("type") shouldBe "content"
+    res.get("userId") shouldBe "u1"
+    res.get("collectionId") shouldBe "c1"
+    res.get("contextId") shouldBe "b1"
+    res.containsKey("response") shouldBe false
+    val contents = res.get("contents").asInstanceOf[util.List[util.Map[String, AnyRef]]]
+    contents.size() shouldBe 1
+    val item = contents.get(0)
+    item.get("collectionId") shouldBe "c1"
+    item.get("contextId") shouldBe "b1"
+    item.get("contentId") shouldBe "ct1"
+    item.get("status") shouldBe Integer.valueOf(2)
+    item.get("progressDetails").isInstanceOf[util.Map[_, _]] shouldBe true  // object, not JSON string
+    item.get("progress") shouldBe Integer.valueOf(100)                      // viewer-owned fields kept
+    item.get("viewCount") shouldBe Integer.valueOf(3)
+    item.containsKey("userId") shouldBe false                               // already top-level, not repeated per item
+    // kept: completedCount/completionPercentage/dateTime/addedBy pass through
+    item.get("completedCount") shouldBe Integer.valueOf(5)
+    item.get("completionPercentage") shouldBe java.lang.Float.valueOf(50.0f)
+    item.containsKey("dateTime") shouldBe true
+    item.get("addedBy") shouldBe "u9"
+    // dropped: only the old_* migration columns
+    item.containsKey("oldLastAccessTime") shouldBe false
   }
 
-  "assessmentRead" should "return the best score/max score per content" in {
+  // spec: result = { userId, contentId, collectionId, contextId, assessments:[{ attemptId, score, max_score }] } (per attempt)
+  "assessmentRead" should "return spec-shaped assessments (attemptId per attempt, collectionId/contextId)" in {
     val ops = mock[CassandraOperation]
     val attempts = new util.ArrayList[util.Map[String, AnyRef]]()
     attempts.add(new util.HashMap[String, AnyRef]() {{
@@ -228,9 +262,55 @@ class ViewConsumptionActorTest extends AnyFlatSpec with Matchers with MockFactor
       .expects(*, *, *, *, *).returns(rowsWith(attempts))
     val result = callActor(viewRequest("assessmentRead"),
       Props(new ViewConsumptionActor(replyingAggregator).setCassandraOperation(ops)))
-    val contents = result.getResult.get("contents").asInstanceOf[util.List[util.Map[String, AnyRef]]]
-    contents.size() shouldBe 1
-    contents.get(0).get("identifier") shouldBe "ct1"
-    contents.get(0).get("score").asInstanceOf[Double] shouldBe 8.0   // best attempt wins
+    val res = result.getResult
+    res.get("userId") shouldBe "u1"
+    res.get("collectionId") shouldBe "c1"
+    res.get("contextId") shouldBe "b1"
+    res.containsKey("courseId") shouldBe false
+    val assessments = res.get("assessments").asInstanceOf[util.List[util.Map[String, AnyRef]]]
+    assessments.size() shouldBe 2
+    val ids = assessments.asScala.map(_.get("attemptId")).toSet
+    ids shouldBe Set("a1", "a2")
+    val a2 = assessments.asScala.find(_.get("attemptId") == "a2").get
+    a2.get("score").asInstanceOf[Double] shouldBe 8.0
+    a2.get("max_score").asInstanceOf[Double] shouldBe 10.0
+  }
+
+  // spec acks: view.start/update/end put { contentId -> "<phrase>" } into result
+  "viewStart" should "ack with the spec phrase keyed by contentId" in {
+    val ops = mock[CassandraOperation]
+    (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
+      .expects(*, *, *, *, *).returns(emptyRows)
+    (ops.upsertRecord(_: String, _: String, _: util.Map[String, AnyRef], _: RequestContext))
+      .expects(*, *, *, *).returns(new Response()).once()
+    stubEnrolmentRead(ops, emptyRows)
+    val result = callActor(viewRequest("viewStart"),
+      Props(new ViewConsumptionActor(replyingAggregator).setCassandraOperation(ops)))
+    result.getResult.get("ct1") shouldBe "Progress started"
+  }
+
+  "viewUpdate" should "ack with the spec phrase keyed by contentId" in {
+    val ops = mock[CassandraOperation]
+    val rows = new util.ArrayList[util.Map[String, AnyRef]](); rows.add(uccRow(1))
+    (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
+      .expects(*, *, *, *, *).returns(rowsWith(rows))
+    (ops.upsertRecord(_: String, _: String, _: util.Map[String, AnyRef], _: RequestContext))
+      .expects(*, *, *, *).returns(new Response()).once()
+    stubEnrolmentRead(ops, emptyRows)
+    val result = callActor(viewRequest("viewUpdate"),
+      Props(new ViewConsumptionActor(replyingAggregator).setCassandraOperation(ops)))
+    result.getResult.get("ct1") shouldBe "Progress Updated"
+  }
+
+  "viewEnd" should "ack with the spec phrase keyed by contentId" in {
+    val ops = mock[CassandraOperation]
+    (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
+      .expects(*, *, *, *, *).returns(emptyRows)
+    (ops.upsertRecord(_: String, _: String, _: util.Map[String, AnyRef], _: RequestContext))
+      .expects(*, *, *, *).returns(new Response()).once()
+    stubEnrolmentRead(ops, emptyRows)
+    val result = callActor(viewRequest("viewEnd"),
+      Props(new ViewConsumptionActor(replyingAggregator).setCassandraOperation(ops)))
+    result.getResult.get("ct1") shouldBe "Progress ended"
   }
 }

@@ -1,9 +1,12 @@
 package controllers.viewer;
 
 import controllers.BaseController;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.pekko.actor.ActorRef;
+import org.sunbird.exception.ProjectCommonException;
 import org.sunbird.keys.JsonKey;
 import org.sunbird.request.Request;
+import org.sunbird.response.ResponseCode;
 import play.mvc.Http;
 import play.mvc.Result;
 
@@ -49,9 +52,34 @@ public class ViewController extends BaseController {
             // Derive the acting userId from the auth token — never trust a client-supplied userId.
             String userId = (String) request.getContext().getOrDefault(JsonKey.REQUESTED_FOR, request.getContext().get(JsonKey.REQUESTED_BY));
             request.getRequest().put(JsonKey.USER_ID, userId);
+            // optional ?context=all (view.read) -> read all contents irrespective of context (type:"contextall")
+            httpRequest.queryString("context").filter(StringUtils::isNotBlank)
+                .ifPresent(ctx -> request.getRequest().put("context", ctx));
+            validate(operation, request);
             return actorResponseHandler(viewConsumptionActor, request, timeout, null, httpRequest);
         } catch (Exception e) {
             return CompletableFuture.completedFuture(createCommonExceptionResponse(e, httpRequest));
+        }
+    }
+
+    // only contentId is mandatory; collectionId(courseId)/contextId(batchId) are optional and cascade in the actor (design scenarios 1-3)
+    private void validate(String operation, Request request) {
+        switch (operation) {
+            case "viewStart": case "viewUpdate": case "viewEnd": case "viewAssess":
+                requireNonBlank(request, "contentId");
+                break;
+            default: // viewRead / assessmentRead + others: userId is derived from the token; keys are optional
+        }
+    }
+
+    private void requireNonBlank(Request request, String... keys) {
+        for (String key : keys) {
+            if (StringUtils.isBlank((String) request.getRequest().get(key))) {
+                throw new ProjectCommonException(
+                    ResponseCode.mandatoryParamsMissing.getErrorCode(),
+                    ResponseCode.mandatoryParamsMissing.getErrorMessage() + " " + key,
+                    ResponseCode.CLIENT_ERROR.getResponseCode());
+            }
         }
     }
 }
