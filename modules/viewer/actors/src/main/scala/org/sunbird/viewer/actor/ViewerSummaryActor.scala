@@ -21,6 +21,8 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
   private var cassandraOperation = ServiceFactory.getInstance
   private val enrolmentDBInfo = Util.dbInfoMap.get(JsonKey.LEARNER_COURSE_DB)
   private val assessmentDBInfo = Util.dbInfoMap.get(JsonKey.ASSESSMENT_AGGREGATOR_DB)
+  private val consumptionDBInfo = Util.dbInfoMap.get(JsonKey.LEARNER_CONTENT_DB)
+  private val activityAggDBInfo = Util.dbInfoMap.get(JsonKey.GROUP_ACTIVITY_DB)
   private val mapper = new ObjectMapper
 
   override def onReceive(request: Request): Unit = {
@@ -215,7 +217,8 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
     sb.toString
   }
 
-  // delete all enrolments for the user, or a single collection[+batch]
+  // atomic purge: remove the learner's footprint for (user, collection, context) across enrolment, consumption,
+  // assessments, and the rollup. Deleting only the enrolment would leave consumption that silently resurrects on re-enrol.
   private def summaryDelete(request: Request): Unit = {
     val ctx = request.getRequestContext
     val userId = Option(request.get(JsonKey.USER_ID).asInstanceOf[String])
@@ -223,27 +226,48 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
     val courseId = ViewerRequestKeys.courseId(request).orNull
     val batchId = ViewerRequestKeys.batchId(request).orNull
 
+    val purged = new util.ArrayList[util.Map[String, AnyRef]]()
     if (StringUtils.isBlank(courseId)) {
       val rows = getRecords(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName,
         new util.HashMap[String, AnyRef]() {{ put("userid", userId) }}, ctx)
-      rows.asScala.foreach(r => deleteEnrolment(userId, strOrNull(firstNonNull(r.get("courseId"), r.get("courseid"))),
-        strOrNull(firstNonNull(r.get("batchId"), r.get("batchid"))), ctx))
+      rows.asScala.foreach { r =>
+        val col = strOrNull(firstNonNull(r.get("courseId"), r.get("courseid")))
+        val bat = strOrNull(firstNonNull(r.get("batchId"), r.get("batchid")))
+        purge(userId, col, bat, ctx); purged.add(purgedEntry(col, bat))
+      }
     } else {
-      deleteEnrolment(userId, courseId, batchId, ctx)
+      purge(userId, courseId, batchId, ctx); purged.add(purgedEntry(courseId, batchId))
     }
-    logger.info(ctx, s"summary: delete | user=$userId course=${Option(courseId).getOrElse("ALL")}")
+    logger.info(ctx, s"summary: purge | user=$userId enrolments=${purged.size}")
     val response = new Response
     response.put(userId, "Enrolment Deleted Succesfully")
+    response.put("purged", purged)
     sender().tell(response, self)
   }
 
-  private def deleteEnrolment(userId: String, courseId: String, batchId: String, ctx: RequestContext): Unit = {
-    val key = new util.HashMap[String, String]()
-    key.put("userid", userId)
-    if (StringUtils.isNotBlank(courseId)) key.put("courseid", courseId)
-    if (StringUtils.isNotBlank(batchId)) key.put("batchid", batchId)
-    cassandraOperation.deleteRecord(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, key, ctx)
+  // delete the (user, collection, context) footprint across all four tables; each delete is fail-safe so one failure doesn't strand the rest
+  private def purge(userId: String, collectionId: String, contextId: String, ctx: RequestContext): Unit = {
+    deleteBy(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, key("userid" -> userId, "courseid" -> collectionId, "batchid" -> contextId), ctx)
+    deleteBy(consumptionDBInfo.getKeySpace, consumptionDBInfo.getTableName, key("userid" -> userId, "collectionid" -> collectionId, "contextid" -> contextId), ctx)
+    deleteBy(assessmentDBInfo.getKeySpace, assessmentDBInfo.getTableName, key("user_id" -> userId, "collection_id" -> collectionId, "context_id" -> contextId), ctx)
+    // user_activity_agg keys context_id as "cb:"+batchId for a course batch; skip only the nested-module aggregate rows, which self-heal on the next rollup
+    if (StringUtils.isNotBlank(contextId))
+      deleteBy(activityAggDBInfo.getKeySpace, activityAggDBInfo.getTableName,
+        key("activity_type" -> "Course", "activity_id" -> collectionId, "user_id" -> userId, "context_id" -> ("cb:" + contextId)), ctx)
   }
+
+  private def deleteBy(keyspace: String, table: String, k: util.Map[String, String], ctx: RequestContext): Unit =
+    try cassandraOperation.deleteRecord(keyspace, table, k, ctx)
+    catch { case e: Throwable => logger.info(ctx, s"summary: purge skip $table: ${e.getMessage}") }
+
+  private def key(kvs: (String, String)*): util.Map[String, String] = {
+    val m = new util.HashMap[String, String]()
+    kvs.foreach { case (k, v) => if (StringUtils.isNotBlank(v)) m.put(k, v) }
+    m
+  }
+
+  private def purgedEntry(collectionId: String, contextId: String): util.Map[String, AnyRef] =
+    new util.HashMap[String, AnyRef]() {{ put("collectionId", collectionId); put("contextId", contextId) }}
 
   private def getRecords(keyspace: String, table: String, filters: util.HashMap[String, AnyRef], ctx: RequestContext): util.List[util.Map[String, AnyRef]] = {
     val response = cassandraOperation.getRecords(keyspace, table, filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)

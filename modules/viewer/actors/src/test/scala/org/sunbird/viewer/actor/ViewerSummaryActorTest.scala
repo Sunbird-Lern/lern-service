@@ -79,13 +79,17 @@ class ViewerSummaryActorTest extends AnyFlatSpec with Matchers with MockFactory 
     probe.expectMsgType[ProjectCommonException](FiniteDuration.apply(15, TimeUnit.SECONDS))
   }
 
-  "summaryDelete" should "ack keyed by userId" in {
+  "summaryDelete" should "purge multiple tables (not just the enrolment) and ack keyed by userId" in {
     val ops = mock[CassandraOperation]
+    val tables = scala.collection.mutable.Set[String]()
     (ops.deleteRecord(_: String, _: String, _: util.Map[String, String], _: RequestContext))
-      .expects(*, *, *, *).returning(()).once()
+      .expects(*, *, *, *).onCall { (_: String, t: String, _: util.Map[String, String], _: RequestContext) => tables += t; () }
+      .anyNumberOfTimes()
     val req = new Request; req.setOperation("summaryDelete")
     req.put("userId", "u1"); req.put("courseId", "c1"); req.put("batchId", "b1")
     val res = callActor(req, ops).getResult
     res.get("u1") shouldBe "Enrolment Deleted Succesfully"
+    res.get("purged").asInstanceOf[util.List[util.Map[String, AnyRef]]].size() shouldBe 1
+    tables.size should be >= 3 // enrolment + consumption + assessment (+ activity_agg when configured)
   }
 }
