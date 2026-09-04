@@ -21,18 +21,39 @@ class LpProgressionEngine(cassandraOperation: CassandraOperation,
 
   private val logger = new LoggerUtil(classOf[LpProgressionEngine])
 
+  /**
+   * @param leavesOf the leaf content ids of a child course, used to judge completion from the LP
+   *                 root's own `contentstatus`. Defaults to empty, which falls back to the
+   *                 child-enrolment check alone.
+   */
   def advance(userId: String, rootId: String, batchId: String, trackable: List[String],
               status: Map[(String, String), Int], ancestorsOf: String => List[String],
-              completedNow: Set[String], ctx: RequestContext): Unit = {
+              completedNow: Set[String], ctx: RequestContext,
+              leavesOf: String => List[String] = _ => Nil): Unit = {
     val childBatchOf = (c: String) => batchId + ":" + c
-    val courseComplete = (c: String) => status.get((c, childBatchOf(c))).contains(2)
+    // A child course counts as complete either from its own enrolment row, or - the case that
+    // actually occurs - from the LP root's `contentstatus`.
+    //
+    // The client addresses the PATH, so every view call is keyed to the LP's collection and
+    // batch and lands on the root row; the child enrolments this used to rely on are created by
+    // `dispatcher.enrol` against a synthetic batch `<lpBatch>:<courseId>` that has no
+    // `course_batch` record, so `CourseEnrolmentActor.validateEnrolment` rejects every one of
+    // them with invalidCourseBatchId. The dispatch is a fire-and-forget `tell`, so that rejection
+    // is never seen and the rows never appear - leaving `courseComplete` false forever, the root
+    // at status 0, and every status==2 consumer (certificate, CompetencyProjector) starved.
+    lazy val rootContent = rootContentStatus(userId, rootId, batchId, ctx)
+    val courseComplete = (c: String) =>
+      status.get((c, childBatchOf(c))).contains(2) || {
+        val leaves = leavesOf(c)
+        leaves.nonEmpty && leaves.forall(l => rootContent.get(l).contains(2))
+      }
 
     val meta = lpPolicyUtil.lpMeta(rootId, ctx)
     // Credit what just finished before deciding anything, so waiving sees the current passbook.
     creditCompleted(userId, rootId, batchId, meta, completedNow, ctx)
 
     val levelByCourse = ProgressionPolicy.levelByCourse(trackable, ancestorsOf, rootId)
-    if (!ensureOptionalityComputed(userId, rootId, batchId, trackable, levelByCourse, status, meta, ctx)) return
+    if (!ensureOptionalityComputed(userId, rootId, batchId, trackable, levelByCourse, courseComplete, meta, ctx)) return
     val optional = readOptionality(userId, rootId, batchId, ctx)._1.toSet
     val levels = ProgressionPolicy.orderedLevels(trackable, levelByCourse)
 
@@ -103,7 +124,7 @@ class LpProgressionEngine(cassandraOperation: CassandraOperation,
 
   private def ensureOptionalityComputed(userId: String, rootId: String, batchId: String, trackable: List[String],
                                         levelByCourse: Map[String, String],
-                                        status: Map[(String, String), Int], meta: LpMeta,
+                                        courseComplete: String => Boolean, meta: LpMeta,
                                         ctx: RequestContext): Boolean = {
     if (readOptionality(userId, rootId, batchId, ctx)._2) return true
     val policy = lpPolicyUtil.policyOf(meta)
@@ -118,10 +139,9 @@ class LpProgressionEngine(cassandraOperation: CassandraOperation,
       logger.warn(ctx, s"viewer.lp: Adaptive LP has no pre-assessment; halting (misconfigured, opening nothing) | user=$userId root=$rootId", null)
       return false
     }
-    val childBatchOf = (c: String) => batchId + ":" + c
-    val courseComplete = (c: String) => status.get((c, childBatchOf(c))).contains(2)
     // Only Adaptive defers optionality until the pre-assessment is taken (it needs the proven
     // competencies). PriorLearning waives already-completed courses and is not gated on it.
+    // `courseComplete` is the caller's predicate, so this sees the LP root's contentstatus too.
     if (policy.equalsIgnoreCase("Adaptive") && preAssessment.exists(pa => !courseComplete(pa))) return true
 
     val fw = meta.competencyFramework
@@ -136,9 +156,11 @@ class LpProgressionEngine(cassandraOperation: CassandraOperation,
     val heldLevels =
       if (policy.equalsIgnoreCase("Adaptive")) competencyService.heldLevels(userId, ctx).map { case (k, v) => k -> v._2 }
       else Map.empty[String, Int]
-    val completedCourses = status.collect { case ((c, _), 2) => c }.toSet
+    // PriorLearning waives what the learner has already finished. Uses the caller's predicate so
+    // a course completed through the path (recorded on the LP root's contentstatus) counts too,
+    // not only one with its own child enrolment row.
     val priorCompleted =
-      if (policy.equalsIgnoreCase("PriorLearning")) trackable.filter(completedCourses.contains).toSet
+      if (policy.equalsIgnoreCase("PriorLearning")) trackable.filter(courseComplete).toSet
       else Set.empty[String]
     val assessmentCourses = lpPolicyUtil.assessmentFlags(trackable, meta).collect { case (c, true) => c }.toSet
     val claimsByCourse = competencyService.claimIndexes(trackable, cMeta, ctx)
@@ -165,6 +187,7 @@ class LpProgressionEngine(cassandraOperation: CassandraOperation,
    * under Strict and under Adaptive, so "no rows" cannot stand in for "not computed", and a
    * JVM-local latch would neither survive a restart nor be shared across pods.
    */
+
   private def readOptionality(userId: String, rootId: String, batchId: String, ctx: RequestContext): (List[String], Boolean) = {
     val filters = new util.HashMap[String, AnyRef]() {{ put("userid", userId); put("courseid", rootId); put("batchid", batchId) }}
     val rows = cassandraOperation.getRecords(enrolKeyspace, enrolTable, filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)
@@ -176,4 +199,23 @@ class LpProgressionEngine(cassandraOperation: CassandraOperation,
       (nodes, computed)
     } else (List(), false)
   }
+
+  /**
+   * The LP root's own `contentstatus` (leaf content id -> status) from its enrolment row.
+   *
+   * This is where a learner's consumption actually lands: the client addresses the path, so
+   * every view call is keyed to the LP's collection and batch. It is the only progress
+   * record that exists when no child enrolment does.
+   */
+  private def rootContentStatus(userId: String, rootId: String, batchId: String,
+                                ctx: RequestContext): Map[String, Int] = {
+    val filters = new util.HashMap[String, AnyRef]() {{ put("userid", userId); put("courseid", rootId); put("batchid", batchId) }}
+    val rows = cassandraOperation.getRecords(enrolKeyspace, enrolTable, filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)
+      .getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]]).asInstanceOf[util.List[util.Map[String, AnyRef]]]
+    if (CollectionUtils.isEmpty(rows)) Map.empty[String, Int]
+    else Option(rows.get(0).get("contentstatus")).collect {
+      case m: util.Map[_, _] => m.asScala.toMap.collect { case (k: String, v: Number) => k -> v.intValue() }
+    }.getOrElse(Map.empty[String, Int])
+  }
+
 }

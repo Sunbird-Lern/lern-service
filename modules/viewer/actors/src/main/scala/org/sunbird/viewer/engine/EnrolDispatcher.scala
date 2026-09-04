@@ -30,7 +30,10 @@ class MonolithEnrolDispatcher(context: ActorContext) extends EnrolDispatcher {
     req.put(JsonKey.USER_ID, userId); req.put(JsonKey.COURSE_ID, courseId); req.put(JsonKey.BATCH_ID, batchId)
     val path = Option(ProjectUtil.getConfigValue("enrolment_actor_path")).filter(_.nonEmpty).getOrElse("/user/course-enrolment-actor")
     context.actorSelection(path).tell(req, ActorRef.noSender)
-    logger.info(ctx, s"viewer.lp: enrol dispatched | user=$userId course=$courseId batch=$batchId mode=monolith")
+    // fire-and-forget `tell`: a rejection inside the enrolment actor (e.g. invalidCourseBatchId
+    // for a batch with no course_batch row) cannot come back here, so this records only that the
+    // message was SENT. Do not read it as confirmation that an enrolment now exists.
+    logger.info(ctx, s"viewer.lp: enrol message sent (result unobserved) | user=$userId course=$courseId batch=$batchId mode=monolith")
   }
 }
 
@@ -44,7 +47,8 @@ class HttpEnrolDispatcher extends EnrolDispatcher {
       Option(ProjectUtil.getConfigValue("viewer_system_auth_token")).filter(_.nonEmpty)
         .foreach(t => put("x-authenticated-user-token", t))
     }}
-    HttpClientUtil.post(base + "/v1/course/enroll", body, headers, ctx)
-    logger.info(ctx, s"viewer.lp: enrol dispatched | user=$userId course=$courseId batch=$batchId mode=distributed")
+    val response = HttpClientUtil.post(base + "/v1/course/enroll", body, headers, ctx)
+    // the response is the only signal available here, so it is logged rather than discarded
+    logger.info(ctx, s"viewer.lp: enrol posted | user=$userId course=$courseId batch=$batchId mode=distributed response=${Option(response).map(_.take(200)).getOrElse("<none>")}")
   }
 }

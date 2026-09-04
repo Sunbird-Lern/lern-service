@@ -42,7 +42,10 @@ class LpProgression(context: ActorContext,
       hierarchyRelationsUtil.getLeafNodes(rootId, course, ctx).headOption
         .map(leaf => hierarchyRelationsUtil.getAncestors(rootId, leaf, ctx))
         .getOrElse(List.empty[String])
-    lpEngine.advance(userId, rootId, batchId, trackable, status, ancestorsOf, completedNow, ctx)
+    // Leaves per child course, so the engine can judge completion from the LP root's own
+    // contentstatus when no child enrolment row exists (which is the normal case).
+    val leavesOf = (course: String) => hierarchyRelationsUtil.getLeafNodes(rootId, course, ctx)
+    lpEngine.advance(userId, rootId, batchId, trackable, status, ancestorsOf, completedNow, ctx, leavesOf)
   }
 
   private def enrolStatusSnapshot(userId: String, ctx: RequestContext): Map[(String, String), Int] = {

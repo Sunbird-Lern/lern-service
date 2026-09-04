@@ -34,6 +34,15 @@ class LpProgressionEngineSpec extends AnyFlatSpec with Matchers with MockFactory
     val r = new Response(); r.put("response", list); r
   }
 
+  /** A root enrolment row carrying `contentstatus`, with optionality not yet computed. */
+  private def contentStatusRows(done: String*): Response = {
+    val cs = new util.HashMap[String, AnyRef]()
+    done.foreach(id => cs.put(id, Integer.valueOf(2)))
+    val row = new util.HashMap[String, AnyRef](); row.put("contentstatus", cs)
+    val list = new util.ArrayList[util.Map[String, AnyRef]](); list.add(row)
+    val r = new Response(); r.put("response", list); r
+  }
+
   /** Fake transport: records (user, course, batch) instead of messaging/HTTP. */
   private class FakeDispatcher extends EnrolDispatcher {
     val enrolled: ListBuffer[(String, String, String)] = ListBuffer.empty
@@ -146,4 +155,46 @@ class LpProgressionEngineSpec extends AnyFlatSpec with Matchers with MockFactory
     root.get("completionpercentage") shouldBe Integer.valueOf(50)
     root.get("status") shouldBe Integer.valueOf(1)
   }
+
+  "advance" should "complete the LP from the root's contentStatus when no child enrolment exists" in {
+    val ops = mock[CassandraOperation]
+    val lp = mock[LpPolicyUtil]
+    val disp = new FakeDispatcher
+    val cert = mock[CertificateUtil]
+    val oneCourse = List("crsA")
+    // The regression: child enrolments are rejected upstream (synthetic batch has no course_batch
+    // row), so `status` is empty. The learner's progress lives on the LP root's contentstatus.
+    (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
+      .expects(*, *, *, *, *).returns(contentStatusRows("leafA")).anyNumberOfTimes()
+    (lp.lpMeta(_: String, _: RequestContext)).expects(*, *).returns(LpMeta("Strict", "", Map.empty[String, NodeMeta])).anyNumberOfTimes()
+    (lp.policyOf(_: LpMeta)).expects(*).returns("Strict").anyNumberOfTimes()
+    (lp.isAssessmentCourse(_: String, _: LpMeta)).expects(*, *).returns(false).anyNumberOfTimes()
+    stubUpdate(ops)
+    (cert.publishCertificateIssueEvent(_: String, _: String, _: String, _: RequestContext)).expects("uE", "lp", "bE", *).once()
+
+    engineWith(ops, lp, disp, cert).advance("uE", "lp", "bE", oneCourse, Map.empty, ancestorsOf,
+      Set.empty, ctx, leavesOf = { case "crsA" => List("leafA"); case _ => Nil })
+
+    disp.enrolled shouldBe empty // nothing left to open: the course reads as complete
+  }
+
+  it should "not complete the LP when only some of a course's leaves are done" in {
+    val ops = mock[CassandraOperation]
+    val lp = mock[LpPolicyUtil]
+    val disp = new FakeDispatcher
+    val cert = mock[CertificateUtil]
+    (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
+      .expects(*, *, *, *, *).returns(contentStatusRows("leafA1")).anyNumberOfTimes()
+    (lp.lpMeta(_: String, _: RequestContext)).expects(*, *).returns(LpMeta("Strict", "", Map.empty[String, NodeMeta])).anyNumberOfTimes()
+    (lp.policyOf(_: LpMeta)).expects(*).returns("Strict").anyNumberOfTimes()
+    (lp.isAssessmentCourse(_: String, _: LpMeta)).expects(*, *).returns(false).anyNumberOfTimes()
+    stubUpdate(ops)
+    (cert.publishCertificateIssueEvent(_: String, _: String, _: String, _: RequestContext)).expects(*, *, *, *).never()
+
+    engineWith(ops, lp, disp, cert).advance("uF", "lp", "bF", List("crsA"), Map.empty, ancestorsOf,
+      Set.empty, ctx, leavesOf = { case "crsA" => List("leafA1", "leafA2"); case _ => Nil })
+
+    disp.enrolled.toList shouldBe List(("uF", "crsA", "bF:crsA")) // still the open course
+  }
+
 }
