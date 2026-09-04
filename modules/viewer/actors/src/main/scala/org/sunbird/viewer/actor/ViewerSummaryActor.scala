@@ -116,6 +116,15 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
     s.put("issuedCertificates", firstNonNull(row.get("issuedCertificates"), row.get("issued_certificates"), new util.ArrayList[AnyRef]()))
     s.put("completedOn", firstNonNull(row.get("completedOn"), row.get("completedon")))
     s.put("progress", row.getOrDefault("progress", Integer.valueOf(0)))
+    // The percentage the engine computed, which counts waived courses. Without it a client can
+    // only divide completed leaves by total leaves - a figure that is wrong for any waived path,
+    // since a waived course's leaves never complete and so it can never reach 100%.
+    s.put("completionPercentage",
+      firstNonNull(row.get("completionPercentage"), row.get("completionpercentage"), Integer.valueOf(0)))
+    // The waived set. Emitted snake_case to match both the column and the wire name clients
+    // already normalise; without it a client cannot tell a waived course from an unfinished one.
+    s.put("optional_nodes",
+      firstNonNull(row.get("optional_nodes"), row.get("optionalNodes"), new util.ArrayList[AnyRef]()))
     s.put("status", row.getOrDefault("status", Integer.valueOf(0)))
     s
   }

@@ -35,6 +35,18 @@ class ViewerSummaryActorTest extends AnyFlatSpec with Matchers with MockFactory 
     l
   }
 
+  /** Row using the raw column spellings, as Cassandra returns unmapped columns. */
+  private def enrolmentRowsSnakeKeys: util.List[util.Map[String, AnyRef]] = {
+    val l = new util.ArrayList[util.Map[String, AnyRef]]()
+    l.add(new util.HashMap[String, AnyRef]() {{
+      put("userId", "u1"); put("courseid", "c1"); put("batchid", "b1")
+      put("status", Integer.valueOf(1)); put("progress", Integer.valueOf(5))
+      put("completionpercentage", Integer.valueOf(83))
+      put("optional_nodes", new util.ArrayList[AnyRef]() {{ add("crsA"); add("crsB") }})
+    }})
+    l
+  }
+
   private def anyGetRecords(ops: CassandraOperation, resp: Response) =
     (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
       .expects(*, *, *, *, *).returning(resp).anyNumberOfTimes()
@@ -92,4 +104,29 @@ class ViewerSummaryActorTest extends AnyFlatSpec with Matchers with MockFactory 
     res.get("purged").asInstanceOf[util.List[util.Map[String, AnyRef]]].size() shouldBe 1
     tables.size should be >= 3 // enrolment + consumption + assessment (+ activity_agg when configured)
   }
+
+  // Regression: the summary response omitted both fields, so a client could only divide
+  // completed leaves by total leaves - 44% on a path the engine had at 83% - and could not
+  // distinguish a waived course from an unfinished one (no waiver badges, certificate locked).
+  "summaryRead" should "return completionPercentage and optional_nodes" in {
+    val ops = mock[CassandraOperation]
+    anyGetRecords(ops, rowsResp(enrolmentRowsSnakeKeys))
+    val req = new Request; req.setOperation("summaryRead")
+    req.put("userId", "u1"); req.put("courseId", "c1"); req.put("batchId", "b1")
+    val res = callActor(req, ops).getResult
+    res.get("completionPercentage") shouldBe Integer.valueOf(83)
+    res.get("optional_nodes").asInstanceOf[util.List[String]].size shouldBe 2
+  }
+
+  it should "default both fields rather than omitting them when the row has neither" in {
+    val ops = mock[CassandraOperation]
+    anyGetRecords(ops, rowsResp(enrolmentRows)) // no completionpercentage / optional_nodes
+    val req = new Request; req.setOperation("summaryRead")
+    req.put("userId", "u1"); req.put("courseId", "c1"); req.put("batchId", "b1")
+    val res = callActor(req, ops).getResult
+    res.containsKey("completionPercentage") shouldBe true
+    res.get("completionPercentage") shouldBe Integer.valueOf(0)
+    res.get("optional_nodes").asInstanceOf[util.List[String]].isEmpty shouldBe true
+  }
+
 }
