@@ -28,6 +28,11 @@ object CompetencyFrameworkUtil {
   val CAT_LEVEL = "proficiencylevel"
   val CAT_POSITION = "position"
   val CAT_REQUIREMENT = "competencyrequirement"
+  // The authoring sheets name this category `requirement` (a requirement belongs to the
+  // POSITION, not to the competency). Frameworks created before the rename still carry the
+  // old spelling, so both resolve -- otherwise a framework built from the current sheets
+  // yields no requirement terms at all, and every learner reads as 100% ready.
+  val CAT_REQUIREMENT_ALIASES = List(CAT_REQUIREMENT, "requirement")
 
   private def cfg(key: String, default: String): String =
     Option(ProjectUtil.getConfigValue(key)).map(_.trim).filter(_.nonEmpty).getOrElse(default)
@@ -134,17 +139,29 @@ object CompetencyFrameworkUtil {
                                             defaultLevel: String,
                                             defaultLevelIndex: Int,
                                             levelIndexOf: String => Int): Map[String, List[RequirementDef]] = {
-    val edges = termsOf(frameworkJson, CAT_REQUIREMENT).flatMap { t =>
+    val reqTerms = CAT_REQUIREMENT_ALIASES.iterator
+      .map(termsOf(frameworkJson, _)).find(_.nonEmpty).getOrElse(Nil)
+    val parsed = reqTerms.map { t =>
       val assoc = associationsByCategory(t)
       val criticality = str(t, "criticality").getOrElse(Criticality.MANDATORY)
-      for {
+      val edge = for {
         pos <- assoc.getOrElse(CAT_POSITION, Nil).headOption
         comp <- assoc.getOrElse(CAT_COMPETENCY, Nil).headOption
       } yield {
         val lvl = assoc.getOrElse(CAT_LEVEL, Nil).headOption.getOrElse(defaultLevel)
         pos -> RequirementDef(comp, lvl, levelIndexOf(lvl), criticality)
       }
+      (t, edge)
     }
+    val edges = parsed.flatMap(_._2)
+    // A requirement term needs one association to a position AND one to a competency to mean
+    // anything. Dropping the half-linked ones silently made a mis-authored framework look like a
+    // smaller-but-valid one: the position simply reported fewer requirements, and a position whose
+    // edges all failed reported 100% ready (see readiness's empty-mandatory case).
+    val dropped = parsed.collect { case (t, None) => str(t, "code").getOrElse("?") }
+    if (dropped.nonEmpty)
+      logger.warn(s"CompetencyFrameworkUtil: ${dropped.size} of ${reqTerms.size} requirement terms " +
+        s"lack a position and/or competency association and were ignored: ${dropped.mkString(", ")}")
     if (edges.nonEmpty) edges.groupBy(_._1).map { case (k, v) => k -> v.map(_._2) }
     else
       termsOf(frameworkJson, CAT_POSITION).flatMap { t =>

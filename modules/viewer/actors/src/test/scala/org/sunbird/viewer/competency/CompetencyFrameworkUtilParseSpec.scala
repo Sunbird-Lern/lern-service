@@ -109,6 +109,15 @@ class CompetencyFrameworkUtilParseSpec extends AnyFlatSpec with Matchers {
     parseRequirements("""{"result":{"framework":{"categories":[]}}}""", "x", 1, _ => 1) shouldBe empty
   }
 
+  // The authoring sheets renamed this category to `requirement`; frameworks created before the
+  // rename still say `competencyrequirement`. Reading only the old spelling made a framework built
+  // from the current sheets resolve zero requirements -- which readiness reports as 100% ready.
+  it should "read the requirement category under either spelling" in {
+    val renamed = fullFramework.replace("\"competencyrequirement\"", "\"requirement\"")
+    parseRequirements(renamed, "proficient", 30, indexOf(renamed)) shouldBe
+      parseRequirements(fullFramework, "proficient", 30, indexOf(fullFramework))
+  }
+
   "associationsByCategory" should "group a term's associations and tolerate identifier-only links" in {
     val terms = termsOf(fullFramework, CAT_REQUIREMENT)
     val assoc = associationsByCategory(terms.head)

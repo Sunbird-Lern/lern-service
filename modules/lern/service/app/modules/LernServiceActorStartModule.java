@@ -18,6 +18,7 @@ import org.sunbird.notification.actor.ReadNotificationActor;
 import org.sunbird.notification.actor.UpdateNotificationActor;
 import org.sunbird.observability.actor.ObservabilityReportActor;
 import org.sunbird.request.Request;
+import org.sunbird.viewer.actor.CompetencyActor;
 import org.sunbird.viewer.actor.ViewConsumptionActor;
 import org.sunbird.viewer.actor.ViewerAggregatorActor;
 import org.sunbird.viewer.actor.ViewerSummaryActor;
@@ -76,6 +77,8 @@ public class LernServiceActorStartModule extends AbstractModule implements Pekko
         bindActor(ViewerAggregatorActor.class, "viewer-aggregator-actor",
             props -> props.withDispatcher("pekko.actor.viewer-dispatcher")
                 .withRouter(new ConsistentHashingPool(8).withHashMapper(viewerUserIdHashMapper)));
+        // competency passbook/gap/recommend APIs -> /v1/competency/* routes in this app
+        bindActor(CompetencyActor.class, "competency-actor", props -> props.withRouter(config));
         logger.info("Viewer actors bound");
 
         logger.info("LernServiceActorStartModule: All actors bound successfully");
