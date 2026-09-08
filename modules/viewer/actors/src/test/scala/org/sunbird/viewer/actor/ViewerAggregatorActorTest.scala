@@ -87,4 +87,56 @@ class ViewerAggregatorActorTest extends AnyFlatSpec with Matchers with MockFacto
     merged.get("leaf-a") shouldBe Integer.valueOf(1)
     merged.size() shouldBe 1
   }
+
+  // ---- leafViews: progress excludes waived leaves, contentStatus never does -----------------
+  // Regression: contentStatus used to be filtered to the progress set, so a learner who studied a
+  // WAIVED course had their completions recorded in user_content_consumption but omitted from
+  // user_enrolments.contentstatus -- /v1/summary/read never mentioned them and the portal showed
+  // "0/2 - 0%" with unticked leaves for ever.
+
+  "leafViews" should "keep both views identical when nothing is waived" in {
+    val leaves = List("leaf-a", "leaf-b", "leaf-c")
+    val v = ViewerAggregatorActor.leafViews(leaves, Set.empty)
+    v.required shouldBe leaves
+    v.all shouldBe leaves
+    // the unwaived path must be byte-identical to the pre-fix behaviour
+    v.required shouldBe v.all
+  }
+
+  it should "exclude waived leaves from progress but keep them in the contentStatus view" in {
+    val leaves = List("leaf-a", "leaf-waived-1", "leaf-b", "leaf-waived-2")
+    val v = ViewerAggregatorActor.leafViews(leaves, Set("leaf-waived-1", "leaf-waived-2"))
+    // progress denominator: only what the learner is still required to do
+    v.required shouldBe List("leaf-a", "leaf-b")
+    // factual record: every leaf, so a waived leaf the learner chose to finish still shows up
+    v.all shouldBe leaves
+  }
+
+  it should "report an empty required set when every leaf is waived, without losing the leaves" in {
+    val leaves = List("leaf-a", "leaf-b")
+    val v = ViewerAggregatorActor.leafViews(leaves, Set("leaf-a", "leaf-b"))
+    v.required shouldBe empty      // nothing left to require -> node cannot be pinned below 100%
+    v.all shouldBe leaves          // but completions remain recordable
+  }
+
+  it should "ignore optional ids that are not leaves of this node" in {
+    val leaves = List("leaf-a", "leaf-b")
+    val v = ViewerAggregatorActor.leafViews(leaves, Set("some-other-course", "leaf-b"))
+    v.required shouldBe List("leaf-a")
+    v.all shouldBe leaves
+  }
+
+  it should "record a completed WAIVED leaf in contentStatus" in {
+    val leaves = List("leaf-required", "leaf-waived")
+    val v = ViewerAggregatorActor.leafViews(leaves, Set("leaf-waived"))
+    // the learner finished both; contentStatus is built from `all`, as the actor now does
+    val statuses = Map("leaf-required" -> Integer.valueOf(2).asInstanceOf[AnyRef],
+                       "leaf-waived" -> Integer.valueOf(2).asInstanceOf[AnyRef])
+    val fresh = v.all.flatMap(l => statuses.get(l).map(st => l -> st)).toMap
+    val merged = ViewerAggregatorActor.mergeContentStatus(null, fresh)
+    merged.get("leaf-waived") shouldBe Integer.valueOf(2)  // the bug: previously absent
+    merged.size() shouldBe 2
+    // and the waived leaf still does not inflate the progress denominator
+    v.required shouldBe List("leaf-required")
+  }
 }

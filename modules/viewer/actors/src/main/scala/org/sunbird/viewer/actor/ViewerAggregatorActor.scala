@@ -111,9 +111,14 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
       else ownerCourseOf(node).map(c => "cb:" + batchId + ":" + c).getOrElse("cb:" + batchId)
 
     val courseAgg = activityAggUtil.computeCourseActivityAgg(uc, leafNodes, effectiveOptional, contextOf, ctx)
-    val collectionsWithLeafNodes: Map[String, List[String]] = childCollections.map { col =>
-      (col, hierarchyRelationsUtil.getLeafNodes(courseId, col, ctx).diff(effectiveOptional))
+    // Two views of the same leaves. `All` is the factual set and feeds contentStatus; the
+    // `diff(effectiveOptional)` view feeds progress/percentage, where a waived leaf must not sit
+    // in the denominator (it never completes, so the node could never reach 100%).
+    val collectionsAllLeafNodes: Map[String, List[String]] = childCollections.map { col =>
+      (col, hierarchyRelationsUtil.getLeafNodes(courseId, col, ctx))
     }.toMap
+    val collectionsWithLeafNodes: Map[String, List[String]] =
+      collectionsAllLeafNodes.map { case (col, leaves) => col -> leaves.diff(effectiveOptional) }
     val moduleAggs = activityAggUtil.computeModuleActivityAgg(uc, courseId, ancestors, collectionsWithLeafNodes, contextOf, ctx)
 
     val allAggs: List[UserEnrolmentAgg] = courseAgg.toList ++ moduleAggs
@@ -122,15 +127,27 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
     logger.info(ctx, s"viewer.rollup: nodes rolled-up n=${allAggs.size} | user=$userId course=$courseId batch=$batchId")
 
     val nodeProgress = scala.collection.mutable.LinkedHashMap[String, (Int, List[String])]()
-    courseAgg.foreach(a => nodeProgress(courseId) = (completedCountOf(a), leafNodes.diff(effectiveOptional)))
+    val rootLeafViews = ViewerAggregatorActor.leafViews(leafNodes, effectiveOptional.toSet)
+    courseAgg.foreach(a => nodeProgress(courseId) = (completedCountOf(a), rootLeafViews.required))
     moduleAggs.foreach(a => nodeProgress(a.activityAgg.activity_id) =
       (completedCountOf(a), collectionsWithLeafNodes.getOrElse(a.activityAgg.activity_id, Nil)))
+
+    // contentStatus records what the learner ACTUALLY completed, so it spans every leaf -- not
+    // just the required ones. Filtering it to requiredLeaves made a waived course's completions
+    // invisible: the learner may still choose to study an optional course, the leaf write lands in
+    // user_content_consumption, but contentStatus never mentions it, so /v1/summary/read omits it
+    // and the portal renders the course as 0/N - 0% with unticked leaves for ever.
+    val nodeAllLeaves = scala.collection.mutable.LinkedHashMap[String, List[String]]()
+    courseAgg.foreach(_ => nodeAllLeaves(courseId) = rootLeafViews.all)
+    moduleAggs.foreach(a => nodeAllLeaves(a.activityAgg.activity_id) =
+      collectionsAllLeafNodes.getOrElse(a.activityAgg.activity_id, Nil))
 
     // An LP root's progress/status is owned by LpProgressionEngine (course counts), not by the
     // leaf rollup. Writing both here and there let the leaf write consume the 0->2 transition that
     // guards the LP certificate, so the rollup only maintains contentStatus on an LP root.
     val isLpRoot = trackableSet.nonEmpty
-    val completedNow = writeAllNodeEnrolments(userId, courseId, batchId, nodeProgress.toMap, contentStatusMap, isLpRoot, ctx)
+    val completedNow = writeAllNodeEnrolments(userId, courseId, batchId, nodeProgress.toMap,
+      nodeAllLeaves.toMap, contentStatusMap, isLpRoot, ctx)
 
     lpProgression.onAggregated(userId, courseId, batchId, completedNow, ctx)
   }
@@ -146,6 +163,7 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
 
   private def writeAllNodeEnrolments(userId: String, rootId: String, batchId: String,
                                      nodeProgress: Map[String, (Int, List[String])],
+                                     nodeAllLeaves: Map[String, List[String]],
                                      contentStatusMap: Map[String, ContentStatus],
                                      isLpRoot: Boolean, ctx: RequestContext): Set[String] = {
     val completedNow = scala.collection.mutable.Set[String]()
@@ -163,8 +181,10 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
         val status = activityAggUtil.getCompletionStatus(completedCount, required)
         val pct = activityAggUtil.getCompletionPercentage(completedCount, required)
         val currentStatus = Option(row.get("status")).map(_.asInstanceOf[Number].intValue()).getOrElse(0)
+        // every leaf, waived or not -- progress above still counts only `requiredLeaves`
+        val statusLeaves = nodeAllLeaves.getOrElse(nodeId, requiredLeaves)
         val nodeContentStatus: Map[String, AnyRef] =
-          requiredLeaves.flatMap(l => contentStatusMap.get(l).map(cs => l -> Integer.valueOf(cs.status).asInstanceOf[AnyRef])).toMap
+          statusLeaves.flatMap(l => contentStatusMap.get(l).map(cs => l -> Integer.valueOf(cs.status).asInstanceOf[AnyRef])).toMap
         val mergedContentStatus = ViewerAggregatorActor.mergeContentStatus(row.get("contentStatus"), nodeContentStatus)
         val rootOwnedByLp = isLpRoot && nodeId == rootId
         val selectMap = new util.HashMap[String, AnyRef]() {{
@@ -262,6 +282,23 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
 }
 
 object ViewerAggregatorActor {
+
+  /**
+   * The two views a node's leaves need, kept together so the distinction cannot drift apart.
+   *
+   *  - `required` drives progress/percentage/status. A waived leaf is excluded because it never
+   *    completes, so leaving it in the denominator pins the node below 100% for ever.
+   *  - `all` drives contentStatus, which is a factual record of what the learner completed. A
+   *    learner may study an optional course anyway; filtering contentStatus to `required` hid
+   *    those completions from /v1/summary/read and the portal showed 0/N - 0% permanently.
+   *
+   * With no waiving the two are equal, so unwaived paths behave exactly as before.
+   */
+  private[actor] case class LeafViews(required: List[String], all: List[String])
+
+  private[actor] def leafViews(all: List[String], optional: Set[String]): LeafViews =
+    LeafViews(required = all.filterNot(optional.contains), all = all)
+
   private[actor] def mergeContentStatus(existing: AnyRef, fresh: Map[String, AnyRef]): java.util.Map[String, AnyRef] = {
     val merged = new java.util.HashMap[String, AnyRef]()
     Option(existing).foreach(m => merged.putAll(m.asInstanceOf[java.util.Map[String, AnyRef]]))
