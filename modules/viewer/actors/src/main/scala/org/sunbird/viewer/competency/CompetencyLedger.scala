@@ -66,15 +66,28 @@ class CompetencyLedger(dao: CompetencyDao,
         if (answered.isEmpty) Set.empty[String]
         else {
           val claims = frameworkUtil.claimsOf(answered.map(_.questionId), ctx)
+          // The CLAIMED level is carried through the grouping, not discarded. A question tagged
+          // `health-data-reporting @ l1` asserts competence at l1 -- answering it cannot prove l4.
+          // Dropping the level made the granted level depend only on the band, so a single correct
+          // answer on an l1 question awarded the top level of the scale.
           val byCompetency = answered.flatMap(q =>
-            claims.getOrElse(q.questionId, Nil).map(c => c.code -> q)).groupBy(_._1)
+            claims.getOrElse(q.questionId, Nil).map(c => c.code -> (q, c.levelCode))).groupBy(_._1)
               .map { case (code, xs) => code -> xs.map(_._2) }
           val occurredOn = if (bestAttempt.lastAttemptedOn > 0) bestAttempt.lastAttemptedOn else System.currentTimeMillis()
-          byCompetency.map { case (code, qs2) =>
+          byCompetency.map { case (code, entries) =>
+            val qs2 = entries.map(_._1)
             val score = qs2.map(_.score).sum
             val maxScore = qs2.map(_.maxScore).sum
             val pct = AttainmentRules.pct(score, maxScore)
+            // Highest level these questions actually claimed; 0 when none resolves, which
+            // capCompletion treats as uncapped so an untagged level cannot block crediting.
+            val claimCap = entries.flatMap { case (_, lvl) => meta.levelByCode(lvl).map(_.index) }
+              .foldLeft(0)(math.max)
             val band = AttainmentRules.band(pct, qs2.size, meta.levels)
+              .map { b =>
+                val capped = AttainmentRules.capCompletion(b.index, claimCap)
+                meta.levels.find(_.index == capped).getOrElse(b)
+              }
             val expiry = band.flatMap(l =>
               AttainmentRules.expiryOf(occurredOn, frameworkUtil.validityMonthsFor(code, l, meta)))
             append(Evidence(

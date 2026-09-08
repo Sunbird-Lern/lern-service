@@ -27,7 +27,12 @@ object AttainmentRules {
   def pct(score: Double, maxScore: Double): Double =
     if (maxScore <= 0) 0d else (score / maxScore) * 100d
 
-  /** A completion-derived claim never exceeds the framework's cap. capIndex <= 0 means uncapped. */
+  /**
+   * A derived claim never exceeds its cap. capIndex <= 0 means uncapped.
+   *
+   * Two callers: a COMPLETION claim capped at the framework's maxCompletionDerivedLevel, and an
+   * ASSESSMENT band capped at the highest level the answered questions actually claimed.
+   */
   def capCompletion(claimedIndex: Int, capIndex: Int): Int =
     if (capIndex <= 0) claimedIndex else math.min(claimedIndex, capIndex)
 

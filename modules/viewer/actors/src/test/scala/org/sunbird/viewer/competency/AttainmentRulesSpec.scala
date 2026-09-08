@@ -48,6 +48,18 @@ class AttainmentRulesSpec extends AnyFlatSpec with Matchers {
     AttainmentRules.capCompletion(40, 0) shouldBe 40  // uncapped
   }
 
+  // The assessment path caps a band at the highest level the answered questions CLAIMED. A
+  // question tagged `@ l1` cannot prove l4, however well it is answered -- before this, a single
+  // correct l1 answer awarded the top level of the scale.
+  it should "hold an assessment band to the level the questions claimed" in {
+    // band said 4 (top), but the questions only claimed l1 (index 1)
+    AttainmentRules.capCompletion(4, 1) shouldBe 1
+    // band below the claim stands: a part-correct l3 attempt does not get promoted to l3
+    AttainmentRules.capCompletion(2, 3) shouldBe 2
+    // no resolvable claimed level -> uncapped, so an untagged level cannot block crediting
+    AttainmentRules.capCompletion(4, 0) shouldBe 4
+  }
+
   "project" should "hold the maximum level over live evidence" in {
     val entry = AttainmentRules.project(List(ev("progressing", 20), ev("proficient", 30)), 5000L, 0L)
     entry.map(_.level) shouldBe Some("proficient")
