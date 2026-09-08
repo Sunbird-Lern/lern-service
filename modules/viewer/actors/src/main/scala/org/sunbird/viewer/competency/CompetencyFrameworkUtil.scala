@@ -40,6 +40,9 @@ object CompetencyFrameworkUtil {
   private def cfgLong(key: String, default: Long): Long =
     Option(ProjectUtil.getConfigValue(key)).map(_.trim).filter(_.nonEmpty).map(_.toLong).getOrElse(default)
 
+  /** Cut score assumed when a framework declares none: the whole mark. */
+  private[competency] val FULL_MARKS = 100d
+
   private val metaTtl: Long = cfgLong("competency_meta_cache_ttl", 3600L) * 1000L
   private val metaCache = new java.util.concurrent.ConcurrentHashMap[String, (Long, CompetencyMeta)]()
   private val reqCache = new java.util.concurrent.ConcurrentHashMap[String, (Long, Map[String, List[RequirementDef]])]()
@@ -108,7 +111,12 @@ object CompetencyFrameworkUtil {
         LevelDef(
           code = code,
           index = num(t, "index").map(_.toInt).getOrElse(0),
-          cutScore = num(t, "cutScore").getOrElse(0d),
+          // A level with no declared cutScore demands FULL MARKS on the questions tagged with
+          // the competency, not zero. Defaulting to 0 made `band` award the highest level for any
+          // score at all -- including 0/1 -- because `pctScore >= 0` is always true. Observed
+          // live: a learner scoring 2/5 on the entry assessment was granted the top level in all
+          // five competencies, which then waived every course in the path.
+          cutScore = num(t, "cutScore").getOrElse(FULL_MARKS),
           minEvidenceCount = num(t, "minEvidenceCount").map(_.toInt).getOrElse(0),
           validityMonths = num(t, "validityMonths").map(_.toInt).filter(_ > 0))
       }

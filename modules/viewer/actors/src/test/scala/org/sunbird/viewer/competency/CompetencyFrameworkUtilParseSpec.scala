@@ -62,6 +62,28 @@ class CompetencyFrameworkUtilParseSpec extends AnyFlatSpec with Matchers {
     levels.find(_.code == "beginning").get.validityMonths shouldBe None
   }
 
+  // A framework may omit cutScore entirely (fw_health_competency2 does). Defaulting it to 0 made
+  // AttainmentRules.band award the HIGHEST level for any score, since `pctScore >= 0` always
+  // holds -- observed live: 0/1 on a question granted the top level, and a 2/5 entry assessment
+  // waived every course in the path. Absent a declared threshold, full marks are required.
+  it should "demand full marks when a level declares no cutScore" in {
+    val noCut = """{"result":{"framework":{"categories":[
+      {"code":"proficiencylevel","terms":[
+        {"code":"l1","index":1},{"code":"l4","index":4}]}]}}}"""
+    val levels = parseLevels(noCut)
+    levels.map(_.cutScore) shouldBe List(100d, 100d)
+    // and the practical consequence: a part-correct attempt bands to nothing
+    AttainmentRules.band(40d, 1, levels) shouldBe None
+    AttainmentRules.band(0d, 1, levels) shouldBe None
+    AttainmentRules.band(100d, 1, levels).map(_.code) shouldBe Some("l4")
+  }
+
+  it should "still honour an explicitly declared cutScore of 0" in {
+    val zeroCut = """{"result":{"framework":{"categories":[
+      {"code":"proficiencylevel","terms":[{"code":"l1","index":1,"cutScore":0}]}]}}}"""
+    parseLevels(zeroCut).map(_.cutScore) shouldBe List(0d)
+  }
+
   it should "be empty for a framework that does not resolve" in {
     parseLevels("{}") shouldBe empty
     parseLevels("""{"result":{"framework":{"categories":[]}}}""") shouldBe empty
