@@ -85,7 +85,30 @@ class CompetencyActor extends BaseEnrolmentActor {
       m
     }.asJava
     logger.info(ctx, s"competency.api: passbookRead | user=$uid n=${entries.size}")
-    reply("competencies" -> entries, "count" -> Integer.valueOf(entries.size))
+    // The learner's position assignment travels with the passbook rather than needing its own
+    // endpoint. No other operation returns it -- gapRead, recommend and positionUpdate all read
+    // it internally and never echo it -- so a client could not show "your current role" or which
+    // target is saved, which the dashboard needs in order to offer a target at all.
+    reply("competencies" -> entries, "count" -> Integer.valueOf(entries.size),
+      "position" -> positionBlock(service.position(uid, ctx)))
+  }
+
+  /**
+   * The learner's position assignment, or an empty block when none is on record.
+   *
+   * `currentPosition` is null for any learner an HR feed has not touched: it is an ASSIGNMENT and
+   * the self-service route strips it, so it can only arrive from a privileged writer. A client
+   * must render that as "not set" rather than inventing one.
+   */
+  private def positionBlock(assignment: Option[PositionAssignment]): util.Map[String, AnyRef] = {
+    val m = new util.HashMap[String, AnyRef]()
+    m.put("frameworkId", assignment.map(_.frameworkId).getOrElse(""))
+    assignment.flatMap(_.currentPosition).foreach(v => m.put("currentPosition", v))
+    m.put("targetPositions",
+      new util.ArrayList[String](assignment.map(_.targetPositions).getOrElse(Set.empty).asJava))
+    m.put("source", assignment.map(_.source).getOrElse(""))
+    assignment.filter(_.assignedOn > 0).foreach(a => m.put("assignedOn", new util.Date(a.assignedOn)))
+    m
   }
 
   /** Gap and readiness against the learner's current position, or an explicitly named one. */
