@@ -310,15 +310,30 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
         TelemetryUtil.telemetryProcessingCall("enrol", request, targetedObject, correlationObject, contextMap)
     }
 
+    /**
+     * Fills in status/completionPercentage for enrolments that do not carry them.
+     *
+     * DOES NOT OVERWRITE A STORED FIGURE. `progress` and `leafNodesCount` are not always in the
+     * same unit: for a Learning Path root, LpProgressionEngine writes `progress` as a count of
+     * COURSES (and the matching percentage), while `leafNodesCount` counts LEAVES. Recomputing
+     * unconditionally divided courses by leaves - a learner 6/7 courses through a 12-leaf path was
+     * reported as 6*100/12 = 50% here while the path itself said 85%, and a finished path
+     * (progress 7, stored 100/status 2) came back as 58% and status 1, so a completed Learning
+     * Path never showed as complete in the profile.
+     *
+     * The stored values are written by the rollup and the LP engine and are authoritative; this
+     * only derives them for rows that have none.
+     */
     def updateProgressData(enrolments: java.util.List[java.util.Map[String, AnyRef]], userId: String, courseIds: java.util.List[String], requestContext: RequestContext): util.List[java.util.Map[String, AnyRef]] = {
         enrolments.map(enrolment => {
             val leafNodesCount: Int = enrolment.getOrDefault("leafNodesCount", 0.asInstanceOf[AnyRef]).asInstanceOf[Int]
             val progress: Int = enrolment.getOrDefault("progress", 0.asInstanceOf[AnyRef]).asInstanceOf[Int]
-            enrolment.put("status", getCompletionStatus(progress, leafNodesCount).asInstanceOf[AnyRef])
-            enrolment.put("completionPercentage", getCompletionPerc(progress, leafNodesCount).asInstanceOf[AnyRef])
+            CourseEnrolmentActor.fillProgressData(enrolment, progress, leafNodesCount)
         })
         enrolments
     }
+
+
 
     def getCompletionStatus(completedCount: Int, leafNodesCount: Int): Int = completedCount match {
         case 0 => 0
@@ -389,4 +404,44 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
     }
 }
 
+/**
+ * Pure helpers, in a companion so they are testable: a Pekko actor cannot be instantiated with
+ * `new`, so anything worth a unit test has to live outside the actor instance.
+ */
+object CourseEnrolmentActor {
 
+    /** True when the row already carries a numeric value for `key`, under either casing. */
+    def hasNumber(enrolment: java.util.Map[String, AnyRef], key: String): Boolean =
+        Seq(enrolment.get(key), enrolment.get(key.toLowerCase)).exists(_.isInstanceOf[Number])
+
+    def completionStatus(completedCount: Int, leafNodesCount: Int): Int = completedCount match {
+        case 0 => 0
+        case it if 1 until leafNodesCount contains it => 1
+        case `leafNodesCount` => 2
+        case _ => 2
+    }
+
+    def completionPerc(completedCount: Int, leafNodesCount: Int): Int = completedCount match {
+        case 0 => 0
+        case it if 1 until leafNodesCount contains it => (completedCount * 100) / leafNodesCount
+        case `leafNodesCount` => 100
+        case _ => 100
+    }
+
+    /**
+     * Derives `status`/`completionPercentage` ONLY when the row carries neither.
+     *
+     * A stored figure is authoritative and must not be recomputed: `progress` and
+     * `leafNodesCount` are not always in the same unit. For a Learning Path root
+     * LpProgressionEngine writes `progress` as a count of COURSES while `leafNodesCount` counts
+     * LEAVES, so dividing one by the other reported a learner 6/7 courses through a 12-leaf path
+     * as 50% while the path itself said 85% - and a finished path (progress 7, stored 100/status
+     * 2) came back as 58% with status 1, so a completed Learning Path never showed as complete.
+     */
+    def fillProgressData(enrolment: java.util.Map[String, AnyRef], progress: Int, leafNodesCount: Int): Unit = {
+        if (!hasNumber(enrolment, "status"))
+            enrolment.put("status", Integer.valueOf(completionStatus(progress, leafNodesCount)))
+        if (!hasNumber(enrolment, "completionPercentage"))
+            enrolment.put("completionPercentage", Integer.valueOf(completionPerc(progress, leafNodesCount)))
+    }
+}
