@@ -52,75 +52,97 @@ class ProgressionPolicySpec extends AnyFlatSpec with Matchers {
       ProgressionPolicy.coursesOfLevel("L2", order, ancestorsOf, "do_lp")
   }
 
-  "computeOptionalNodes" should "waive a course whose competencies are all held at the required level" in {
+  "computeOptionalNodes" should "waive a course whose every skill is held" in {
     val opt = ProgressionPolicy.computeOptionalNodes(
       policy = "Adaptive",
       courses = List("CRS-B", "CRS-C"),
-      claimsByCourse = Map("CRS-B" -> List("c1" -> 3), "CRS-C" -> List("c2" -> 3)),
+      skillsByCourse = Map("CRS-B" -> List("hand-hygiene"), "CRS-C" -> List("ppe-use")),
       assessmentCourses = Set("CRS-C"),
-      heldLevels = Map("c1" -> 3, "c2" -> 4))
+      held = Set("hand-hygiene", "ppe-use"))
     opt shouldBe Set("CRS-B") // CRS-C is an assessment -> never optional
   }
 
-  it should "not waive a course held below the claimed level" in {
+  it should "require every skill the course teaches, not just one" in {
+    // the design's worked example: Infection Prevention teaches three leaves, two are held,
+    // so the learner still takes it
     ProgressionPolicy.computeOptionalNodes(
       policy = "Adaptive",
       courses = List("CRS-B"),
-      claimsByCourse = Map("CRS-B" -> List("c1" -> 3)),
+      skillsByCourse = Map("CRS-B" -> List("hand-hygiene", "ppe-use", "sterile-field")),
       assessmentCourses = Set.empty,
-      heldLevels = Map("c1" -> 2)) shouldBe empty
+      held = Set("hand-hygiene", "ppe-use")) shouldBe empty
   }
 
-  it should "waive when the level held exceeds the level claimed" in {
+  it should "waive once the last missing skill is held" in {
     ProgressionPolicy.computeOptionalNodes(
       policy = "Adaptive",
       courses = List("CRS-B"),
-      claimsByCourse = Map("CRS-B" -> List("c1" -> 2)),
+      skillsByCourse = Map("CRS-B" -> List("hand-hygiene", "ppe-use", "sterile-field")),
       assessmentCourses = Set.empty,
-      heldLevels = Map("c1" -> 4)) shouldBe Set("CRS-B")
+      held = Set("hand-hygiene", "ppe-use", "sterile-field")) shouldBe Set("CRS-B")
   }
 
-  it should "require every claimed competency, not just one" in {
+  it should "ignore held skills the course does not teach" in {
     ProgressionPolicy.computeOptionalNodes(
       policy = "Adaptive",
       courses = List("CRS-B"),
-      claimsByCourse = Map("CRS-B" -> List("c1" -> 2, "c2" -> 2)),
+      skillsByCourse = Map("CRS-B" -> List("hand-hygiene")),
       assessmentCourses = Set.empty,
-      heldLevels = Map("c1" -> 4)) shouldBe empty
+      held = Set("hand-hygiene", "budget-preparation", "team-briefing")) shouldBe Set("CRS-B")
   }
 
-  it should "not waive an untagged course on competency grounds" in {
+  it should "not waive an untagged course on skill grounds" in {
     ProgressionPolicy.computeOptionalNodes(
       policy = "Adaptive",
       courses = List("CRS-B"),
-      claimsByCourse = Map.empty,
+      skillsByCourse = Map.empty,
       assessmentCourses = Set.empty,
-      heldLevels = Map("c1" -> 4)) shouldBe empty
+      held = Set("hand-hygiene")) shouldBe empty
+  }
+
+  it should "not waive when the learner holds nothing" in {
+    ProgressionPolicy.computeOptionalNodes(
+      policy = "Adaptive",
+      courses = List("CRS-B"),
+      skillsByCourse = Map("CRS-B" -> List("hand-hygiene")),
+      assessmentCourses = Set.empty,
+      held = Set.empty) shouldBe empty
   }
 
   it should "waive nothing under Strict" in {
     ProgressionPolicy.computeOptionalNodes("Strict", List("CRS-B"),
-      Map("CRS-B" -> List("c1" -> 1)), Set.empty, Map("c1" -> 4)) shouldBe empty
+      Map("CRS-B" -> List("hand-hygiene")), Set.empty, Set("hand-hygiene")) shouldBe empty
   }
 
-  it should "waive a prior-completed course regardless of competencies (PriorLearning)" in {
+  it should "waive a prior-completed course regardless of skills (PriorLearning)" in {
     val opt = ProgressionPolicy.computeOptionalNodes(
       policy = "PriorLearning",
       courses = List("CRS-B", "CRS-C"),
-      claimsByCourse = Map.empty,
+      skillsByCourse = Map.empty,
       assessmentCourses = Set.empty,
-      heldLevels = Map.empty,
+      held = Set.empty,
       priorCompleted = Set("CRS-B"))
     opt shouldBe Set("CRS-B")
+  }
+
+  it should "recognise a skill however it was acquired, not only the identical course retaken" in {
+    // neonatal-resuscitation came from an imported credential, never from this course
+    ProgressionPolicy.computeOptionalNodes(
+      policy = "PriorLearning",
+      courses = List("CRS-B"),
+      skillsByCourse = Map("CRS-B" -> List("neonatal-resuscitation")),
+      assessmentCourses = Set.empty,
+      held = Set("neonatal-resuscitation"),
+      priorCompleted = Set.empty) shouldBe Set("CRS-B")
   }
 
   it should "never waive an assessment course even if prior-completed" in {
     val opt = ProgressionPolicy.computeOptionalNodes(
       policy = "PriorLearning",
       courses = List("CRS-B"),
-      claimsByCourse = Map.empty,
+      skillsByCourse = Map.empty,
       assessmentCourses = Set("CRS-B"),
-      heldLevels = Map.empty,
+      held = Set.empty,
       priorCompleted = Set("CRS-B"))
     opt shouldBe empty
   }

@@ -21,17 +21,16 @@ GET    /v1/summary/list/:userId         @controllers.viewer.ViewSummaryControlle
 GET    /v1/summary/download/:userId     @controllers.viewer.ViewSummaryController.summaryDownload(userId: String, request: play.mvc.Http.Request)
 DELETE /v1/summary/delete/:userId       @controllers.viewer.ViewSummaryController.summaryDelete(userId: String, request: play.mvc.Http.Request)
 
-# Competency framework APIs
-POST   /v1/competency/passbook/read         @controllers.viewer.CompetencyController.passbookRead(request: play.mvc.Http.Request)
-POST   /v1/competency/gap/read              @controllers.viewer.CompetencyController.gapRead(request: play.mvc.Http.Request)
-POST   /v1/competency/recommend             @controllers.viewer.CompetencyController.recommend(request: play.mvc.Http.Request)
-POST   /v1/competency/position/update       @controllers.viewer.CompetencyController.positionUpdate(request: play.mvc.Http.Request)
+# Skill profile APIs
+POST   /v1/skill/profile/read               @controllers.viewer.CompetencyController.profileRead(request: play.mvc.Http.Request)
+POST   /v1/skill/gap/read                   @controllers.viewer.CompetencyController.gapRead(request: play.mvc.Http.Request)
+POST   /v1/skill/recommend                  @controllers.viewer.CompetencyController.recommend(request: play.mvc.Http.Request)
+POST   /v1/skill/role/update                @controllers.viewer.CompetencyController.roleUpdate(request: play.mvc.Http.Request)
 GET    /v1/competency/framework/read/:frameworkId   @controllers.viewer.CompetencyController.frameworkRead(frameworkId: String, request: play.mvc.Http.Request)
 
-# Competency admin APIs (gateway-restricted, same convention as the other /private routes)
-POST   /private/v1/competency/position/update    @controllers.viewer.CompetencyController.privatePositionUpdate(request: play.mvc.Http.Request)
-POST   /private/v1/competency/evidence/import    @controllers.viewer.CompetencyController.evidenceImport(request: play.mvc.Http.Request)
-POST   /private/v1/competency/evidence/revoke    @controllers.viewer.CompetencyController.evidenceRevoke(request: play.mvc.Http.Request)
-POST   /private/v1/competency/reproject          @controllers.viewer.CompetencyController.reproject(request: play.mvc.Http.Request)
+# Skill admin APIs (gateway-restricted, same convention as the other /private routes)
+POST   /private/v1/skill/role/update        @controllers.viewer.CompetencyController.privateRoleUpdate(request: play.mvc.Http.Request)
+POST   /private/v1/skill/evidence/import    @controllers.viewer.CompetencyController.evidenceImport(request: play.mvc.Http.Request)
+POST   /private/v1/skill/evidence/revoke    @controllers.viewer.CompetencyController.evidenceRevoke(request: play.mvc.Http.Request)
+POST   /private/v1/skill/reproject          @controllers.viewer.CompetencyController.reproject(request: play.mvc.Http.Request)
 POST   /private/v1/competency/cache/invalidate   @controllers.viewer.CompetencyController.cacheInvalidate(request: play.mvc.Http.Request)
-POST   /private/v1/competency/expiry/sweep       @controllers.viewer.CompetencyController.expirySweep(request: play.mvc.Http.Request)

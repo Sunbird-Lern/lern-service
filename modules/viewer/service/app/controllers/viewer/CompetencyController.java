@@ -13,10 +13,10 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
 /**
- * Competency passbook, gap and evidence APIs -> CompetencyActor (competency-actor).
+ * Skill profile, gap and evidence APIs -> CompetencyActor (competency-actor).
  *
  * Learner-facing operations take the user id from the auth token, never the body, so one learner
- * cannot read or alter another's passbook. Operations that act on somebody else, or on the whole
+ * cannot read or alter another's profile. Operations that act on somebody else, or on the whole
  * framework, are exposed only under /private and carry the target user in a distinct body key.
  */
 public class CompetencyController extends BaseController {
@@ -28,8 +28,8 @@ public class CompetencyController extends BaseController {
         this.competencyActor = competencyActor;
     }
 
-    public CompletionStage<Result> passbookRead(Http.Request httpRequest) {
-        return self("passbookRead", httpRequest);
+    public CompletionStage<Result> profileRead(Http.Request httpRequest) {
+        return self("profileRead", httpRequest);
     }
 
     public CompletionStage<Result> gapRead(Http.Request httpRequest) {
@@ -41,14 +41,14 @@ public class CompetencyController extends BaseController {
     }
 
     /**
-     * Learner sets their own target positions. currentPosition is dropped here: who a learner
-     * reports as is an assignment, not a preference, so it is only settable through /private.
+     * Learner sets their own target roles. currentRole is dropped here: the role a learner holds
+     * is an assignment, not a preference, so it is only settable through /private.
      */
-    public CompletionStage<Result> positionUpdate(Http.Request httpRequest) {
+    public CompletionStage<Result> roleUpdate(Http.Request httpRequest) {
         try {
-            Request request = createAndInitRequest("positionUpdate", httpRequest.body().asJson(), httpRequest);
+            Request request = createAndInitRequest("roleUpdate", httpRequest.body().asJson(), httpRequest);
             request.getRequest().put(JsonKey.USER_ID, authUserId(request));
-            request.getRequest().remove("currentPosition");
+            request.getRequest().remove("currentRole");
             request.getRequest().put("source", "SELF");
             return actorResponseHandler(competencyActor, request, timeout, null, httpRequest);
         } catch (Exception e) {
@@ -68,8 +68,8 @@ public class CompetencyController extends BaseController {
 
     // ---- privileged ---------------------------------------------------------------------------
 
-    public CompletionStage<Result> privatePositionUpdate(Http.Request httpRequest) {
-        return privileged("positionUpdate", httpRequest, "positionUserId", JsonKey.USER_ID);
+    public CompletionStage<Result> privateRoleUpdate(Http.Request httpRequest) {
+        return privileged("roleUpdate", httpRequest, "roleUserId", JsonKey.USER_ID);
     }
 
     public CompletionStage<Result> evidenceImport(Http.Request httpRequest) {
@@ -86,10 +86,6 @@ public class CompetencyController extends BaseController {
 
     public CompletionStage<Result> cacheInvalidate(Http.Request httpRequest) {
         return body("cacheInvalidate", httpRequest);
-    }
-
-    public CompletionStage<Result> expirySweep(Http.Request httpRequest) {
-        return body("expirySweep", httpRequest);
     }
 
     // ---- plumbing -----------------------------------------------------------------------------
@@ -126,7 +122,7 @@ public class CompetencyController extends BaseController {
             Request request = createAndInitRequest(operation, httpRequest.body().asJson(), httpRequest);
             Object target = request.getRequest().get(fromKey);
             if (target != null) request.getRequest().put(toKey, target);
-            request.getRequest().put("source", "ADMIN");
+            request.getRequest().put("source", "HRMS");
             return actorResponseHandler(competencyActor, request, timeout, null, httpRequest);
         } catch (Exception e) {
             return CompletableFuture.completedFuture(createCommonExceptionResponse(e, httpRequest));

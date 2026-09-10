@@ -7,142 +7,186 @@ class CompetencyFrameworkUtilParseSpec extends AnyFlatSpec with Matchers {
 
   import CompetencyFrameworkUtil._
 
-  // full variant: requirement terms carry the edges. Sparse level indices on purpose.
-  private val fullFramework =
-    """{"result":{"framework":{"identifier":"fw_health","type":"Competency",
-       "defaultRequiredLevel":"proficient","maxCompletionDerivedLevel":"progressing",
+  // Three tiers, nested by children. Two roles sharing a leaf pool.
+  private val healthFramework =
+    """{"result":{"framework":{"identifier":"fw_health_competency","type":"Competency",
+       "tierLabels":["Competency area","Competency","Skill"],
        "categories":[
-         {"code":"proficiencylevel","terms":[
-            {"code":"beginning","index":10,"cutScore":40,"minEvidenceCount":4},
-            {"code":"progressing","index":20,"cutScore":55,"minEvidenceCount":5},
-            {"code":"proficient","index":30,"cutScore":70,"minEvidenceCount":6},
-            {"code":"advanced","index":40,"cutScore":85,"minEvidenceCount":8,"validityMonths":24}]},
          {"code":"competency","terms":[
-            {"code":"medication","validityMonths":24},
-            {"code":"comms"}]},
-         {"code":"position","terms":[{"code":"nurse"},{"code":"officer"}]},
-         {"code":"competencyrequirement","terms":[
-            {"code":"r1","criticality":"MANDATORY","associations":[
-               {"category":"position","code":"nurse"},
-               {"category":"competency","code":"medication"},
-               {"category":"proficiencylevel","code":"proficient"}]},
-            {"code":"r2","criticality":"DESIRABLE","associations":[
-               {"category":"position","code":"nurse"},
-               {"category":"competency","code":"comms"},
-               {"category":"proficiencylevel","code":"progressing"}]},
-            {"code":"r3","associations":[
-               {"category":"position","code":"officer"},
-               {"category":"competency","code":"medication"},
-               {"category":"proficiencylevel","code":"advanced"}]}]}]}}}"""
+            {"code":"domain","children":[
+               {"code":"medication-administration","children":[
+                  {"code":"dosage-calculation"},
+                  {"code":"iv-administration"}]},
+               {"code":"infection-prevention","children":[
+                  {"code":"hand-hygiene"},
+                  {"code":"ppe-use"}]}]}]},
+         {"code":"role","terms":[
+            {"code":"staff-nurse-icu","associations":[
+               {"category":"competency","code":"dosage-calculation"},
+               {"category":"competency","code":"hand-hygiene"},
+               {"category":"competency","code":"ppe-use"}]},
+            {"code":"nursing-officer","associations":[
+               {"category":"competency","code":"dosage-calculation"},
+               {"category":"competency","code":"iv-administration"}]}]}]}}}"""
 
-  // small variant: no requirement terms, positions associate straight to competencies
-  private val smallFramework =
-    """{"result":{"framework":{"identifier":"fw_ncf","defaultRequiredLevel":"proficient",
+  // Four tiers, and an uneven branch: measurement is a leaf at tier 2 while fractions reach 4.
+  private val schoolFramework =
+    """{"result":{"framework":{"identifier":"fw_ncf_outcomes",
+       "tierLabels":"Subject area | Competency | Skill | Sub-skill",
        "categories":[
-         {"code":"proficiencylevel","terms":[
-            {"code":"progressing","index":20,"cutScore":55,"minEvidenceCount":5},
-            {"code":"proficient","index":30,"cutScore":70,"minEvidenceCount":6}]},
-         {"code":"position","terms":[
+         {"code":"competency","terms":[
+            {"code":"numeracy","children":[
+               {"code":"number-sense","children":[
+                  {"code":"fractions","children":[
+                     {"code":"fr-compare"},
+                     {"code":"fr-add-unlike"}]}]},
+               {"code":"measurement"}]}]},
+         {"code":"role","terms":[
             {"code":"grade-6","associations":[
-               {"category":"competency","code":"no-integers"},
-               {"category":"competency","code":"no-fractions"}]}]}]}}}"""
+               {"category":"competency","code":"fr-compare"},
+               {"category":"competency","code":"measurement"}]}]}]}}}"""
 
-  private def indexOf(json: String): String => Int = {
-    val levels = parseLevels(json)
-    code => levels.find(_.code.equalsIgnoreCase(code)).map(_.index).getOrElse(0)
+  // A role pointing at a parent term rather than a leaf. The importer should have caught it.
+  private val badRoleFramework =
+    """{"result":{"framework":{"identifier":"fw_bad",
+       "categories":[
+         {"code":"competency","terms":[
+            {"code":"area","children":[
+               {"code":"parent","children":[{"code":"leaf-a"},{"code":"leaf-b"}]}]}]},
+         {"code":"role","terms":[
+            {"code":"r1","associations":[
+               {"category":"competency","code":"parent"},
+               {"category":"competency","code":"leaf-a"}]}]}]}}}"""
+
+  // Flat term list carrying parentCode instead of nested children.
+  private val flatFramework =
+    """{"result":{"framework":{"identifier":"fw_flat",
+       "categories":[
+         {"code":"competency","terms":[
+            {"code":"area"},
+            {"code":"mid","parentCode":"area"},
+            {"code":"leaf-1","parentCode":"mid"},
+            {"code":"leaf-2","parentCode":"mid"}]}]}}}"""
+
+  "parseTree" should "find the leaves of a three-tier nested tree" in {
+    val (leaves, depth) = parseTree(healthFramework)
+    leaves shouldBe Set("dosage-calculation", "iv-administration", "hand-hygiene", "ppe-use")
+    depth shouldBe 3
   }
 
-  "parseLevels" should "read the scale ordered by index, preserving sparse values" in {
-    val levels = parseLevels(fullFramework)
-    levels.map(_.code) shouldBe List("beginning", "progressing", "proficient", "advanced")
-    levels.map(_.index) shouldBe List(10, 20, 30, 40)
-    levels.find(_.code == "proficient").get.cutScore shouldBe 70d
-    levels.find(_.code == "proficient").get.minEvidenceCount shouldBe 6
-    levels.find(_.code == "advanced").get.validityMonths shouldBe Some(24)
-    levels.find(_.code == "beginning").get.validityMonths shouldBe None
+  it should "not treat a term with children as a leaf" in {
+    val (leaves, _) = parseTree(healthFramework)
+    leaves should not contain "domain"
+    leaves should not contain "medication-administration"
   }
 
-  it should "be empty for a framework that does not resolve" in {
-    parseLevels("{}") shouldBe empty
-    parseLevels("""{"result":{"framework":{"categories":[]}}}""") shouldBe empty
-    parseLevels("not json at all") shouldBe empty
+  it should "handle a four-tier tree and an unevenly deep branch" in {
+    val (leaves, depth) = parseTree(schoolFramework)
+    leaves shouldBe Set("fr-compare", "fr-add-unlike", "measurement")
+    depth shouldBe 4
   }
 
-  "frameworkField" should "read the framework-level settings" in {
-    frameworkField(fullFramework, "defaultRequiredLevel") shouldBe Some("proficient")
-    frameworkField(fullFramework, "maxCompletionDerivedLevel") shouldBe Some("progressing")
-    frameworkField(fullFramework, "nosuchfield") shouldBe None
+  it should "derive leaves from parentCode when the terms are flat" in {
+    val (leaves, depth) = parseTree(flatFramework)
+    leaves shouldBe Set("leaf-1", "leaf-2")
+    depth shouldBe 3
   }
 
-  "parseValidity" should "read per-competency overrides only where set" in {
-    parseValidity(fullFramework) shouldBe Map("medication" -> 24)
+  it should "return nothing for a framework with no competency category" in {
+    parseTree("""{"result":{"framework":{"categories":[]}}}""") shouldBe ((Set.empty[String], 0))
   }
 
-  "parseRequirements" should "build one edge per requirement term, grouped by position" in {
-    val reqs = parseRequirements(fullFramework, "proficient", 30, indexOf(fullFramework))
-    reqs.keySet shouldBe Set("nurse", "officer")
-    val nurse = reqs("nurse").map(r => r.competencyId -> r).toMap
-    nurse("medication").requiredLevelIndex shouldBe 30
-    nurse("medication").criticality shouldBe Criticality.MANDATORY
-    nurse("comms").requiredLevelIndex shouldBe 20
-    nurse("comms").criticality shouldBe Criticality.DESIRABLE
-    // the same competency, required at a different level by a different position
-    reqs("officer").head.competencyId shouldBe "medication"
-    reqs("officer").head.requiredLevelIndex shouldBe 40
+  it should "return nothing for an unparseable body" in {
+    parseTree("not json") shouldBe ((Set.empty[String], 0))
   }
 
-  it should "default a missing criticality to mandatory" in {
-    parseRequirements(fullFramework, "proficient", 30, indexOf(fullFramework))("officer")
-      .head.criticality shouldBe Criticality.MANDATORY
+  "parseTierLabels" should "read a list" in {
+    parseTierLabels(healthFramework) shouldBe List("Competency area", "Competency", "Skill")
   }
 
-  it should "fall back to the small variant when there are no requirement terms" in {
-    val reqs = parseRequirements(smallFramework, "proficient", 30, indexOf(smallFramework))
-    reqs.keySet shouldBe Set("grade-6")
-    reqs("grade-6").map(_.competencyId).toSet shouldBe Set("no-integers", "no-fractions")
-    // every outcome required at the framework default, uniformly
-    reqs("grade-6").map(_.requiredLevelIndex).distinct shouldBe List(30)
-    reqs("grade-6").map(_.criticality).distinct shouldBe List(Criticality.MANDATORY)
+  it should "read a pipe-separated string, which is what a workbook round-trip produces" in {
+    parseTierLabels(schoolFramework) shouldBe
+      List("Subject area", "Competency", "Skill", "Sub-skill")
   }
 
-  it should "be empty when neither variant is present" in {
-    parseRequirements("""{"result":{"framework":{"categories":[]}}}""", "x", 1, _ => 1) shouldBe empty
+  it should "be empty when the framework does not declare them" in {
+    parseTierLabels(flatFramework) shouldBe Nil
   }
 
-  "associationsByCategory" should "group a term's associations and tolerate identifier-only links" in {
-    val terms = termsOf(fullFramework, CAT_REQUIREMENT)
-    val assoc = associationsByCategory(terms.head)
-    assoc("position") shouldBe List("nurse")
-    assoc("competency") shouldBe List("medication")
-    assoc("proficiencylevel") shouldBe List("proficient")
+  "parseRoles" should "map each role to the leaf skills it requires" in {
+    val (leaves, _) = parseTree(healthFramework)
+    val roles = parseRoles(healthFramework, leaves)
+    roles("staff-nurse-icu") shouldBe Set("dosage-calculation", "hand-hygiene", "ppe-use")
+    roles("nursing-officer") shouldBe Set("dosage-calculation", "iv-administration")
   }
 
-  "parseClaims" should "read level-paired competencies off a search row" in {
-    val json = """{"result":{"count":2,"Content":[
-      {"identifier":"crs1","competencies":[{"code":"medication","level":"l3"},{"code":"comms","level":"l2"}]},
-      {"identifier":"crs2","competencies":[]}]}}"""
-    val claims = parseClaims(json)
-    claims("crs1") should contain theSameElementsAs List(
-      CompetencyClaim("medication", "l3"), CompetencyClaim("comms", "l2"))
-    claims should not contain key("crs2") // untagged rows are dropped
+  it should "drop an association to a non-leaf term and keep the rest" in {
+    val (leaves, _) = parseTree(badRoleFramework)
+    parseRoles(badRoleFramework, leaves)("r1") shouldBe Set("leaf-a")
   }
 
-  it should "read whichever objectType key the search returns" in {
-    val json = """{"result":{"count":1,"Question":[
-      {"identifier":"q1","competencies":[{"code":"no-fractions","level":"proficient"}]}]}}"""
-    parseClaims(json)("q1") shouldBe List(CompetencyClaim("no-fractions", "proficient"))
+  it should "keep a role that requires nothing, rather than dropping it" in {
+    val json = """{"result":{"framework":{"categories":[
+      {"code":"competency","terms":[{"code":"a","children":[{"code":"b","children":[{"code":"c"}]}]}]},
+      {"code":"role","terms":[{"code":"empty-role"}]}]}}}"""
+    val (leaves, _) = parseTree(json)
+    parseRoles(json, leaves) shouldBe Map("empty-role" -> Set.empty[String])
   }
 
-  it should "keep a claim with no level, so a mis-tag is visible rather than silently dropped" in {
-    val json = """{"result":{"content":[{"identifier":"c","competencies":[{"code":"x"}]}]}}"""
-    parseClaims(json)("c") shouldBe List(CompetencyClaim("x", ""))
+  it should "be empty when the framework has no role category" in {
+    val (leaves, _) = parseTree(flatFramework)
+    parseRoles(flatFramework, leaves) shouldBe Map.empty[String, Set[String]]
   }
 
-  "CompetencyMeta" should "resolve level codes case-insensitively and default unknown ones to 0" in {
-    val m = CompetencyMeta("fw", parseLevels(fullFramework), 20, 30, "proficient", Map.empty, Map.empty)
-    m.levelIndexOf("PROFICIENT") shouldBe 30
-    m.levelIndexOf("nosuchlevel") shouldBe 0
-    m.isEmpty shouldBe false
+  "parseClaims" should "read a flat skills array off a search row" in {
+    val json = """{"result":{"content":[
+      {"identifier":"crs1","skills":["dosage-calculation","iv-administration"]},
+      {"identifier":"crs2","skills":[]}]}}"""
+    parseClaims(json) shouldBe Map("crs1" -> List("dosage-calculation", "iv-administration"))
+  }
+
+  it should "read a question row the same way" in {
+    val json = """{"result":{"questions":[{"identifier":"q1","skills":["fr-compare"]}]}}"""
+    parseClaims(json) shouldBe Map("q1" -> List("fr-compare"))
+  }
+
+  it should "accept a single string where an array was expected" in {
+    val json = """{"result":{"content":[{"identifier":"c","skills":"hand-hygiene"}]}}"""
+    parseClaims(json) shouldBe Map("c" -> List("hand-hygiene"))
+  }
+
+  it should "de-duplicate a repeated tag" in {
+    val json = """{"result":{"content":[{"identifier":"c","skills":["ppe-use","ppe-use"]}]}}"""
+    parseClaims(json) shouldBe Map("c" -> List("ppe-use"))
+  }
+
+  it should "skip a row with no skills rather than mapping it to an empty list" in {
+    val json = """{"result":{"content":[{"identifier":"c"}]}}"""
+    parseClaims(json) shouldBe Map.empty[String, List[String]]
+  }
+
+  "frameworkField" should "read a scalar off the framework object" in {
+    frameworkField(healthFramework, "identifier") shouldBe Some("fw_health_competency")
+    frameworkField(healthFramework, "nothing-here") shouldBe None
+  }
+
+  "CompetencyMeta" should "be empty when the tree resolved no leaves" in {
     CompetencyMeta.empty.isEmpty shouldBe true
+    CompetencyMeta("fw", Nil, Set.empty, 0, Map("r" -> Set("x")), Map.empty).isEmpty shouldBe true
+  }
+
+  it should "not be empty merely because it declares no roles" in {
+    CompetencyMeta("fw", Nil, Set("leaf"), 3, Map.empty, Map.empty).isEmpty shouldBe false
+  }
+
+  it should "answer isLeaf and skillsOf off the resolved tree" in {
+    val (leaves, depth) = parseTree(healthFramework)
+    val m = CompetencyMeta("fw_health_competency", parseTierLabels(healthFramework), leaves, depth,
+      parseRoles(healthFramework, leaves), Map.empty)
+    m.isLeaf("ppe-use") shouldBe true
+    m.isLeaf("domain") shouldBe false
+    m.isLeaf(null) shouldBe false
+    m.skillsOf("nursing-officer") shouldBe Set("dosage-calculation", "iv-administration")
+    m.skillsOf("no-such-role") shouldBe Set.empty[String]
   }
 }

@@ -6,7 +6,7 @@ import org.sunbird.logging.LoggerUtil
 import org.sunbird.request.RequestContext
 
 /**
- * One entry point for everything competency-related, so call sites stay a line long.
+ * One entry point for everything skill-related, so call sites stay a line long.
  * Composes the framework resolver, the ledger and the projector.
  */
 class CompetencyService(cassandra: CassandraOperation, keyspace: String) {
@@ -26,17 +26,14 @@ class CompetencyService(cassandra: CassandraOperation, keyspace: String) {
   def meta(frameworkId: String, ctx: RequestContext): CompetencyMeta =
     frameworkUtil.meta(frameworkId, ctx)
 
-  /** node id -> its `{competency, levelIndex}` claims, for the waiver test. */
-  def claimIndexes(nodeIds: List[String], m: CompetencyMeta,
-                   ctx: RequestContext): Map[String, List[(String, Int)]] =
-    if (m.isEmpty) Map.empty
-    else frameworkUtil.claimsOf(nodeIds, ctx).map { case (node, claims) =>
-      node -> claims.map(c => c.code -> m.levelIndexOf(c.levelCode))
-    }
+  /** node id -> the leaf skills it teaches, for the waiver test. */
+  def claimsOf(nodeIds: List[String], m: CompetencyMeta,
+               ctx: RequestContext): Map[String, List[String]] =
+    if (m.isEmpty) Map.empty else frameworkUtil.leafClaimsOf(nodeIds, m, ctx)
 
   // ---- write path -----------------------------------------------------------------------------
 
-  /** A trackable node completed. Credits its tagged competencies and projects. */
+  /** A trackable node completed. Records the skills it teaches and projects. */
   def onNodeCompleted(userId: String, frameworkId: String, nodeId: String, batchId: String,
                       isRoot: Boolean, completedOn: Long, ctx: RequestContext): Unit = {
     val m = meta(frameworkId, ctx)
@@ -47,7 +44,7 @@ class CompetencyService(cassandra: CassandraOperation, keyspace: String) {
     if (touched.nonEmpty) projector.project(userId, touched, ctx)
   }
 
-  /** An assessment was scored. Bands each tagged competency and projects. */
+  /** An assessment was scored. Records every skill answered at full marks and projects. */
   def onAssessed(userId: String, frameworkId: String, collectionId: String, batchId: String,
                  questionSetIds: List[String], ctx: RequestContext): Unit = {
     val m = meta(frameworkId, ctx)
@@ -56,77 +53,69 @@ class CompetencyService(cassandra: CassandraOperation, keyspace: String) {
     if (touched.nonEmpty) projector.project(userId, touched, ctx)
   }
 
-  def importExternal(userId: String, frameworkId: String, competencyId: String, level: String,
-                     sourceId: String, issuerId: Option[String], note: Option[String],
-                     occurredOn: Long, expiresOn: Option[Long], ctx: RequestContext): Boolean = {
+  def importExternal(userId: String, frameworkId: String, skillId: String, sourceId: String,
+                     issuerId: Option[String], note: Option[String], occurredOn: Long,
+                     ctx: RequestContext): Boolean = {
     val m = meta(frameworkId, ctx)
     if (m.isEmpty) return false
-    ledger.importExternal(userId, m, competencyId, level, sourceId, issuerId, note, occurredOn, expiresOn, ctx)
-      .exists { cid => projector.project(userId, Set(cid), ctx); true }
+    ledger.importExternal(userId, m, skillId, sourceId, issuerId, note, occurredOn, ctx)
+      .exists { sid => projector.project(userId, Set(sid), ctx); true }
   }
 
-  def revokeEvidence(userId: String, competencyId: String, evidenceId: String, reason: String,
+  def revokeEvidence(userId: String, skillId: String, evidenceId: String, reason: String,
                      ctx: RequestContext): Unit = {
-    ledger.revoke(userId, competencyId, evidenceId, reason, ctx)
-    projector.project(userId, Set(competencyId), ctx)
+    ledger.revoke(userId, skillId, evidenceId, reason, ctx)
+    projector.project(userId, Set(skillId), ctx)
   }
 
   // ---- read path ------------------------------------------------------------------------------
 
-  def passbook(userId: String, ctx: RequestContext): List[PassbookEntry] =
-    dao.passbookOf(userId, ctx)
+  def profile(userId: String, ctx: RequestContext): List[SkillEntry] =
+    dao.profileOf(userId, ctx)
 
-  def evidenceOf(userId: String, competencyId: String, ctx: RequestContext): List[Evidence] =
-    ledger.evidenceOf(userId, competencyId, ctx)
+  def evidenceOf(userId: String, skillId: String, ctx: RequestContext): List[Evidence] =
+    ledger.evidenceOf(userId, skillId, ctx)
 
-  /** Competency id to (level code, level index) for everything the learner currently holds. */
-  def heldLevels(userId: String, ctx: RequestContext): Map[String, (String, Int)] =
-    passbook(userId, ctx)
-      .filter(e => e.status == AttainmentRules.ATTAINED || e.status == AttainmentRules.EXPIRING)
-      .map(e => e.competencyId -> (e.level, e.levelIndex)).toMap
+  /** Everything the learner currently holds. The waiver test and the gap both read this. */
+  def heldSkills(userId: String, ctx: RequestContext): Set[String] =
+    profile(userId, ctx).map(_.skillId).toSet
 
-  def position(userId: String, ctx: RequestContext): Option[PositionAssignment] =
-    dao.positionOf(userId, ctx)
+  def role(userId: String, ctx: RequestContext): Option[RoleAssignment] =
+    dao.roleOf(userId, ctx)
 
-  def updatePosition(p: PositionAssignment, ctx: RequestContext): Unit = {
-    dao.upsertPosition(p, ctx)
-    logger.info(ctx, s"competency.position: set | user=${p.userId} current=${p.currentPosition.getOrElse("-")} " +
-      s"targets=[${p.targetPositions.mkString(",")}] source=${p.source}")
+  def updateRole(a: RoleAssignment, ctx: RequestContext): Unit = {
+    dao.upsertRole(a, ctx)
+    logger.info(ctx, s"competency.role: set | user=${a.userId} current=${a.currentRole.getOrElse("-")} " +
+      s"targets=[${a.targetRoles.mkString(",")}] source=${a.source}")
   }
 
-  /** Gap against one position. Empty when the position declares no requirements. */
-  def gap(userId: String, frameworkId: String, positionId: String, ctx: RequestContext): (List[GapRow], Int) = {
-    val reqs = frameworkUtil.requirements(frameworkId, positionId, ctx)
-    if (reqs.isEmpty) return (Nil, 100)
-    val rows = GapCalculator.rows(reqs, heldLevels(userId, ctx))
+  /** Gap against one role. Empty when the role requires nothing. */
+  def gap(userId: String, frameworkId: String, roleId: String,
+          ctx: RequestContext): (List[GapRow], Int) = {
+    val required = frameworkUtil.requirements(frameworkId, roleId, ctx)
+    if (required.isEmpty) return (Nil, 100)
+    val rows = GapCalculator.rows(required, heldSkills(userId, ctx))
     (rows, GapCalculator.readiness(rows))
   }
 
-  /** Requirement set per position for the whole framework. */
-  def allRequirements(frameworkId: String, ctx: RequestContext): Map[String, List[RequirementDef]] =
+  /** Required skill set per role for the whole framework. */
+  def allRequirements(frameworkId: String, ctx: RequestContext): Map[String, Set[String]] =
     frameworkUtil.allRequirements(frameworkId, ctx)
 
-  /** Competency codes still outstanding for a position, most critical first. */
-  def outstanding(userId: String, frameworkId: String, positionId: String, ctx: RequestContext): List[String] =
-    GapCalculator.outstanding(gap(userId, frameworkId, positionId, ctx)._1).map(_.competencyId)
+  /** Skills still outstanding for a role. */
+  def outstanding(userId: String, frameworkId: String, roleId: String,
+                  ctx: RequestContext): List[String] =
+    GapCalculator.outstanding(gap(userId, frameworkId, roleId, ctx)._1)
 
   // ---- admin ----------------------------------------------------------------------------------
 
   def reproject(userId: String, ctx: RequestContext): Int = projector.reproject(userId, ctx)
 
-  def sweep(ctx: RequestContext): Int = projector.sweep(ctx)
-
   /** Drops the framework cache so a freshly published framework is picked up at once. */
   def invalidate(frameworkId: String, ctx: RequestContext): Unit = {
     CompetencyFrameworkUtil.invalidate(frameworkId)
-    logger.info(ctx, s"competency.cache: invalidated | framework=${if (frameworkId == null || frameworkId.isEmpty) "ALL" else frameworkId}")
-  }
-
-  /** Writes the requirement projection so reporting can join on it. */
-  def refreshRequirements(frameworkId: String, ctx: RequestContext): Int = {
-    val all = frameworkUtil.allRequirements(frameworkId, ctx)
-    all.foreach { case (pos, reqs) => reqs.foreach(r => dao.upsertRequirement(frameworkId, pos, r, ctx)) }
-    all.values.map(_.size).sum
+    logger.info(ctx, s"competency.cache: invalidated | framework=" +
+      s"${if (frameworkId == null || frameworkId.isEmpty) "ALL" else frameworkId}")
   }
 }
 

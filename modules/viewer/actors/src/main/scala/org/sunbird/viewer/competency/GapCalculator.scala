@@ -1,45 +1,32 @@
 package org.sunbird.viewer.competency
 
 /**
- * Required set versus held set. Pure: takes the position's requirements and the learner's passbook
- * levels, returns the gap and a readiness figure.
+ * Required set versus held set. Pure: takes a role's leaf skills and the learner's held skills,
+ * returns the gap and a readiness figure.
+ *
+ * Set arithmetic on two lists of codes. There is no level comparison, so a skill is met or missing
+ * and nothing sits in between.
  */
 object GapCalculator {
 
   val MET = "MET"
-  val BELOW = "BELOW"
   val MISSING = "MISSING"
 
-  /**
-   * One row per requirement. `held` maps competency id to the level index currently held;
-   * an absent or expired competency is index 0.
-   */
-  def rows(requirements: List[RequirementDef], held: Map[String, (String, Int)]): List[GapRow] =
-    requirements.map { r =>
-      val (heldLevel, heldIndex) = held.getOrElse(r.competencyId, ("", 0))
-      val status =
-        if (heldIndex >= r.requiredLevelIndex && heldIndex > 0) MET
-        else if (heldIndex > 0) BELOW
-        else MISSING
-      GapRow(r.competencyId, r.requiredLevel, r.requiredLevelIndex,
-        heldLevel, heldIndex, r.criticality, status)
-    }
+  /** One row per required skill, ordered by code so the output is stable across calls. */
+  def rows(required: Set[String], held: Set[String]): List[GapRow] =
+    required.toList.sorted.map(s => GapRow(s, if (held.contains(s)) MET else MISSING))
 
   /**
-   * Met mandatory requirements over all mandatory requirements. Desirable rows are reported but do
-   * not move the figure — counting them puts every readiness score in the seventies.
-   * 100 when a position declares no mandatory requirements.
+   * Met over required, as a whole percentage. 100 when the role requires nothing, which keeps a
+   * role with an empty skill list from reading as a total gap.
    */
-  def readiness(rows: List[GapRow]): Int = {
-    val mandatory = rows.filter(isMandatory)
-    if (mandatory.isEmpty) 100
-    else mandatory.count(_.status == MET) * 100 / mandatory.size
-  }
+  def readiness(rows: List[GapRow]): Int =
+    if (rows.isEmpty) 100 else rows.count(_.status == MET) * 100 / rows.size
 
-  def isMandatory(r: GapRow): Boolean =
-    r.criticality == null || r.criticality.isEmpty || Criticality.MANDATORY.equalsIgnoreCase(r.criticality)
+  /** Skills still to earn. Drives the recommendation query. */
+  def outstanding(rows: List[GapRow]): List[String] =
+    rows.filter(_.status == MISSING).map(_.skillId)
 
-  /** Competencies still to earn, most critical first. Drives the recommendation query. */
-  def outstanding(rows: List[GapRow]): List[GapRow] =
-    rows.filter(_.status != MET).sortBy(r => (if (isMandatory(r)) 0 else 1, r.status == BELOW, r.competencyId))
+  def met(rows: List[GapRow]): List[String] =
+    rows.filter(_.status == MET).map(_.skillId)
 }

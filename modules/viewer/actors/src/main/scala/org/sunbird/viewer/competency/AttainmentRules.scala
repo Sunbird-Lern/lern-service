@@ -1,84 +1,74 @@
 package org.sunbird.viewer.competency
 
-import java.time.{Instant, ZoneOffset}
-import java.time.format.DateTimeFormatter
-
 /**
- * Every rule that decides what a learner holds. Pure: no Cassandra, no clock of its own, no config.
- * The projector supplies `now`; the ledger supplies the evidence.
+ * Every rule that decides what a learner holds. Pure: no Cassandra, no clock, no config.
+ *
+ * A skill is held or not held. There is no scale, so no banding, no cap and no comparison; and no
+ * expiry, so nothing ever decrements a profile except revocation.
  */
 object AttainmentRules {
 
-  val ATTAINED = "ATTAINED"
-  val EXPIRING = "EXPIRING"
-  val EXPIRED = "EXPIRED"
-  val IN_PROGRESS = "IN_PROGRESS"
-
-  private val bucketFmt = DateTimeFormatter.ofPattern("yyyy-MM").withZone(ZoneOffset.UTC)
-
   /**
-   * Highest level whose cut-score and minimum-evidence bar are both met.
-   * None when even the lowest band fails, which the ledger records as level index 0.
+   * The profile entry implied by one skill's evidence.
+   *
+   * Held is set membership: one live row is enough. None means no claim at all, which after a
+   * revocation is the projector's signal to delete the row rather than downgrade it.
    */
-  def band(pctScore: Double, evidenceCount: Int, levels: List[LevelDef]): Option[LevelDef] =
-    levels.sortBy(-_.index).find(l => pctScore >= l.cutScore && evidenceCount >= l.minEvidenceCount)
-
-  /** Percentage over the questions tagged with one competency. 0 when nothing was attempted. */
-  def pct(score: Double, maxScore: Double): Double =
-    if (maxScore <= 0) 0d else (score / maxScore) * 100d
-
-  /** A completion-derived claim never exceeds the framework's cap. capIndex <= 0 means uncapped. */
-  def capCompletion(claimedIndex: Int, capIndex: Int): Int =
-    if (capIndex <= 0) claimedIndex else math.min(claimedIndex, capIndex)
-
-  /** Evidence lapses at `expiresOn`; absent expiry never lapses. */
-  def isExpired(e: Evidence, now: Long): Boolean = e.expiresOn.exists(_ <= now)
-
-  /** occurredOn plus the level's validity, when the framework sets one. */
-  def expiryOf(occurredOn: Long, validityMonths: Option[Int]): Option[Long] =
-    validityMonths.filter(_ > 0).map { m =>
-      Instant.ofEpochMilli(occurredOn).atZone(ZoneOffset.UTC).plusMonths(m.toLong).toInstant.toEpochMilli
+  def project(evidence: List[Evidence]): Option[SkillEntry] =
+    live(evidence) match {
+      case Nil => None
+      case rows =>
+        val g = governing(rows)
+        Some(SkillEntry(
+          skillId = g.skillId,
+          frameworkId = g.frameworkId,
+          sourceType = g.sourceType,
+          governingEvidenceId = g.evidenceId,
+          attainedOn = g.occurredOn))
     }
 
-  /** Partition key for competency_expiry_index. */
-  def expiryBucket(expiresOn: Long): String = bucketFmt.format(Instant.ofEpochMilli(expiresOn))
+  def live(evidence: List[Evidence]): List[Evidence] = evidence.filterNot(_.revoked)
+
+  def isHeld(evidence: List[Evidence]): Boolean = live(evidence).nonEmpty
 
   /**
-   * The passbook entry implied by a competency's evidence.
-   *
-   * Held level is the maximum over live evidence, so a later weaker attempt never demotes a learner.
-   * Expiry is the only decrement: once every supporting row has lapsed the entry falls back to the
-   * lapsed claim and is marked EXPIRED rather than deleted, so the history survives.
-   * None means no claim at all — every row revoked.
+   * The earliest live row wins, so `attainedOn` is the date the learner first earned the skill and
+   * does not move when later evidence arrives. `evidenceId` breaks a same-millisecond tie, which
+   * keeps reprojection deterministic.
    */
-  def project(evidence: List[Evidence], now: Long, expiringWindowMillis: Long): Option[PassbookEntry] = {
-    val live = evidence.filterNot(_.revoked)
-    if (live.isEmpty) return None
-    val (current, lapsed) = live.partition(e => !isExpired(e, now))
-    val (governing, status) =
-      if (current.nonEmpty) {
-        val b = best(current)
-        val s =
-          if (b.levelIndex <= 0) IN_PROGRESS
-          else if (b.expiresOn.exists(_ <= now + expiringWindowMillis)) EXPIRING
-          else ATTAINED
-        (b, s)
-      } else (best(lapsed), EXPIRED)
-    Some(PassbookEntry(
-      competencyId = governing.competencyId,
-      frameworkId = governing.frameworkId,
-      level = governing.level,
-      levelIndex = governing.levelIndex,
-      status = status,
-      sourceType = governing.sourceType,
-      governingEvidenceId = governing.evidenceId,
-      attainedOn = governing.occurredOn,
-      expiresOn = governing.expiresOn))
-  }
+  private def governing(rows: List[Evidence]): Evidence =
+    rows.sortBy(e => (e.occurredOn, e.evidenceId)).head
 
-  /** Highest level wins; the earliest attempt at that level wins the tie, so attainedOn is stable. */
-  private def best(xs: List[Evidence]): Evidence =
-    xs.sortBy(e => (-e.levelIndex, e.occurredOn)).head
+  /**
+   * Assessment attainment: every question tagged with the skill answered at full marks.
+   *
+   * Each pair is one question's (score, maxScore). A question with no marks available cannot
+   * evidence anything, so it fails the test rather than passing it vacuously. An empty list is
+   * not full marks — nothing was asked.
+   */
+  def fullMarks(questions: List[(Double, Double)]): Boolean =
+    questions.nonEmpty && questions.forall { case (score, maxScore) =>
+      maxScore > 0d && score >= maxScore
+    }
+
+  /**
+   * Skills earned in one attempt: those whose every tagged question is at full marks.
+   *
+   * `questionsBySkill` is that attempt's questions grouped by the skill they are tagged with, as
+   * (score, maxScore) pairs. A question tagged with two skills counts toward both.
+   */
+  def earnedIn(questionsBySkill: Map[String, List[(Double, Double)]]): Set[String] =
+    questionsBySkill.collect { case (skill, questions) if fullMarks(questions) => skill }.toSet
+
+  /**
+   * Skills earned across every attempt, unioned.
+   *
+   * Attempts are not reduced to a best one. Under binary attainment "best" is not a meaningful
+   * unit: a skill answered perfectly in the first attempt would go uncredited if a later attempt
+   * scored higher overall but got that skill wrong.
+   */
+  def earnedAcross(attempts: List[Map[String, List[(Double, Double)]]]): Set[String] =
+    attempts.flatMap(earnedIn).toSet
 
   /**
    * Deterministic ledger id: time-ordered and idempotent. Replaying the same completion rewrites

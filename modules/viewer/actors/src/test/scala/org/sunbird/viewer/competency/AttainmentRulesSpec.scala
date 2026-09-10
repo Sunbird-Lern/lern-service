@@ -5,121 +5,137 @@ import org.scalatest.matchers.should.Matchers
 
 class AttainmentRulesSpec extends AnyFlatSpec with Matchers {
 
-  // sparse indices, so a level can be inserted later without renumbering stored level_index
-  private val scale = List(
-    LevelDef("beginning", 10, 40, 4, None),
-    LevelDef("progressing", 20, 55, 5, None),
-    LevelDef("proficient", 30, 70, 6, None),
-    LevelDef("advanced", 40, 85, 8, None))
+  private def ev(skill: String, source: String, occurredOn: Long,
+                 revoked: Boolean = false, sourceId: String = "src"): Evidence =
+    Evidence(
+      userId = "u1", skillId = skill,
+      evidenceId = AttainmentRules.evidenceId(occurredOn, source, sourceId, "b1"),
+      frameworkId = "fw_health_competency",
+      sourceType = source, sourceId = sourceId, batchId = "b1",
+      score = None, maxScore = None, issuerId = None, note = None,
+      occurredOn = occurredOn, revoked = revoked)
 
-  private def ev(level: String, index: Int, occurredOn: Long = 1000L,
-                 expiresOn: Option[Long] = None, revoked: Boolean = false,
-                 sourceType: String = SourceType.ASSESSMENT): Evidence =
-    Evidence("u1", "c1", s"$occurredOn:$level", "fw", level, index, sourceType, "src", "b1",
-      None, None, 0, None, None, occurredOn, expiresOn, revoked, None)
-
-  "band" should "pick the highest level whose cut-score and evidence bar are both met" in {
-    AttainmentRules.band(76, 8, scale).map(_.code) shouldBe Some("proficient")
-    AttainmentRules.band(90, 9, scale).map(_.code) shouldBe Some("advanced")
+  "fullMarks" should "hold when every question is at its maximum" in {
+    AttainmentRules.fullMarks(List((1d, 1d), (2d, 2d), (1d, 1d))) shouldBe true
   }
 
-  it should "not award a level when too few questions were attempted" in {
-    // 88% clears advanced's 85 cut-score, but advanced needs 8 questions and only 6 were asked
-    AttainmentRules.band(88, 6, scale).map(_.code) shouldBe Some("proficient")
+  it should "not hold when one question of several is short" in {
+    AttainmentRules.fullMarks(List((1d, 1d), (1d, 2d), (1d, 1d))) shouldBe false
   }
 
-  it should "return None below the lowest band" in {
-    AttainmentRules.band(35, 10, scale) shouldBe None
-    AttainmentRules.band(100, 1, scale) shouldBe None // fails every minEvidenceCount
+  it should "hold on a single question at full marks" in {
+    AttainmentRules.fullMarks(List((5d, 5d))) shouldBe true
   }
 
-  it should "treat the cut-score as inclusive" in {
-    AttainmentRules.band(70, 6, scale).map(_.code) shouldBe Some("proficient")
+  it should "not hold when nothing was asked" in {
+    AttainmentRules.fullMarks(Nil) shouldBe false
   }
 
-  "pct" should "be zero when nothing was attemptable" in {
-    AttainmentRules.pct(0, 0) shouldBe 0d
-    AttainmentRules.pct(5, 10) shouldBe 50d
+  it should "not hold when a question carries no marks, rather than passing vacuously" in {
+    AttainmentRules.fullMarks(List((0d, 0d))) shouldBe false
+    AttainmentRules.fullMarks(List((1d, 1d), (0d, 0d))) shouldBe false
   }
 
-  "capCompletion" should "hold a completion-derived claim to the framework cap" in {
-    AttainmentRules.capCompletion(40, 20) shouldBe 20
-    AttainmentRules.capCompletion(10, 20) shouldBe 10 // already under the cap
-    AttainmentRules.capCompletion(40, 0) shouldBe 40  // uncapped
+  it should "hold when a score exceeds the maximum, which bonus marking can produce" in {
+    AttainmentRules.fullMarks(List((3d, 2d))) shouldBe true
   }
 
-  "project" should "hold the maximum level over live evidence" in {
-    val entry = AttainmentRules.project(List(ev("progressing", 20), ev("proficient", 30)), 5000L, 0L)
-    entry.map(_.level) shouldBe Some("proficient")
-    entry.map(_.status) shouldBe Some(AttainmentRules.ATTAINED)
+  "earnedIn" should "return only the skills whose every question is at full marks" in {
+    AttainmentRules.earnedIn(Map(
+      "hand-hygiene" -> List((1d, 1d), (1d, 1d)),
+      "ppe-use" -> List((1d, 1d)),
+      "sterile-field" -> List((1d, 1d), (0d, 1d)),
+      "dosage-calculation" -> List((2d, 5d)))) shouldBe Set("hand-hygiene", "ppe-use")
   }
 
-  it should "not let a later weaker attempt demote the learner" in {
-    val strong = ev("advanced", 40, occurredOn = 1000L)
-    val weak = ev("progressing", 20, occurredOn = 9000L)
-    AttainmentRules.project(List(strong, weak), 10000L, 0L).map(_.levelIndex) shouldBe Some(40)
+  it should "return nothing when the attempt earned nothing" in {
+    AttainmentRules.earnedIn(Map("a" -> List((0d, 1d)))) shouldBe Set.empty[String]
+    AttainmentRules.earnedIn(Map.empty) shouldBe Set.empty[String]
   }
 
-  it should "ignore revoked evidence" in {
-    val entry = AttainmentRules.project(
-      List(ev("advanced", 40, revoked = true), ev("progressing", 20)), 5000L, 0L)
-    entry.map(_.level) shouldBe Some("progressing")
+  "earnedAcross" should "union attempts rather than take a best one" in {
+    // attempt 1 scored less overall but got hand-hygiene right; attempt 2 got ppe-use right.
+    // Taking a "best" attempt by total score would lose one of them.
+    val attempt1 = Map("hand-hygiene" -> List((1d, 1d)), "ppe-use" -> List((0d, 1d)))
+    val attempt2 = Map("hand-hygiene" -> List((0d, 1d)), "ppe-use" -> List((1d, 1d)))
+    AttainmentRules.earnedAcross(List(attempt1, attempt2)) shouldBe Set("hand-hygiene", "ppe-use")
   }
 
-  it should "return None when every row is revoked" in {
-    AttainmentRules.project(List(ev("advanced", 40, revoked = true)), 5000L, 0L) shouldBe None
+  it should "not lose a skill earned only in the earliest attempt" in {
+    val early = Map("dosage-calculation" -> List((5d, 5d)))
+    val later = Map("dosage-calculation" -> List((3d, 5d)))
+    AttainmentRules.earnedAcross(List(early, later)) shouldBe Set("dosage-calculation")
   }
 
-  it should "fall back to the highest level still supported when the top one lapses" in {
-    val lapsed = ev("advanced", 40, occurredOn = 1000L, expiresOn = Some(2000L))
-    val current = ev("proficient", 30, occurredOn = 1500L)
-    val entry = AttainmentRules.project(List(lapsed, current), 5000L, 0L)
-    entry.map(_.level) shouldBe Some("proficient")
-    entry.map(_.status) shouldBe Some(AttainmentRules.ATTAINED)
+  it should "return nothing when there are no attempts" in {
+    AttainmentRules.earnedAcross(Nil) shouldBe Set.empty[String]
   }
 
-  it should "mark EXPIRED and keep the lapsed claim when nothing is current" in {
-    val entry = AttainmentRules.project(
-      List(ev("advanced", 40, expiresOn = Some(2000L))), 5000L, 0L)
-    entry.map(_.status) shouldBe Some(AttainmentRules.EXPIRED)
-    entry.map(_.level) shouldBe Some("advanced") // retained in history, not deleted
+  "project" should "report a skill held on one live row" in {
+    val entry = AttainmentRules.project(List(ev("hand-hygiene", SourceType.COURSE, 1000L)))
+    entry.map(_.skillId) shouldBe Some("hand-hygiene")
+    entry.map(_.sourceType) shouldBe Some(SourceType.COURSE)
   }
 
-  it should "mark EXPIRING inside the window" in {
-    val entry = AttainmentRules.project(
-      List(ev("proficient", 30, expiresOn = Some(6000L))), 5000L, 2000L)
-    entry.map(_.status) shouldBe Some(AttainmentRules.EXPIRING)
+  it should "report nothing when there is no evidence at all" in {
+    AttainmentRules.project(Nil) shouldBe None
   }
 
-  it should "report IN_PROGRESS for sub-threshold evidence" in {
-    AttainmentRules.project(List(ev("", 0)), 5000L, 0L).map(_.status) shouldBe
-      Some(AttainmentRules.IN_PROGRESS)
+  it should "report nothing when every row is revoked" in {
+    AttainmentRules.project(List(
+      ev("ppe-use", SourceType.COURSE, 1000L, revoked = true),
+      ev("ppe-use", SourceType.ASSESSMENT, 2000L, revoked = true))) shouldBe None
   }
 
-  it should "return None for no evidence at all" in {
-    AttainmentRules.project(Nil, 5000L, 0L) shouldBe None
+  it should "ignore revoked rows but keep the skill when a live one remains" in {
+    val entry = AttainmentRules.project(List(
+      ev("ppe-use", SourceType.COURSE, 1000L, revoked = true),
+      ev("ppe-use", SourceType.ASSESSMENT, 2000L)))
+    entry.map(_.sourceType) shouldBe Some(SourceType.ASSESSMENT)
   }
 
-  "expiryOf" should "add the validity window, and be absent when the framework sets none" in {
-    AttainmentRules.expiryOf(0L, None) shouldBe None
-    AttainmentRules.expiryOf(0L, Some(0)) shouldBe None
-    AttainmentRules.expiryOf(0L, Some(1)).get should be > 0L
+  it should "date attainment to the earliest live row, so it does not move as evidence accrues" in {
+    val rows = List(
+      ev("dosage-calculation", SourceType.ASSESSMENT, 5000L),
+      ev("dosage-calculation", SourceType.EXTERNAL, 1000L),
+      ev("dosage-calculation", SourceType.COURSE, 3000L))
+    val entry = AttainmentRules.project(rows)
+    entry.map(_.attainedOn) shouldBe Some(1000L)
+    entry.map(_.sourceType) shouldBe Some(SourceType.EXTERNAL)
   }
 
-  "expiryBucket" should "bucket by UTC month" in {
-    AttainmentRules.expiryBucket(0L) shouldBe "1970-01"
+  it should "date attainment to the earliest live row even when an earlier one is revoked" in {
+    val rows = List(
+      ev("dosage-calculation", SourceType.EXTERNAL, 1000L, revoked = true),
+      ev("dosage-calculation", SourceType.COURSE, 3000L))
+    AttainmentRules.project(rows).map(_.attainedOn) shouldBe Some(3000L)
   }
 
-  "evidenceId" should "be stable for the same source, so replays overwrite rather than duplicate" in {
-    val a = AttainmentRules.evidenceId(1234L, SourceType.COURSE, "crs1", "b1")
-    val b = AttainmentRules.evidenceId(1234L, SourceType.COURSE, "crs1", "b1")
-    a shouldBe b
-    a should not be AttainmentRules.evidenceId(1234L, SourceType.COURSE, "crs2", "b1")
+  it should "break a same-millisecond tie deterministically" in {
+    val a = ev("s", SourceType.COURSE, 1000L, sourceId = "aaa")
+    val b = ev("s", SourceType.COURSE, 1000L, sourceId = "bbb")
+    AttainmentRules.project(List(a, b)) shouldBe AttainmentRules.project(List(b, a))
   }
 
-  it should "sort chronologically as text" in {
-    val early = AttainmentRules.evidenceId(1000L, SourceType.COURSE, "c", "b")
-    val late = AttainmentRules.evidenceId(2000L, SourceType.COURSE, "c", "b")
+  "isHeld" should "agree with project" in {
+    AttainmentRules.isHeld(List(ev("s", SourceType.COURSE, 1L))) shouldBe true
+    AttainmentRules.isHeld(List(ev("s", SourceType.COURSE, 1L, revoked = true))) shouldBe false
+    AttainmentRules.isHeld(Nil) shouldBe false
+  }
+
+  "evidenceId" should "be stable for the same source, so a replay rewrites one row" in {
+    AttainmentRules.evidenceId(1700000000000L, SourceType.COURSE, "do_course", "b1") shouldBe
+      AttainmentRules.evidenceId(1700000000000L, SourceType.COURSE, "do_course", "b1")
+  }
+
+  it should "differ when the source differs" in {
+    AttainmentRules.evidenceId(1L, SourceType.COURSE, "do_a", "b1") should not be
+      AttainmentRules.evidenceId(1L, SourceType.COURSE, "do_b", "b1")
+  }
+
+  it should "sort chronologically as a string, which is how the ledger clusters" in {
+    val early = AttainmentRules.evidenceId(999L, SourceType.COURSE, "x", "b")
+    val late = AttainmentRules.evidenceId(1000L, SourceType.COURSE, "x", "b")
     early < late shouldBe true
   }
 }

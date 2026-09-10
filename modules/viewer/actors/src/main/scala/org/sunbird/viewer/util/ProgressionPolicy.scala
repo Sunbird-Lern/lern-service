@@ -25,28 +25,28 @@ object ProgressionPolicy {
   /**
    * Which courses this learner may skip.
    *
-   * A course is waived when every competency it claims is already held at or above the claimed
-   * level, or (PriorLearning) when the learner has completed it before. Assessment courses are
-   * never waived: the evidence itself cannot be skipped.
+   * A course is waived when every leaf skill it teaches is already held, or (PriorLearning) when
+   * the learner has completed it before. Assessment courses are never waived: the evidence itself
+   * cannot be skipped.
    *
-   * `claimsByCourse` maps a course to its `{competency, levelIndex}` claims; `heldLevels` maps a
-   * competency to the level index in the learner's passbook. A course with no claims cannot be
-   * waived on competency grounds, only on prior completion.
+   * `skillsByCourse` maps a course to the leaf skills it teaches; `held` is what the learner's
+   * profile holds. A course with no skills cannot be waived on skill grounds, only on prior
+   * completion.
+   *
+   * Leaf granularity makes this stricter than a coarser tag would: a course teaching three skills
+   * is waived only when all three are held, so a learner who missed one still takes it.
    */
   def computeOptionalNodes(policy: String,
                            courses: List[String],
-                           claimsByCourse: Map[String, List[(String, Int)]],
+                           skillsByCourse: Map[String, List[String]],
                            assessmentCourses: Set[String],
-                           heldLevels: Map[String, Int],
+                           held: Set[String],
                            priorCompleted: Set[String] = Set.empty): Set[String] = {
     if ("Strict".equalsIgnoreCase(policy)) Set.empty
     else courses.filter { c =>
       !assessmentCourses.contains(c) && {
-        val claims = claimsByCourse.getOrElse(c, Nil)
-        priorCompleted.contains(c) ||
-          (claims.nonEmpty && claims.forall { case (comp, required) =>
-            heldLevels.getOrElse(comp, 0) >= required && required > 0
-          })
+        val skills = skillsByCourse.getOrElse(c, Nil)
+        priorCompleted.contains(c) || (skills.nonEmpty && skills.forall(held.contains))
       }
     }.toSet
   }

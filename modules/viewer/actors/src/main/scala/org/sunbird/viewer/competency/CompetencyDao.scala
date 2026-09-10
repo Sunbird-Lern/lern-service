@@ -8,7 +8,7 @@ import java.util
 import scala.collection.JavaConverters._
 
 /**
- * All Cassandra access for the competency tables.
+ * All Cassandra access for the skill tables.
  *
  * Writes use raw column names. Reads must tolerate both raw and camel-cased keys, because
  * cassandratablecolumn.properties renames some columns on the way out (`userid` becomes `userId`,
@@ -30,119 +30,83 @@ class CompetencyDao(cassandra: CassandraOperation, keyspace: String) {
   def insertEvidence(e: Evidence, ctx: RequestContext): Unit = {
     val row = new util.HashMap[String, AnyRef]()
     row.put("userid", e.userId)
-    row.put("competencyid", e.competencyId)
+    row.put("skillid", e.skillId)
     row.put("evidenceid", e.evidenceId)
     row.put("framework_id", e.frameworkId)
-    row.put("level", e.level)
-    row.put("level_index", Integer.valueOf(e.levelIndex))
     row.put("source_type", e.sourceType)
     row.put("source_id", e.sourceId)
     row.put("batchid", e.batchId)
     e.score.foreach(v => row.put("score", java.lang.Double.valueOf(v)))
     e.maxScore.foreach(v => row.put("max_score", java.lang.Double.valueOf(v)))
-    row.put("evidence_count", Integer.valueOf(e.evidenceCount))
     e.issuerId.foreach(v => row.put("issuer_id", v))
     e.note.foreach(v => row.put("note", v))
     row.put("occurred_on", new util.Date(e.occurredOn))
-    e.expiresOn.foreach(v => row.put("expires_on", new util.Date(v)))
     row.put("revoked", java.lang.Boolean.valueOf(e.revoked))
     e.revokedReason.foreach(v => row.put("revoked_reason", v))
     cassandra.insertRecord(keyspace, EVIDENCE_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
   }
 
-  def evidenceOf(userId: String, competencyId: String, ctx: RequestContext): List[Evidence] =
-    read(EVIDENCE_TABLE, Map("userid" -> userId, "competencyid" -> competencyId), ctx).map(toEvidence)
+  def evidenceOf(userId: String, skillId: String, ctx: RequestContext): List[Evidence] =
+    read(EVIDENCE_TABLE, Map("userid" -> userId, "skillid" -> skillId), ctx).map(toEvidence)
 
-  def revokeEvidence(userId: String, competencyId: String, evidenceId: String,
+  def revokeEvidence(userId: String, skillId: String, evidenceId: String,
                      reason: String, ctx: RequestContext): Unit = {
-    val select = mapOf("userid" -> userId, "competencyid" -> competencyId, "evidenceid" -> evidenceId)
+    val select = mapOf("userid" -> userId, "skillid" -> skillId, "evidenceid" -> evidenceId)
     val update = mapOf("revoked" -> java.lang.Boolean.TRUE, "revoked_reason" -> reason)
     cassandra.updateRecordV2(keyspace, EVIDENCE_TABLE, select, update, true, ctx)
   }
 
-  // ---- passbook -------------------------------------------------------------------------------
+  // ---- skill profile --------------------------------------------------------------------------
 
-  def upsertPassbook(userId: String, e: PassbookEntry, ctx: RequestContext): Unit = {
+  def upsertSkill(userId: String, e: SkillEntry, ctx: RequestContext): Unit = {
     val row = new util.HashMap[String, AnyRef]()
     row.put("userid", userId)
-    row.put("competencyid", e.competencyId)
+    row.put("skillid", e.skillId)
     row.put("framework_id", e.frameworkId)
-    row.put("level", e.level)
-    row.put("level_index", Integer.valueOf(e.levelIndex))
-    row.put("status", e.status)
     row.put("source_type", e.sourceType)
     row.put("governing_evidence_id", e.governingEvidenceId)
     row.put("attained_on", new util.Date(e.attainedOn))
-    e.expiresOn.foreach(v => row.put("expires_on", new util.Date(v)))
     row.put("updated_on", new util.Date())
-    cassandra.insertRecord(keyspace, PASSBOOK_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
+    cassandra.insertRecord(keyspace, PROFILE_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
   }
 
-  def passbookOf(userId: String, ctx: RequestContext): List[PassbookEntry] =
-    read(PASSBOOK_TABLE, Map("userid" -> userId), ctx).flatMap(toPassbook)
+  def profileOf(userId: String, ctx: RequestContext): List[SkillEntry] =
+    read(PROFILE_TABLE, Map("userid" -> userId), ctx).flatMap(toSkill)
 
-  def setPassbookStatus(userId: String, competencyId: String, status: String, ctx: RequestContext): Unit =
-    cassandra.updateRecordV2(keyspace, PASSBOOK_TABLE,
-      mapOf("userid" -> userId, "competencyid" -> competencyId),
-      mapOf("status" -> status, "updated_on" -> new util.Date()), true, ctx)
-
-  // ---- expiry index ---------------------------------------------------------------------------
-
-  def indexExpiry(userId: String, competencyId: String, expiresOn: Long, ctx: RequestContext): Unit = {
-    val row = mapOf(
-      "expiry_bucket" -> AttainmentRules.expiryBucket(expiresOn),
-      "expires_on" -> new util.Date(expiresOn),
-      "userid" -> userId,
-      "competencyid" -> competencyId)
-    cassandra.insertRecord(keyspace, EXPIRY_INDEX_TABLE, row, ctx)
+  /**
+   * Removes a skill from the profile. Called only when every supporting evidence row has been
+   * revoked; the evidence itself is never deleted.
+   */
+  def deleteSkill(userId: String, skillId: String, ctx: RequestContext): Unit = {
+    val key = new util.HashMap[String, String]()
+    key.put("userid", userId)
+    key.put("skillid", skillId)
+    cassandra.deleteRecord(keyspace, PROFILE_TABLE, key, ctx)
   }
 
-  /** One bucket of pending expiries. The sweep walks the current and previous buckets. */
-  def expiriesIn(bucket: String, ctx: RequestContext): List[(String, String, Long)] =
-    read(EXPIRY_INDEX_TABLE, Map("expiry_bucket" -> bucket), ctx).flatMap { r =>
-      for {
-        u <- get(r, "userid")
-        c <- get(r, "competencyid")
-      } yield (u, c, dateOf(r, "expires_on").getOrElse(0L))
-    }
+  // ---- role assignment ------------------------------------------------------------------------
 
-  // ---- position -------------------------------------------------------------------------------
-
-  def positionOf(userId: String, ctx: RequestContext): Option[PositionAssignment] =
-    read(POSITION_TABLE, Map("userid" -> userId), ctx).headOption.map { r =>
-      PositionAssignment(
+  def roleOf(userId: String, ctx: RequestContext): Option[RoleAssignment] =
+    read(ROLE_TABLE, Map("userid" -> userId), ctx).headOption.map { r =>
+      RoleAssignment(
         userId = userId,
         frameworkId = get(r, "framework_id").getOrElse(""),
-        currentPosition = get(r, "current_position"),
-        targetPositions = Option(r.get("target_positions"))
+        currentRole = get(r, "current_role"),
+        targetRoles = Option(r.get("target_roles"))
           .map(_.asInstanceOf[util.Collection[String]].asScala.toSet).getOrElse(Set.empty),
         source = get(r, "source").getOrElse(""),
         assignedOn = dateOf(r, "assigned_on").getOrElse(0L))
     }
 
-  def upsertPosition(p: PositionAssignment, ctx: RequestContext): Unit = {
+  def upsertRole(a: RoleAssignment, ctx: RequestContext): Unit = {
     val row = new util.HashMap[String, AnyRef]()
-    row.put("userid", p.userId)
-    row.put("framework_id", p.frameworkId)
-    p.currentPosition.foreach(v => row.put("current_position", v))
-    if (p.targetPositions.nonEmpty) row.put("target_positions", p.targetPositions.asJava)
-    row.put("source", p.source)
-    row.put("assigned_on", new util.Date(if (p.assignedOn > 0) p.assignedOn else System.currentTimeMillis()))
-    cassandra.insertRecord(keyspace, POSITION_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
-  }
-
-  // ---- requirement projection -----------------------------------------------------------------
-
-  /** Written so reporting can join on it. The runtime authority stays the cached framework. */
-  def upsertRequirement(frameworkId: String, positionId: String, r: RequirementDef, ctx: RequestContext): Unit = {
-    val row = mapOf(
-      "framework_id" -> frameworkId,
-      "positionid" -> positionId,
-      "competencyid" -> r.competencyId,
-      "required_level" -> r.requiredLevel,
-      "required_level_index" -> Integer.valueOf(r.requiredLevelIndex),
-      "criticality" -> r.criticality)
-    cassandra.insertRecord(keyspace, REQUIREMENT_TABLE, row, ctx)
+    row.put("userid", a.userId)
+    row.put("framework_id", a.frameworkId)
+    a.currentRole.foreach(v => row.put("current_role", v))
+    if (a.targetRoles.nonEmpty) row.put("target_roles", a.targetRoles.asJava)
+    row.put("source", a.source)
+    row.put("assigned_on", new util.Date(if (a.assignedOn > 0) a.assignedOn else System.currentTimeMillis()))
+    cassandra.insertRecord(keyspace, ROLE_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
   }
 
   // ---- enrolments (read-only, for reprojection) -----------------------------------------------
@@ -157,8 +121,8 @@ class CompetencyDao(cassandra: CassandraOperation, keyspace: String) {
 
   /**
    * Distinct question sets a learner has attempted under one collection. Reads the
-   * (user_id, collection_id) partition of assessment_aggregator, so newly added competencies can be
-   * credited retroactively from attempts that predate them.
+   * (user_id, collection_id) partition of assessment_aggregator, so a skill added to the framework
+   * after the fact can be credited from attempts that predate it.
    */
   def assessedContentIds(userId: String, collectionId: String, contextId: String,
                          ctx: RequestContext): List[String] = {
@@ -170,11 +134,9 @@ class CompetencyDao(cassandra: CassandraOperation, keyspace: String) {
 case class EnrolmentRow(courseId: String, batchId: String, status: Int, completedOn: Long)
 
 object CompetencyDao {
-  val EVIDENCE_TABLE = "user_competency_evidence"
-  val PASSBOOK_TABLE = "user_competency"
-  val EXPIRY_INDEX_TABLE = "competency_expiry_index"
-  val POSITION_TABLE = "user_competency_position"
-  val REQUIREMENT_TABLE = "competency_requirement"
+  val EVIDENCE_TABLE = "user_skill_evidence"
+  val PROFILE_TABLE = "user_skill"
+  val ROLE_TABLE = "user_role"
   val ENROLMENT_TABLE = "user_enrolments"
   val ASSESSMENT_TABLE = "assessment_aggregator"
 
@@ -192,6 +154,7 @@ object CompetencyDao {
     case "userid" => "userId"
     case "courseid" => "courseId"
     case "batchid" => "batchId"
+    case "skillid" => "skillId"
     case other => other
   }
 
@@ -209,35 +172,27 @@ object CompetencyDao {
 
   private[competency] def toEvidence(r: util.Map[String, AnyRef]): Evidence = Evidence(
     userId = get(r, "userid").getOrElse(""),
-    competencyId = get(r, "competencyid").getOrElse(""),
+    skillId = get(r, "skillid").getOrElse(""),
     evidenceId = get(r, "evidenceid").getOrElse(""),
     frameworkId = get(r, "framework_id").getOrElse(""),
-    level = get(r, "level").getOrElse(""),
-    levelIndex = intOf(r, "level_index").getOrElse(0),
     sourceType = get(r, "source_type").getOrElse(""),
     sourceId = get(r, "source_id").getOrElse(""),
     batchId = get(r, "batchid").getOrElse(""),
     score = dbl(r, "score"),
     maxScore = dbl(r, "max_score"),
-    evidenceCount = intOf(r, "evidence_count").getOrElse(0),
     issuerId = get(r, "issuer_id"),
     note = get(r, "note"),
     occurredOn = dateOf(r, "occurred_on").getOrElse(0L),
-    expiresOn = dateOf(r, "expires_on"),
     revoked = bool(r, "revoked"),
     revokedReason = get(r, "revoked_reason"))
 
-  private[competency] def toPassbook(r: util.Map[String, AnyRef]): Option[PassbookEntry] =
-    get(r, "competencyid").map { cid =>
-      PassbookEntry(
-        competencyId = cid,
+  private[competency] def toSkill(r: util.Map[String, AnyRef]): Option[SkillEntry] =
+    get(r, "skillid").map { sid =>
+      SkillEntry(
+        skillId = sid,
         frameworkId = get(r, "framework_id").getOrElse(""),
-        level = get(r, "level").getOrElse(""),
-        levelIndex = intOf(r, "level_index").getOrElse(0),
-        status = get(r, "status").getOrElse(AttainmentRules.IN_PROGRESS),
         sourceType = get(r, "source_type").getOrElse(""),
         governingEvidenceId = get(r, "governing_evidence_id").getOrElse(""),
-        attainedOn = dateOf(r, "attained_on").getOrElse(0L),
-        expiresOn = dateOf(r, "expires_on"))
+        attainedOn = dateOf(r, "attained_on").getOrElse(0L))
     }
 }

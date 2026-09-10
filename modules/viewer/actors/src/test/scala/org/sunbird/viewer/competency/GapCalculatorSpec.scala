@@ -5,58 +5,64 @@ import org.scalatest.matchers.should.Matchers
 
 class GapCalculatorSpec extends AnyFlatSpec with Matchers {
 
-  private val reqs = List(
-    RequirementDef("medication", "l3", 30, Criticality.MANDATORY),
-    RequirementDef("infection", "l3", 30, Criticality.MANDATORY),
-    RequirementDef("comms", "l2", 20, Criticality.MANDATORY),
-    RequirementDef("healthdata", "l1", 10, Criticality.DESIRABLE))
+  // staff-nurse-icu, trimmed to four skills
+  private val required = Set("dosage-calculation", "hand-hygiene", "ppe-use", "hmis-reporting")
 
-  "rows" should "classify each requirement as MET, BELOW or MISSING" in {
-    val held = Map("medication" -> ("l4", 40), "infection" -> ("l2", 20))
-    val byId = GapCalculator.rows(reqs, held).map(r => r.competencyId -> r.status).toMap
-    byId("medication") shouldBe GapCalculator.MET     // held above required
-    byId("infection") shouldBe GapCalculator.BELOW    // held, but short
-    byId("comms") shouldBe GapCalculator.MISSING
-    byId("healthdata") shouldBe GapCalculator.MISSING
+  "rows" should "classify each required skill as MET or MISSING" in {
+    val held = Set("dosage-calculation", "hand-hygiene", "unrelated-skill")
+    val byId = GapCalculator.rows(required, held).map(r => r.skillId -> r.status).toMap
+    byId("dosage-calculation") shouldBe GapCalculator.MET
+    byId("hand-hygiene") shouldBe GapCalculator.MET
+    byId("ppe-use") shouldBe GapCalculator.MISSING
+    byId("hmis-reporting") shouldBe GapCalculator.MISSING
   }
 
-  it should "treat an exactly-equal level as MET" in {
-    GapCalculator.rows(List(reqs.head), Map("medication" -> ("l3", 30))).head.status shouldBe
-      GapCalculator.MET
+  it should "report only the required skills, ignoring extras the learner holds" in {
+    val rows = GapCalculator.rows(required, Set("something-else", "and-another"))
+    rows.map(_.skillId) should contain theSameElementsAs required.toList
+    rows.map(_.status).distinct shouldBe List(GapCalculator.MISSING)
   }
 
-  "readiness" should "count mandatory requirements only" in {
-    val held = Map("medication" -> ("l4", 40), "infection" -> ("l3", 30), "comms" -> ("l2", 20))
-    // all three mandatory met; the desirable one is still missing
-    GapCalculator.readiness(GapCalculator.rows(reqs, held)) shouldBe 100
+  it should "order rows by skill code so the output is stable" in {
+    GapCalculator.rows(required, Set.empty).map(_.skillId) shouldBe required.toList.sorted
   }
 
-  it should "not be inflated by desirable rows" in {
-    val held = Map("healthdata" -> ("l1", 10))
-    GapCalculator.readiness(GapCalculator.rows(reqs, held)) shouldBe 0
+  it should "return nothing when the role requires nothing" in {
+    GapCalculator.rows(Set.empty, Set("dosage-calculation")) shouldBe Nil
   }
 
-  it should "be 100 when a position declares no mandatory requirements" in {
+  "readiness" should "be 0 when nothing is held" in {
+    GapCalculator.readiness(GapCalculator.rows(required, Set.empty)) shouldBe 0
+  }
+
+  it should "be 100 when every required skill is held" in {
+    GapCalculator.readiness(GapCalculator.rows(required, required)) shouldBe 100
+  }
+
+  it should "be the whole-number percentage of met over required" in {
+    // one of four met
+    GapCalculator.readiness(GapCalculator.rows(required, Set("ppe-use"))) shouldBe 25
+    // two of four
+    GapCalculator.readiness(GapCalculator.rows(required, Set("ppe-use", "hand-hygiene"))) shouldBe 50
+  }
+
+  it should "truncate rather than round, so 100 means everything" in {
+    // two of three is 66.67; it must not read as 67 and must never read as 100
+    val three = Set("a", "b", "c")
+    GapCalculator.readiness(GapCalculator.rows(three, Set("a", "b"))) shouldBe 66
+  }
+
+  it should "be 100 for a role that declares no skills" in {
     GapCalculator.readiness(Nil) shouldBe 100
-    GapCalculator.readiness(GapCalculator.rows(
-      List(RequirementDef("x", "l1", 10, Criticality.DESIRABLE)), Map.empty)) shouldBe 100
   }
 
-  it should "round down rather than up" in {
-    val held = Map("medication" -> ("l3", 30))
-    GapCalculator.readiness(GapCalculator.rows(reqs, held)) shouldBe 33 // 1 of 3 mandatory
+  "outstanding" should "list only the missing skills" in {
+    val rows = GapCalculator.rows(required, Set("dosage-calculation", "hand-hygiene"))
+    GapCalculator.outstanding(rows) shouldBe List("hmis-reporting", "ppe-use")
   }
 
-  "isMandatory" should "default an unset criticality to mandatory" in {
-    GapCalculator.isMandatory(GapRow("c", "l1", 10, "", 0, null, GapCalculator.MISSING)) shouldBe true
-    GapCalculator.isMandatory(GapRow("c", "l1", 10, "", 0, "", GapCalculator.MISSING)) shouldBe true
-  }
-
-  "outstanding" should "drop met rows and put mandatory ones first" in {
-    val held = Map("medication" -> ("l4", 40))
-    val out = GapCalculator.outstanding(GapCalculator.rows(reqs, held))
-    out.map(_.competencyId) should not contain "medication"
-    out.head.criticality shouldBe Criticality.MANDATORY
-    out.last.competencyId shouldBe "healthdata" // desirable sinks to the bottom
+  "met" should "list only the held skills" in {
+    val rows = GapCalculator.rows(required, Set("dosage-calculation", "hand-hygiene"))
+    GapCalculator.met(rows) shouldBe List("dosage-calculation", "hand-hygiene")
   }
 }

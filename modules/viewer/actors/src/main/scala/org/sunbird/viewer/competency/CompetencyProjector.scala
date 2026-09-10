@@ -1,16 +1,13 @@
 package org.sunbird.viewer.competency
 
-import org.sunbird.common.ProjectUtil
 import org.sunbird.logging.LoggerUtil
 import org.sunbird.request.RequestContext
 
-import java.time.{Instant, ZoneOffset}
-
 /**
- * Derives the passbook from the ledger. The only writer of user_competency.
+ * Derives the skill profile from the ledger. The only writer of user_skill.
  *
- * Nothing here accumulates: each run recomputes an entry as a function of that competency's
- * evidence rows, so the passbook can be dropped and rebuilt, and a repeated event is harmless.
+ * Nothing here accumulates: each run recomputes an entry as a function of that skill's evidence
+ * rows, so the profile can be dropped and rebuilt, and a repeated event is harmless.
  */
 class CompetencyProjector(dao: CompetencyDao,
                           ledger: CompetencyLedger,
@@ -18,42 +15,37 @@ class CompetencyProjector(dao: CompetencyDao,
 
   private val logger = new LoggerUtil(classOf[CompetencyProjector])
 
-  private val expiringWindowMillis: Long =
-    Option(ProjectUtil.getConfigValue("competency_expiring_window_days"))
-      .map(_.trim).filter(_.nonEmpty).map(_.toLong).getOrElse(30L) * 24L * 3600L * 1000L
-
-  /** Recomputes the given competencies for one learner. Returns how many entries were written. */
-  def project(userId: String, competencyIds: Set[String], ctx: RequestContext): Int = {
-    val now = System.currentTimeMillis()
-    competencyIds.filter(_.nonEmpty).count { cid =>
-      val evidence = dao.evidenceOf(userId, cid, ctx)
-      AttainmentRules.project(evidence, now, expiringWindowMillis) match {
+  /** Recomputes the given skills for one learner. Returns how many are held afterwards. */
+  def project(userId: String, skillIds: Set[String], ctx: RequestContext): Int =
+    skillIds.filter(_ != null).filter(_.nonEmpty).count { sid =>
+      AttainmentRules.project(dao.evidenceOf(userId, sid, ctx)) match {
         case Some(entry) =>
-          dao.upsertPassbook(userId, entry, ctx)
-          entry.expiresOn.foreach(exp => dao.indexExpiry(userId, cid, exp, ctx))
-          logger.info(ctx, s"competency.projector: ${entry.status} | user=$userId competency=$cid " +
-            s"level=${entry.level}(${entry.levelIndex})")
+          dao.upsertSkill(userId, entry, ctx)
+          logger.info(ctx, s"competency.projector: held | user=$userId skill=$sid " +
+            s"source=${entry.sourceType}")
           true
         case None =>
-          // every row revoked: keep the row, drop the claim to nothing
-          dao.setPassbookStatus(userId, cid, AttainmentRules.IN_PROGRESS, ctx)
+          // every supporting row revoked: the skill is no longer held, so the row goes.
+          // The evidence stays, so a later un-revocation reprojects it back.
+          dao.deleteSkill(userId, sid, ctx)
+          logger.info(ctx, s"competency.projector: not held | user=$userId skill=$sid")
           false
       }
     }
-  }
 
   /**
-   * Rebuilds a learner's whole passbook.
+   * Rebuilds a learner's whole profile.
    *
-   * Re-derives evidence from what the learner actually did before projecting, so a competency added
-   * to the framework after the fact picks up credit from attempts that predate it. Safe to re-run:
+   * Re-derives evidence from what the learner actually did before projecting, so a skill added to
+   * the framework after the fact picks up credit from attempts that predate it. Safe to re-run:
    * ledger writes are idempotent.
    */
   def reproject(userId: String, ctx: RequestContext): Int = {
     val rederived = rederive(userId, ctx)
-    val existing = dao.passbookOf(userId, ctx).map(_.competencyId).toSet
+    val existing = dao.profileOf(userId, ctx).map(_.skillId).toSet
     val touched = rederived ++ existing
-    logger.info(ctx, s"competency.projector: reproject | user=$userId rederived=${rederived.size} total=${touched.size}")
+    logger.info(ctx, s"competency.projector: reproject | user=$userId " +
+      s"rederived=${rederived.size} total=${touched.size}")
     project(userId, touched, ctx)
   }
 
@@ -74,28 +66,5 @@ class CompetencyProjector(dao: CompetencyDao,
         fromCompletion ++ fromAssessment
       }
     }.toSet
-  }
-
-  /**
-   * Moves lapsing and lapsed entries to their correct status.
-   *
-   * Reprojects every entry indexed in the previous, current and next expiry buckets; reprojection
-   * already decides EXPIRING versus EXPIRED against the clock, so the sweep only has to choose
-   * which rows to revisit.
-   */
-  def sweep(ctx: RequestContext): Int = {
-    val now = System.currentTimeMillis()
-    val buckets = bucketsAround(now)
-    val due = buckets.flatMap(b => dao.expiriesIn(b, ctx))
-      .filter { case (_, _, expiresOn) => expiresOn <= now + expiringWindowMillis }
-    logger.info(ctx, s"competency.sweep: buckets=[${buckets.mkString(",")}] due=${due.size}")
-    due.groupBy(_._1).map { case (userId, rows) =>
-      project(userId, rows.map(_._2).toSet, ctx)
-    }.sum
-  }
-
-  private def bucketsAround(now: Long): List[String] = {
-    val month = Instant.ofEpochMilli(now).atZone(ZoneOffset.UTC)
-    List(-1, 0, 1).map(d => AttainmentRules.expiryBucket(month.plusMonths(d.toLong).toInstant.toEpochMilli))
   }
 }

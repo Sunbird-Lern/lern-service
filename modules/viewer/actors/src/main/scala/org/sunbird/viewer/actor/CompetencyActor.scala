@@ -1,20 +1,19 @@
 package org.sunbird.viewer.actor
 
-import org.apache.commons.lang3.StringUtils
 import org.sunbird.cassandra.CassandraOperation
 import org.sunbird.enrolments.BaseEnrolmentActor
 import org.sunbird.exception.ProjectCommonException
 import org.sunbird.helper.ServiceFactory
 import org.sunbird.keys.JsonKey
 import org.sunbird.learner.util.Util
-import org.sunbird.request.Request
+import org.sunbird.request.{Request, RequestContext}
 import org.sunbird.response.{Response, ResponseCode}
-import org.sunbird.viewer.competency.{CompetencyService, GapCalculator, PositionAssignment}
+import org.sunbird.viewer.competency.{CompetencyService, GapCalculator, GapRow, RoleAssignment, RoleSource}
 
 import java.util
 import scala.collection.JavaConverters._
 
-/** Read and write APIs for the competency passbook, gap and evidence ledger. */
+/** Read and write APIs for the skill profile, the gap against a role, and the evidence ledger. */
 class CompetencyActor extends BaseEnrolmentActor {
 
   private var cassandraOperation: CassandraOperation = ServiceFactory.getInstance
@@ -24,17 +23,16 @@ class CompetencyActor extends BaseEnrolmentActor {
 
   override def onReceive(request: Request): Unit = {
     request.getOperation match {
-      case "passbookRead"       => passbookRead(request)
-      case "gapRead"            => gapRead(request)
-      case "recommend"          => recommend(request)
-      case "positionUpdate"     => positionUpdate(request)
-      case "evidenceImport"     => evidenceImport(request)
-      case "evidenceRevoke"     => evidenceRevoke(request)
-      case "frameworkRead"      => frameworkRead(request)
-      case "reproject"          => reproject(request)
-      case "cacheInvalidate"    => cacheInvalidate(request)
-      case "expirySweep"        => expirySweep(request)
-      case _                    => onReceiveUnsupportedOperation(request.getOperation)
+      case "profileRead"     => profileRead(request)
+      case "gapRead"         => gapRead(request)
+      case "recommend"       => recommend(request)
+      case "roleUpdate"      => roleUpdate(request)
+      case "evidenceImport"  => evidenceImport(request)
+      case "evidenceRevoke"  => evidenceRevoke(request)
+      case "frameworkRead"   => frameworkRead(request)
+      case "reproject"       => reproject(request)
+      case "cacheInvalidate" => cacheInvalidate(request)
+      case _                 => onReceiveUnsupportedOperation(request.getOperation)
     }
   }
 
@@ -55,113 +53,124 @@ class CompetencyActor extends BaseEnrolmentActor {
     sender().tell(response, self)
   }
 
-  /** The learner's passbook, optionally with the supporting evidence expanded. */
-  private def passbookRead(request: Request): Unit = {
+  /** The learner's held skills, optionally with the supporting evidence expanded. */
+  private def profileRead(request: Request): Unit = {
     val ctx = request.getRequestContext
     val uid = userId(request)
     val withEvidence = Option(request.get("evidence")).exists(v => "true".equalsIgnoreCase(v.toString))
-    val entries = service.passbook(uid, ctx).map { e =>
+    val entries = service.profile(uid, ctx).map { e =>
       val m = new util.HashMap[String, AnyRef]()
-      m.put("competencyId", e.competencyId)
+      m.put("skillId", e.skillId)
       m.put("frameworkId", e.frameworkId)
-      m.put("level", e.level)
-      m.put("levelIndex", Integer.valueOf(e.levelIndex))
-      m.put("status", e.status)
       m.put("sourceType", e.sourceType)
       m.put("attainedOn", new util.Date(e.attainedOn))
-      e.expiresOn.foreach(v => m.put("expiresOn", new util.Date(v)))
-      if (withEvidence) m.put("evidence", service.evidenceOf(uid, e.competencyId, ctx).map { ev =>
+      if (withEvidence) m.put("evidence", service.evidenceOf(uid, e.skillId, ctx).map { ev =>
         val em = new util.HashMap[String, AnyRef]()
         em.put("evidenceId", ev.evidenceId)
-        em.put("level", ev.level)
         em.put("sourceType", ev.sourceType)
         em.put("sourceId", ev.sourceId)
         ev.score.foreach(v => em.put("score", java.lang.Double.valueOf(v)))
         ev.maxScore.foreach(v => em.put("maxScore", java.lang.Double.valueOf(v)))
+        ev.issuerId.foreach(v => em.put("issuerId", v))
         em.put("occurredOn", new util.Date(ev.occurredOn))
         em.put("revoked", java.lang.Boolean.valueOf(ev.revoked))
         em
       }.asJava)
       m
     }.asJava
-    logger.info(ctx, s"competency.api: passbookRead | user=$uid n=${entries.size}")
-    reply("competencies" -> entries, "count" -> Integer.valueOf(entries.size))
+    logger.info(ctx, s"competency.api: profileRead | user=$uid held=${entries.size}")
+    reply("skills" -> entries, "count" -> Integer.valueOf(entries.size))
   }
 
-  /** Gap and readiness against the learner's current position, or an explicitly named one. */
+  /**
+   * Gap against the learner's current role and each target role.
+   *
+   * Both are returned rather than one: the current role says whether the learner is doing the job
+   * they hold, the target says how far the next one is, and a client showing only one of those has
+   * to guess which the learner wanted.
+   */
   private def gapRead(request: Request): Unit = {
     val ctx = request.getRequestContext
     val uid = userId(request)
-    val assignment = service.position(uid, ctx)
+    val assignment = service.role(uid, ctx)
     val frameworkId = str(request, "frameworkId").orElse(assignment.map(_.frameworkId)).getOrElse("")
-    val positionId = str(request, "position").orElse(assignment.flatMap(_.currentPosition)).getOrElse("")
-    if (frameworkId.isEmpty || positionId.isEmpty) {
-      logger.info(ctx, s"competency.api: gapRead no position | user=$uid")
-      reply("gap" -> new util.ArrayList[AnyRef](), "readiness" -> Integer.valueOf(0),
-        "position" -> "", "frameworkId" -> frameworkId)
+    val explicit = str(request, "role")
+
+    if (frameworkId.isEmpty) {
+      logger.info(ctx, s"competency.api: gapRead no framework | user=$uid")
+      reply("frameworkId" -> "", "current" -> null, "targets" -> new util.ArrayList[AnyRef]())
       return
     }
-    val (rows, readiness) = service.gap(uid, frameworkId, positionId, ctx)
-    logger.info(ctx, s"competency.api: gapRead | user=$uid position=$positionId readiness=$readiness")
+    val current = explicit.orElse(assignment.flatMap(_.currentRole))
+    val targets = if (explicit.isDefined) Nil else assignment.map(_.targetRoles.toList.sorted).getOrElse(Nil)
+
+    logger.info(ctx, s"competency.api: gapRead | user=$uid current=${current.getOrElse("-")} " +
+      s"targets=[${targets.mkString(",")}]")
     reply(
-      "gap" -> rows.map(gapRow).asJava,
-      "readiness" -> Integer.valueOf(readiness),
-      "position" -> positionId,
       "frameworkId" -> frameworkId,
-      "mandatoryOutstanding" -> Integer.valueOf(rows.count(r => GapCalculator.isMandatory(r) && r.status != GapCalculator.MET)))
+      "current" -> current.map(r => roleGap(uid, frameworkId, r, ctx)).orNull,
+      "targets" -> targets.map(r => roleGap(uid, frameworkId, r, ctx)).asJava)
   }
 
-  private def gapRow(r: org.sunbird.viewer.competency.GapRow): util.Map[String, AnyRef] = {
+  private def roleGap(uid: String, frameworkId: String, roleId: String,
+                      ctx: RequestContext): util.Map[String, AnyRef] = {
+    val (rows, readiness) = service.gap(uid, frameworkId, roleId, ctx)
     val m = new util.HashMap[String, AnyRef]()
-    m.put("competencyId", r.competencyId)
-    m.put("requiredLevel", r.requiredLevel)
-    m.put("requiredLevelIndex", Integer.valueOf(r.requiredLevelIndex))
-    m.put("heldLevel", r.heldLevel)
-    m.put("heldLevelIndex", Integer.valueOf(r.heldLevelIndex))
-    m.put("criticality", r.criticality)
+    m.put("role", roleId)
+    m.put("readiness", Integer.valueOf(readiness))
+    m.put("required", Integer.valueOf(rows.size))
+    m.put("met", Integer.valueOf(rows.count(_.status == GapCalculator.MET)))
+    m.put("gap", rows.map(gapRow).asJava)
+    m.put("outstanding", GapCalculator.outstanding(rows).asJava)
+    m
+  }
+
+  private def gapRow(r: GapRow): util.Map[String, AnyRef] = {
+    val m = new util.HashMap[String, AnyRef]()
+    m.put("skillId", r.skillId)
     m.put("status", r.status)
     m
   }
 
   /**
-   * Competencies still outstanding for the position, most critical first.
+   * Skills still outstanding for the role.
    *
    * Returns the gap itself rather than content ids: ranking candidate paths needs a content search,
-   * which belongs in the search service, and the caller filters on `competencyCodes` with these.
+   * which belongs in the search service, and the caller filters on `skills` with these.
    */
   private def recommend(request: Request): Unit = {
     val ctx = request.getRequestContext
     val uid = userId(request)
-    val assignment = service.position(uid, ctx)
+    val assignment = service.role(uid, ctx)
     val frameworkId = str(request, "frameworkId").orElse(assignment.map(_.frameworkId)).getOrElse("")
-    val positionId = str(request, "position")
-      .orElse(assignment.flatMap(_.currentPosition))
-      .orElse(assignment.flatMap(_.targetPositions.headOption)).getOrElse("")
-    if (frameworkId.isEmpty || positionId.isEmpty) {
-      reply("competencyCodes" -> new util.ArrayList[AnyRef](), "position" -> "")
+    val roleId = str(request, "role")
+      .orElse(assignment.flatMap(_.currentRole))
+      .orElse(assignment.flatMap(_.targetRoles.toList.sorted.headOption)).getOrElse("")
+    if (frameworkId.isEmpty || roleId.isEmpty) {
+      reply("skills" -> new util.ArrayList[AnyRef](), "role" -> "")
       return
     }
-    val codes = service.outstanding(uid, frameworkId, positionId, ctx)
-    logger.info(ctx, s"competency.api: recommend | user=$uid position=$positionId outstanding=${codes.size}")
-    reply("competencyCodes" -> codes.asJava, "position" -> positionId, "frameworkId" -> frameworkId)
+    val codes = service.outstanding(uid, frameworkId, roleId, ctx)
+    logger.info(ctx, s"competency.api: recommend | user=$uid role=$roleId outstanding=${codes.size}")
+    reply("skills" -> codes.asJava, "role" -> roleId, "frameworkId" -> frameworkId)
   }
 
-  private def positionUpdate(request: Request): Unit = {
+  private def roleUpdate(request: Request): Unit = {
     val ctx = request.getRequestContext
     val uid = userId(request)
-    val existing = service.position(uid, ctx)
+    val existing = service.role(uid, ctx)
     val frameworkId = str(request, "frameworkId").orElse(existing.map(_.frameworkId))
       .getOrElse(throw new ProjectCommonException(
         ResponseCode.mandatoryParamsMissing.getErrorCode,
         "Missing mandatory parameter: frameworkId",
         ResponseCode.CLIENT_ERROR.getResponseCode))
-    val targets = Option(request.get("targetPositions")).collect {
-      case l: util.List[_] => l.asScala.map(_.toString).toSet
-    }.getOrElse(existing.map(_.targetPositions).getOrElse(Set.empty))
-    // only a privileged caller may set the current position; the controller enforces that
-    val current = str(request, "currentPosition").orElse(existing.flatMap(_.currentPosition))
-    service.updatePosition(PositionAssignment(uid, frameworkId, current, targets,
-      str(request, "source").getOrElse("SELF"), System.currentTimeMillis()), ctx)
+    val targets = Option(request.get("targetRoles")).collect {
+      case l: util.List[_] => l.asScala.map(_.toString).filter(_.nonEmpty).toSet
+    }.getOrElse(existing.map(_.targetRoles).getOrElse(Set.empty))
+    // only a privileged caller may set the current role; the controller enforces that
+    val current = str(request, "currentRole").orElse(existing.flatMap(_.currentRole))
+    service.updateRole(RoleAssignment(uid, frameworkId, current, targets,
+      str(request, "source").getOrElse(RoleSource.SELF), System.currentTimeMillis()), ctx)
     reply("status" -> "SUCCESS")
   }
 
@@ -169,17 +178,15 @@ class CompetencyActor extends BaseEnrolmentActor {
     val ctx = request.getRequestContext
     val uid = require(request, "importUserId")
     val frameworkId = require(request, "frameworkId")
-    val competencyId = require(request, "competencyId")
-    val level = require(request, "level")
+    val skillId = require(request, "skillId")
     val sourceId = str(request, "sourceId").getOrElse("external")
     val occurredOn = Option(request.get("occurredOn")).collect { case n: Number => n.longValue() }
       .getOrElse(System.currentTimeMillis())
-    val expiresOn = Option(request.get("expiresOn")).collect { case n: Number => n.longValue() }
-    val ok = service.importExternal(uid, frameworkId, competencyId, level, sourceId,
-      str(request, "issuerId"), str(request, "note"), occurredOn, expiresOn, ctx)
+    val ok = service.importExternal(uid, frameworkId, skillId, sourceId,
+      str(request, "issuerId"), str(request, "note"), occurredOn, ctx)
     if (!ok) throw new ProjectCommonException(
       ResponseCode.invalidRequestData.getErrorCode,
-      s"Unresolvable competency framework or level: framework=$frameworkId level=$level",
+      s"Unresolvable framework, or $skillId is not a leaf skill of it: framework=$frameworkId",
       ResponseCode.CLIENT_ERROR.getResponseCode)
     reply("status" -> "SUCCESS")
   }
@@ -187,66 +194,45 @@ class CompetencyActor extends BaseEnrolmentActor {
   private def evidenceRevoke(request: Request): Unit = {
     val ctx = request.getRequestContext
     service.revokeEvidence(
-      require(request, "revokeUserId"), require(request, "competencyId"),
+      require(request, "revokeUserId"), require(request, "skillId"),
       require(request, "evidenceId"), str(request, "reason").getOrElse("unspecified"), ctx)
     reply("status" -> "SUCCESS")
   }
 
-  /** Resolved framework: the scale, and the requirement set per position. */
+  /** Resolved framework: tier labels, the leaf skills, and each role's required set. */
   private def frameworkRead(request: Request): Unit = {
     val ctx = request.getRequestContext
     val frameworkId = require(request, "frameworkId")
     val m = service.meta(frameworkId, ctx)
     if (m.isEmpty) throw new ProjectCommonException(
       ResponseCode.resourceNotFound.getErrorCode,
-      s"Competency framework did not resolve: $frameworkId",
+      s"Competency framework did not resolve, or declares no leaf skills: $frameworkId",
       ResponseCode.RESOURCE_NOT_FOUND.getResponseCode)
-    val levels = m.levels.map { l =>
-      val lm = new util.HashMap[String, AnyRef]()
-      lm.put("code", l.code); lm.put("index", Integer.valueOf(l.index))
-      lm.put("cutScore", java.lang.Double.valueOf(l.cutScore))
-      lm.put("minEvidenceCount", Integer.valueOf(l.minEvidenceCount))
-      l.validityMonths.foreach(v => lm.put("validityMonths", Integer.valueOf(v)))
-      lm
-    }.asJava
-    val requirements: util.Map[String, util.List[util.Map[String, AnyRef]]] =
-      service.allRequirements(frameworkId, ctx).map { case (pos, reqs) =>
-      pos -> reqs.map { r =>
-        val rm: util.Map[String, AnyRef] = new util.HashMap[String, AnyRef]()
-        rm.put("competencyId", r.competencyId)
-        rm.put("requiredLevel", r.requiredLevel)
-        rm.put("requiredLevelIndex", Integer.valueOf(r.requiredLevelIndex))
-        rm.put("criticality", r.criticality)
-        rm
-      }.asJava
-    }.asJava
-    reply("frameworkId" -> frameworkId, "levels" -> levels, "requirements" -> requirements,
-      "defaultRequiredLevel" -> m.defaultRequiredLevel,
-      "maxCompletionDerivedIndex" -> Integer.valueOf(m.maxCompletionDerivedIndex))
+    val roles: util.Map[String, util.List[String]] =
+      m.roleSkills.map { case (role, skills) => role -> skills.toList.sorted.asJava }.asJava
+    reply(
+      "frameworkId" -> frameworkId,
+      "tierLabels" -> m.tierLabels.asJava,
+      "depth" -> Integer.valueOf(m.depth),
+      "leafSkills" -> m.leaves.toList.sorted.asJava,
+      "leafCount" -> Integer.valueOf(m.leaves.size),
+      "roles" -> roles)
   }
 
-  /** Rebuilds a learner's passbook from the ledger, re-deriving evidence first. */
+  /** Rebuilds a learner's profile from the ledger, re-deriving evidence first. */
   private def reproject(request: Request): Unit = {
     val ctx = request.getRequestContext
     val uid = require(request, "reprojectUserId")
-    val written = service.reproject(uid, ctx)
-    logger.info(ctx, s"competency.api: reproject | user=$uid entries=$written")
-    reply("status" -> "SUCCESS", "entries" -> Integer.valueOf(written))
+    val held = service.reproject(uid, ctx)
+    logger.info(ctx, s"competency.api: reproject | user=$uid held=$held")
+    reply("status" -> "SUCCESS", "held" -> Integer.valueOf(held))
   }
 
   private def cacheInvalidate(request: Request): Unit = {
     val ctx = request.getRequestContext
     val frameworkId = str(request, "frameworkId").getOrElse("")
     service.invalidate(frameworkId, ctx)
-    val refreshed = if (frameworkId.nonEmpty) service.refreshRequirements(frameworkId, ctx) else 0
-    reply("status" -> "SUCCESS", "requirementsRefreshed" -> Integer.valueOf(refreshed))
-  }
-
-  private def expirySweep(request: Request): Unit = {
-    val ctx = request.getRequestContext
-    val touched = service.sweep(ctx)
-    logger.info(ctx, s"competency.api: expirySweep | touched=$touched")
-    reply("status" -> "SUCCESS", "touched" -> Integer.valueOf(touched))
+    reply("status" -> "SUCCESS")
   }
 
   def configure(ops: CassandraOperation, svc: CompetencyService): CompetencyActor = {

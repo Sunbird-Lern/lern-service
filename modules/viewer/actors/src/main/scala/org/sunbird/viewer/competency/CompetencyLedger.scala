@@ -5,11 +5,14 @@ import org.sunbird.logging.LoggerUtil
 import org.sunbird.request.RequestContext
 
 /**
- * Appends facts. Never interprets held level — that is the projector's job.
+ * Appends facts. Never decides what is held — that is the projector's job.
  *
  * Every write is idempotent: the evidence id is derived from (occurredOn, sourceType, sourceId,
- * batchId), so replaying a completion or an aggregate rewrites the same row rather than appending a
- * duplicate. Each method returns the competency ids it touched, for the caller to project.
+ * batchId), so replaying a completion or an aggregate rewrites the same row rather than appending
+ * a duplicate. Each method returns the skill ids it touched, for the caller to project.
+ *
+ * A row is appended only for a skill the learner earned. Nothing is written for a skill that was
+ * attempted and missed, because the profile reads held as "a live row exists".
  */
 class CompetencyLedger(dao: CompetencyDao,
                        frameworkUtil: CompetencyFrameworkUtil,
@@ -17,12 +20,12 @@ class CompetencyLedger(dao: CompetencyDao,
 
   private val logger = new LoggerUtil(classOf[CompetencyLedger])
 
-  /** Completing a course claims its tagged competencies, capped at maxCompletionDerivedLevel. */
+  /** Completing a course records every leaf skill it teaches. */
   def creditCourse(userId: String, meta: CompetencyMeta, courseId: String, batchId: String,
                    completedOn: Long, ctx: RequestContext): Set[String] =
     creditCompletion(userId, meta, courseId, batchId, SourceType.COURSE, completedOn, ctx)
 
-  /** Completing a Learning Path claims the competencies the programme itself declares. */
+  /** Completing a Learning Path records the skills the programme itself declares. */
   def creditCollection(userId: String, meta: CompetencyMeta, rootId: String, batchId: String,
                        completedOn: Long, ctx: RequestContext): Set[String] =
     creditCompletion(userId, meta, rootId, batchId, SourceType.LEARNING_PATH, completedOn, ctx)
@@ -30,97 +33,94 @@ class CompetencyLedger(dao: CompetencyDao,
   private def creditCompletion(userId: String, meta: CompetencyMeta, nodeId: String, batchId: String,
                                sourceType: String, completedOn: Long, ctx: RequestContext): Set[String] = {
     if (meta.isEmpty) return Set.empty
-    val claims = frameworkUtil.claimsOf(List(nodeId), ctx).getOrElse(nodeId, Nil)
-    claims.flatMap { claim =>
-      meta.levelByCode(claim.levelCode).map { level =>
-        val capped = AttainmentRules.capCompletion(level.index, meta.maxCompletionDerivedIndex)
-        val effective = meta.levels.find(_.index == capped).getOrElse(level)
-        val expiry = AttainmentRules.expiryOf(completedOn, frameworkUtil.validityMonthsFor(claim.code, effective, meta))
-        append(Evidence(
-          userId = userId, competencyId = claim.code,
-          evidenceId = AttainmentRules.evidenceId(completedOn, sourceType, nodeId, batchId),
-          frameworkId = meta.frameworkId, level = effective.code, levelIndex = effective.index,
-          sourceType = sourceType, sourceId = nodeId, batchId = batchId,
-          score = None, maxScore = None, evidenceCount = 0,
-          issuerId = None, note = None, occurredOn = completedOn, expiresOn = expiry), ctx)
-        claim.code
-      }
+    val skills = frameworkUtil.leafClaimsOf(List(nodeId), meta, ctx).getOrElse(nodeId, Nil)
+    skills.map { code =>
+      append(Evidence(
+        userId = userId, skillId = code,
+        evidenceId = AttainmentRules.evidenceId(completedOn, sourceType, nodeId, batchId),
+        frameworkId = meta.frameworkId,
+        sourceType = sourceType, sourceId = nodeId, batchId = batchId,
+        score = None, maxScore = None,
+        issuerId = None, note = None, occurredOn = completedOn), ctx)
+      code
     }.toSet
   }
 
   /**
-   * Bands each competency over the questions tagged with it, in the learner's best attempt.
+   * Records every skill the learner answered at full marks.
    *
-   * Sub-threshold results are still recorded, at level index 0, so the passbook can show
-   * IN_PROGRESS rather than nothing.
+   * Attempts are unioned rather than reduced to a best one. Under binary attainment "best" is not
+   * a meaningful unit: a skill answered perfectly in the first attempt would go uncredited if a
+   * later attempt scored higher overall but got that skill wrong. Each qualifying attempt appends
+   * its own row, dated to that attempt, so the ledger keeps the whole history and the projector
+   * takes the earliest.
    */
   def creditAssessments(userId: String, meta: CompetencyMeta, collectionId: String, batchId: String,
                         questionSetIds: List[String], ctx: RequestContext): Set[String] = {
     if (meta.isEmpty || questionSetIds.isEmpty) return Set.empty
     questionSetIds.flatMap { qs =>
-      val attempts = assessmentService.getUserAssessments(userId, collectionId, batchId, qs, ctx)
-      if (attempts.isEmpty) Set.empty[String]
-      else {
-        val bestAttempt = attempts.maxBy(_.totalScore)
-        val answered = bestAttempt.questions
-        if (answered.isEmpty) Set.empty[String]
+      val attempts = assessmentService.getUserAssessments(userId, collectionId, batchId, qs, ctx).toList
+      attempts.flatMap { attempt =>
+        val answered = attempt.questions.toList
+        if (answered.isEmpty) Nil
         else {
-          val claims = frameworkUtil.claimsOf(answered.map(_.questionId), ctx)
-          val byCompetency = answered.flatMap(q =>
-            claims.getOrElse(q.questionId, Nil).map(c => c.code -> q)).groupBy(_._1)
-              .map { case (code, xs) => code -> xs.map(_._2) }
-          val occurredOn = if (bestAttempt.lastAttemptedOn > 0) bestAttempt.lastAttemptedOn else System.currentTimeMillis()
-          byCompetency.map { case (code, qs2) =>
-            val score = qs2.map(_.score).sum
-            val maxScore = qs2.map(_.maxScore).sum
-            val pct = AttainmentRules.pct(score, maxScore)
-            val band = AttainmentRules.band(pct, qs2.size, meta.levels)
-            val expiry = band.flatMap(l =>
-              AttainmentRules.expiryOf(occurredOn, frameworkUtil.validityMonthsFor(code, l, meta)))
+          val claims = frameworkUtil.leafClaimsOf(answered.map(_.questionId), meta, ctx)
+          val bySkill = answered
+            .flatMap(q => claims.getOrElse(q.questionId, Nil).map(code => code -> q))
+            .groupBy(_._1)
+            .map { case (code, pairs) => code -> pairs.map(_._2) }
+          val occurredOn =
+            if (attempt.lastAttemptedOn > 0) attempt.lastAttemptedOn else System.currentTimeMillis()
+          val earned = AttainmentRules.earnedIn(
+            bySkill.map { case (code, qsForSkill) => code -> qsForSkill.map(q => (q.score, q.maxScore)) })
+          earned.toList.map { code =>
+            val qsForSkill = bySkill(code)
             append(Evidence(
-              userId = userId, competencyId = code,
+              userId = userId, skillId = code,
               evidenceId = AttainmentRules.evidenceId(occurredOn, SourceType.ASSESSMENT, qs, batchId),
               frameworkId = meta.frameworkId,
-              level = band.map(_.code).getOrElse(""), levelIndex = band.map(_.index).getOrElse(0),
               sourceType = SourceType.ASSESSMENT, sourceId = qs, batchId = batchId,
-              score = Some(score), maxScore = Some(maxScore), evidenceCount = qs2.size,
-              issuerId = None, note = None, occurredOn = occurredOn, expiresOn = expiry), ctx)
+              score = Some(qsForSkill.map(_.score).sum),
+              maxScore = Some(qsForSkill.map(_.maxScore).sum),
+              issuerId = None, note = None, occurredOn = occurredOn), ctx)
             code
-          }.toSet
+          }
         }
       }
     }.toSet
   }
 
   /** Registers a credential earned outside the platform. */
-  def importExternal(userId: String, meta: CompetencyMeta, competencyId: String, levelCode: String,
-                     sourceId: String, issuerId: Option[String], note: Option[String],
-                     occurredOn: Long, explicitExpiry: Option[Long], ctx: RequestContext): Option[String] =
-    meta.levelByCode(levelCode).map { level =>
-      val expiry = explicitExpiry.orElse(
-        AttainmentRules.expiryOf(occurredOn, frameworkUtil.validityMonthsFor(competencyId, level, meta)))
-      append(Evidence(
-        userId = userId, competencyId = competencyId,
-        evidenceId = AttainmentRules.evidenceId(occurredOn, SourceType.EXTERNAL, sourceId, ""),
-        frameworkId = meta.frameworkId, level = level.code, levelIndex = level.index,
-        sourceType = SourceType.EXTERNAL, sourceId = sourceId, batchId = "",
-        score = None, maxScore = None, evidenceCount = 0,
-        issuerId = issuerId, note = note, occurredOn = occurredOn, expiresOn = expiry), ctx)
-      competencyId
+  def importExternal(userId: String, meta: CompetencyMeta, skillId: String, sourceId: String,
+                     issuerId: Option[String], note: Option[String], occurredOn: Long,
+                     ctx: RequestContext): Option[String] = {
+    if (meta.isEmpty) return None
+    if (!meta.isLeaf(skillId)) {
+      logger.info(ctx, s"competency.ledger: import rejected, $skillId is not a leaf of ${meta.frameworkId}")
+      return None
     }
-
-  def revoke(userId: String, competencyId: String, evidenceId: String, reason: String,
-             ctx: RequestContext): Unit = {
-    dao.revokeEvidence(userId, competencyId, evidenceId, reason, ctx)
-    logger.info(ctx, s"competency.ledger: revoked | user=$userId competency=$competencyId evidence=$evidenceId")
+    append(Evidence(
+      userId = userId, skillId = skillId,
+      evidenceId = AttainmentRules.evidenceId(occurredOn, SourceType.EXTERNAL, sourceId, ""),
+      frameworkId = meta.frameworkId,
+      sourceType = SourceType.EXTERNAL, sourceId = sourceId, batchId = "",
+      score = None, maxScore = None,
+      issuerId = issuerId, note = note, occurredOn = occurredOn), ctx)
+    Some(skillId)
   }
 
-  def evidenceOf(userId: String, competencyId: String, ctx: RequestContext): List[Evidence] =
-    dao.evidenceOf(userId, competencyId, ctx)
+  def revoke(userId: String, skillId: String, evidenceId: String, reason: String,
+             ctx: RequestContext): Unit = {
+    dao.revokeEvidence(userId, skillId, evidenceId, reason, ctx)
+    logger.info(ctx, s"competency.ledger: revoked | user=$userId skill=$skillId evidence=$evidenceId")
+  }
+
+  def evidenceOf(userId: String, skillId: String, ctx: RequestContext): List[Evidence] =
+    dao.evidenceOf(userId, skillId, ctx)
 
   private def append(e: Evidence, ctx: RequestContext): Unit = {
     dao.insertEvidence(e, ctx)
-    logger.info(ctx, s"competency.ledger: append | user=${e.userId} competency=${e.competencyId} " +
-      s"level=${e.level}(${e.levelIndex}) source=${e.sourceType}:${e.sourceId}")
+    logger.info(ctx, s"competency.ledger: append | user=${e.userId} skill=${e.skillId} " +
+      s"source=${e.sourceType}:${e.sourceId}")
   }
 }

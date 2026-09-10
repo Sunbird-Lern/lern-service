@@ -28,7 +28,7 @@ class LpProgressionEngine(cassandraOperation: CassandraOperation,
     val courseComplete = (c: String) => status.get((c, childBatchOf(c))).contains(2)
 
     val meta = lpPolicyUtil.lpMeta(rootId, ctx)
-    // Credit what just finished before deciding anything, so waiving sees the current passbook.
+    // Credit what just finished before deciding anything, so waiving sees the current profile.
     creditCompleted(userId, rootId, batchId, meta, completedNow, ctx)
 
     val levelByCourse = ProgressionPolicy.levelByCourse(trackable, ancestorsOf, rootId)
@@ -75,14 +75,14 @@ class LpProgressionEngine(cassandraOperation: CassandraOperation,
     logger.info(ctx, s"viewer.lp: root progress | user=$userId root=$rootId done=$done/$total pct=$pct status=$rootStatus")
     if (rootStatus == 2 && currentStatus != 2) {
       certificateUtil.publishCertificateIssueEvent(userId, rootId, batchId, ctx)
-      // the programme's own competency claims, credited once on the completion transition
+      // the skills the programme itself declares, credited once on the completion transition
       if (meta.competencyFramework.nonEmpty)
         competencyService.onNodeCompleted(userId, meta.competencyFramework, rootId, batchId,
           isRoot = true, System.currentTimeMillis(), ctx)
     }
   }
 
-  /** Course claims plus any assessment banding, for the nodes this aggregate saw complete. */
+  /** Course skills plus any assessment credit, for the nodes this aggregate saw complete. */
   private def creditCompleted(userId: String, rootId: String, batchId: String, meta: LpMeta,
                               completedNow: Set[String], ctx: RequestContext): Unit = {
     val fw = meta.competencyFramework
@@ -121,7 +121,7 @@ class LpProgressionEngine(cassandraOperation: CassandraOperation,
     val childBatchOf = (c: String) => batchId + ":" + c
     val courseComplete = (c: String) => status.get((c, childBatchOf(c))).contains(2)
     // Only Adaptive defers optionality until the pre-assessment is taken (it needs the proven
-    // competencies). PriorLearning waives already-completed courses and is not gated on it.
+    // skills). PriorLearning waives already-completed courses and is not gated on it.
     if (policy.equalsIgnoreCase("Adaptive") && preAssessment.exists(pa => !courseComplete(pa))) return true
 
     val fw = meta.competencyFramework
@@ -129,23 +129,23 @@ class LpProgressionEngine(cassandraOperation: CassandraOperation,
       logger.warn(ctx, s"viewer.lp: Adaptive LP declares no competencyFramework; halting | user=$userId root=$rootId", null)
       return false
     }
-    // make sure the gating assessment is banded before the passbook is read
+    // make sure the gating assessment is credited before the profile is read
     if (fw.nonEmpty) preAssessment.foreach(pa => creditAssessment(userId, rootId, batchId, fw, pa, meta, ctx))
 
     val cMeta = competencyService.meta(fw, ctx)
-    val heldLevels =
-      if (policy.equalsIgnoreCase("Adaptive")) competencyService.heldLevels(userId, ctx).map { case (k, v) => k -> v._2 }
-      else Map.empty[String, Int]
+    val held =
+      if (policy.equalsIgnoreCase("Adaptive")) competencyService.heldSkills(userId, ctx)
+      else Set.empty[String]
     val completedCourses = status.collect { case ((c, _), 2) => c }.toSet
     val priorCompleted =
       if (policy.equalsIgnoreCase("PriorLearning")) trackable.filter(completedCourses.contains).toSet
       else Set.empty[String]
     val assessmentCourses = lpPolicyUtil.assessmentFlags(trackable, meta).collect { case (c, true) => c }.toSet
-    val claimsByCourse = competencyService.claimIndexes(trackable, cMeta, ctx)
+    val skillsByCourse = competencyService.claimsOf(trackable, cMeta, ctx)
     logger.info(ctx, s"viewer.lp: optionality computing($policy) preAssess=${preAssessment.getOrElse("-")} " +
-      s"held=${heldLevels.size} priorDone=${priorCompleted.size} | user=$userId root=$rootId")
+      s"held=${held.size} priorDone=${priorCompleted.size} | user=$userId root=$rootId")
     writeOptionalNodes(userId, rootId, batchId,
-      ProgressionPolicy.computeOptionalNodes(policy, trackable, claimsByCourse, assessmentCourses, heldLevels, priorCompleted), ctx)
+      ProgressionPolicy.computeOptionalNodes(policy, trackable, skillsByCourse, assessmentCourses, held, priorCompleted), ctx)
     true
   }
 
