@@ -81,6 +81,37 @@ case class SkillEntry(skillId: String,
 /** One row of a learner's gap against a role. */
 case class GapRow(skillId: String, status: String)
 
+/** A course or Learning Path that teaches at least one skill, as the search service returns it. */
+case class Candidate(id: String, name: String, primaryCategory: String, skills: Set[String])
+
+/**
+ * A candidate scored against one learner's gap.
+ *
+ * `alreadyHeld` is the effort proxy: skills the candidate teaches that the learner already holds
+ * are the part they would sit through for nothing, or that waiving would skip.
+ */
+case class RankedCandidate(candidate: Candidate,
+                           gapCovered: Int,
+                           alreadyHeld: Int,
+                           totalSkills: Int)
+
+/** One row of an LP's coverage report against its target role. */
+case class CoverageRow(skillId: String, taughtBy: List[String], status: String)
+
+/**
+ * What a programme delivers against what its target role needs.
+ *
+ * `unassessed` names the skills the programme teaches but no question in it measures; each can
+ * only ever be completion-derived.
+ */
+case class CoverageReport(collectionId: String,
+                          frameworkId: String,
+                          roleId: String,
+                          courses: Int,
+                          rows: List[CoverageRow],
+                          unassessed: List[String],
+                          taught: Set[String])
+
 /** Learner's current and target roles. */
 case class RoleAssignment(userId: String,
                           frameworkId: String,

@@ -4,12 +4,14 @@ import org.sunbird.assessment.service.CassandraService
 import org.sunbird.cassandra.CassandraOperation
 import org.sunbird.logging.LoggerUtil
 import org.sunbird.request.RequestContext
+import org.sunbird.viewer.util.LpPolicyUtil
 
 /**
  * One entry point for everything skill-related, so call sites stay a line long.
  * Composes the framework resolver, the ledger and the projector.
  */
-class CompetencyService(cassandra: CassandraOperation, keyspace: String) {
+class CompetencyService(cassandra: CassandraOperation, keyspace: String,
+                        lpPolicyUtil: LpPolicyUtil = LpPolicyUtil()) {
 
   private val logger = new LoggerUtil(classOf[CompetencyService])
 
@@ -106,6 +108,51 @@ class CompetencyService(cassandra: CassandraOperation, keyspace: String) {
   def outstanding(userId: String, frameworkId: String, roleId: String,
                   ctx: RequestContext): List[String] =
     GapCalculator.outstanding(gap(userId, frameworkId, roleId, ctx)._1)
+
+  /**
+   * The gap, plus the courses and paths that close it, best first.
+   *
+   * The candidate search is skipped when nothing is outstanding, so a learner who already meets
+   * the role costs one partition read and no search call.
+   */
+  def recommend(userId: String, frameworkId: String, roleId: String,
+                ctx: RequestContext): (List[String], List[RankedCandidate]) = {
+    val missing = outstanding(userId, frameworkId, roleId, ctx).toSet
+    if (missing.isEmpty) return (Nil, Nil)
+    val ranked = GapCalculator.rankCandidates(
+      frameworkUtil.candidatesFor(missing, ctx), missing, heldSkills(userId, ctx))
+    (missing.toList.sorted, ranked)
+  }
+
+  /**
+   * Coverage of one programme against its target role.
+   *
+   * Reports, never blocks: it tells the author which of the role's skills nothing in the path
+   * teaches, while that is still cheap to fix. An explicit role overrides the collection's
+   * `targetRole`, so an author can check the same path against a second role.
+   */
+  def coverage(collectionId: String, roleOverride: Option[String],
+               ctx: RequestContext): CoverageReport = {
+    val lp = lpPolicyUtil.lpMeta(collectionId, ctx)
+    val m = meta(lp.competencyFramework, ctx)
+    val roleId = roleOverride.orElse(frameworkUtil.targetRoleOf(collectionId, ctx)).getOrElse("")
+    val courses = lpPolicyUtil.coursesOf(lp)
+    val skillsByCourse = claimsOf(courses, m, ctx)
+    val taught = skillsByCourse.values.flatten.toSet
+    val assessed = claimsOf(lpPolicyUtil.questionsIn(lp), m, ctx).values.flatten.toSet
+    val report = CoverageReport(
+      collectionId = collectionId,
+      frameworkId = lp.competencyFramework,
+      roleId = roleId,
+      courses = courses.size,
+      rows = GapCalculator.coverage(m.skillsOf(roleId), skillsByCourse),
+      unassessed = GapCalculator.unassessed(taught, assessed),
+      taught = taught)
+    logger.info(ctx, s"competency.coverage: $collectionId role=$roleId courses=${courses.size} " +
+      s"required=${report.rows.size} notCovered=" +
+      s"${report.rows.count(_.status == GapCalculator.NOT_COVERED)} unassessed=${report.unassessed.size}")
+    report
+  }
 
   // ---- admin ----------------------------------------------------------------------------------
 

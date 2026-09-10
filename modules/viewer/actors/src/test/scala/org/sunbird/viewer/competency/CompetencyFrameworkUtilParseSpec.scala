@@ -165,6 +165,30 @@ class CompetencyFrameworkUtilParseSpec extends AnyFlatSpec with Matchers {
     parseClaims(json) shouldBe Map.empty[String, List[String]]
   }
 
+  "parseCandidates" should "read the fields the ranking needs" in {
+    val json = """{"result":{"content":[
+      {"identifier":"do_1","name":"Safe Medication Practice","primaryCategory":"Course",
+       "skills":["dosage-calculation","iv-administration"]}]}}"""
+    parseCandidates(json) shouldBe List(Candidate("do_1", "Safe Medication Practice", "Course",
+      Set("dosage-calculation", "iv-administration")))
+  }
+
+  it should "skip a row with no skills, since it can close no gap" in {
+    val json = """{"result":{"content":[
+      {"identifier":"do_1","name":"Untagged","primaryCategory":"Course"},
+      {"identifier":"do_2","name":"Tagged","primaryCategory":"Course","skills":["ppe-use"]}]}}"""
+    parseCandidates(json).map(_.id) shouldBe List("do_2")
+  }
+
+  it should "fall back to the identifier when a row has no name" in {
+    val json = """{"result":{"content":[{"identifier":"do_1","skills":["ppe-use"]}]}}"""
+    parseCandidates(json).head.name shouldBe "do_1"
+  }
+
+  it should "be empty for an unparseable body" in {
+    parseCandidates("not json") shouldBe Nil
+  }
+
   "frameworkField" should "read a scalar off the framework object" in {
     frameworkField(healthFramework, "identifier") shouldBe Some("fw_health_competency")
     frameworkField(healthFramework, "nothing-here") shouldBe None

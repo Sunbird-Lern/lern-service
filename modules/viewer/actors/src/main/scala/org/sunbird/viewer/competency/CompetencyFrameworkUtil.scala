@@ -177,6 +177,21 @@ object CompetencyFrameworkUtil {
       }
     }.toMap
 
+  /** Courses and Learning Paths off a search row, for the recommendation. */
+  private[competency] def parseCandidates(searchJson: String): List[Candidate] = {
+    val rows = result(searchJson).asScala.values.collect {
+      case l: util.List[_] => l.asInstanceOf[util.List[util.Map[String, AnyRef]]].asScala
+    }.flatten.toList
+    rows.flatMap { r =>
+      val skills = asStrings(r.get("skills")).distinct.toSet
+      for { id <- str(r, "identifier") if skills.nonEmpty } yield Candidate(
+        id = id,
+        name = str(r, "name").getOrElse(id),
+        primaryCategory = str(r, "primaryCategory").getOrElse(""),
+        skills = skills)
+    }.distinct
+  }
+
   /** `skills: [code]` off a content, collection or question search row. */
   private[competency] def parseClaims(searchJson: String): Map[String, List[String]] = {
     val rows = result(searchJson).asScala.values.collect {
@@ -279,6 +294,41 @@ class CompetencyFrameworkUtil {
       .flatMap(r => Option(r.get("competencyFramework")).map(_.toString)).filter(_.nonEmpty)
     fwOfCollection.put(collectionId, (now + metaTtl, fw.getOrElse("")))
     fw
+  }
+
+  /** `targetRole` declared on a collection. Not cached: read once per coverage request. */
+  def targetRoleOf(collectionId: String, ctx: RequestContext): Option[String] = {
+    if (StringUtils.isBlank(collectionId)) return None
+    val json = searchByIds(List(collectionId), List("targetRole"))
+    result(json).asScala.values.collect {
+      case l: util.List[_] => l.asInstanceOf[util.List[util.Map[String, AnyRef]]].asScala
+    }.flatten.toList.headOption.flatMap(r => str(r, "targetRole"))
+  }
+
+  /**
+   * Live courses and Learning Paths teaching any of the given skills.
+   *
+   * Not cached: the learner's gap is the query, so a hit rate would be poor, and a stale
+   * recommendation is worse than a slow one. Assessment courses are excluded — an evaluation is
+   * not something to recommend as learning.
+   */
+  def candidatesFor(skills: Set[String], ctx: RequestContext): List[Candidate] = {
+    if (skills.isEmpty) return Nil
+    val categories = cfg("competency_recommend_primary_categories", "Course,Learning Path")
+      .split(",").map(_.trim).filter(_.nonEmpty).toList
+    val filters = new util.HashMap[String, AnyRef]() {{
+      put("status", util.Arrays.asList("Live"))
+      put("skills", skills.toList.asJava)
+      put("primaryCategory", categories.asJava)
+    }}
+    val request = new util.HashMap[String, AnyRef]() {{
+      put("filters", filters)
+      put("fields", List("identifier", "name", "primaryCategory", "skills").asJava)
+      put("limit", Integer.valueOf(cfg("competency_recommend_limit", "50").toInt))
+    }}
+    val json = post(searchUrl,
+      mapper.writeValueAsString(new util.HashMap[String, AnyRef]() {{ put("request", request) }}))
+    parseCandidates(json)
   }
 
   /** `skills` tags for the given content ids (courses, question sets, questions). */

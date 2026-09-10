@@ -26,6 +26,7 @@ POST   /v1/skill/profile/read               @controllers.viewer.CompetencyContro
 POST   /v1/skill/gap/read                   @controllers.viewer.CompetencyController.gapRead(request: play.mvc.Http.Request)
 POST   /v1/skill/recommend                  @controllers.viewer.CompetencyController.recommend(request: play.mvc.Http.Request)
 POST   /v1/skill/role/update                @controllers.viewer.CompetencyController.roleUpdate(request: play.mvc.Http.Request)
+POST   /v1/skill/coverage/read              @controllers.viewer.CompetencyController.coverageRead(request: play.mvc.Http.Request)
 GET    /v1/competency/framework/read/:frameworkId   @controllers.viewer.CompetencyController.frameworkRead(frameworkId: String, request: play.mvc.Http.Request)
 
 # Skill admin APIs (gateway-restricted, same convention as the other /private routes)

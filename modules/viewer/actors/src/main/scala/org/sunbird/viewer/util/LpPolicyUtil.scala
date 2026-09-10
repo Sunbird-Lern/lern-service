@@ -32,6 +32,9 @@ object LpPolicyUtil {
   private val ASSESSMENT_PRIMARY_CATEGORY: String =
     Option(ProjectUtil.getConfigValue("lp_assessment_primary_category")).map(_.trim).filter(_.nonEmpty)
       .getOrElse("Evaluation Course")
+  private val COURSE_PRIMARY_CATEGORY: String =
+    Option(ProjectUtil.getConfigValue("lp_course_primary_category")).map(_.trim).filter(_.nonEmpty)
+      .getOrElse("Course")
 
   private def result(json: String): util.Map[String, AnyRef] =
     try {
@@ -66,6 +69,25 @@ object LpPolicyUtil {
   def questionSets(courseId: String, nodes: Map[String, NodeMeta]): List[String] =
     nodes.get(courseId).toList.flatMap(_.childNodes)
       .filter(id => nodes.get(id).exists(_.primaryCategory == PRACTICE_QUESTION_SET))
+
+  /** Every course in the programme, assessment courses included. Ordered for stable output. */
+  def courses(nodes: Map[String, NodeMeta]): List[String] =
+    nodes.collect { case (id, n)
+      if n.primaryCategory == COURSE_PRIMARY_CATEGORY ||
+         n.primaryCategory == ASSESSMENT_PRIMARY_CATEGORY => id }.toList.sorted
+
+  /** Every question set in the programme, whichever course holds it. */
+  def allQuestionSets(nodes: Map[String, NodeMeta]): List[String] =
+    nodes.collect { case (id, n) if n.primaryCategory == PRACTICE_QUESTION_SET => id }.toList.sorted
+
+  /**
+   * The children of every question set in the programme.
+   *
+   * Under-reports where a question set groups its items into sections: the section id resolves no
+   * skills, so a skill only measured inside a section reads as unassessed.
+   */
+  def questions(nodes: Map[String, NodeMeta]): List[String] =
+    allQuestionSets(nodes).flatMap(qs => nodes.get(qs).toList.flatMap(_.childNodes)).distinct
 
   private val metaTtl: Long =
     Option(ProjectUtil.getConfigValue("lp_meta_cache_ttl")).filter(_.trim.nonEmpty).map(_.trim.toLong).getOrElse(3600L) * 1000L
@@ -132,4 +154,10 @@ class LpPolicyUtil {
   /** Assessment flag per course. Competency claims come from CompetencyFrameworkUtil. */
   def assessmentFlags(courseIds: List[String], meta: LpMeta): Map[String, Boolean] =
     courseIds.map(c => c -> isAssessment(c, meta.nodes)).toMap
+
+  def coursesOf(meta: LpMeta): List[String] = courses(meta.nodes)
+
+  def allQuestionSetsOf(meta: LpMeta): List[String] = allQuestionSets(meta.nodes)
+
+  def questionsIn(meta: LpMeta): List[String] = questions(meta.nodes)
 }

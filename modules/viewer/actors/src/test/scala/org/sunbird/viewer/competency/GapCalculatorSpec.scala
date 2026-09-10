@@ -65,4 +65,103 @@ class GapCalculatorSpec extends AnyFlatSpec with Matchers {
     val rows = GapCalculator.rows(required, Set("dosage-calculation", "hand-hygiene"))
     GapCalculator.met(rows) shouldBe List("dosage-calculation", "hand-hygiene")
   }
+
+  // ---- recommendation -------------------------------------------------------------------------
+
+  private def cand(id: String, skills: String*): Candidate =
+    Candidate(id, id + " name", "Course", skills.toSet)
+
+  "rankCandidates" should "put the candidate covering most of the gap first" in {
+    val ranked = GapCalculator.rankCandidates(
+      candidates = List(
+        cand("one-skill", "ppe-use"),
+        cand("two-skills", "ppe-use", "hmis-reporting")),
+      outstanding = Set("ppe-use", "hmis-reporting"),
+      held = Set.empty)
+    ranked.map(_.candidate.id) shouldBe List("two-skills", "one-skill")
+    ranked.head.gapCovered shouldBe 2
+  }
+
+  it should "drop a candidate that covers none of the gap" in {
+    GapCalculator.rankCandidates(
+      List(cand("unrelated", "budget-preparation")),
+      outstanding = Set("ppe-use"),
+      held = Set.empty) shouldBe Nil
+  }
+
+  it should "prefer the candidate with less the learner already holds, as an effort proxy" in {
+    // both close the same one gap skill; "lean" wastes nothing, "padded" re-covers two held skills
+    val ranked = GapCalculator.rankCandidates(
+      candidates = List(
+        cand("padded", "ppe-use", "hand-hygiene", "dosage-calculation"),
+        cand("lean", "ppe-use")),
+      outstanding = Set("ppe-use"),
+      held = Set("hand-hygiene", "dosage-calculation"))
+    ranked.map(_.candidate.id) shouldBe List("lean", "padded")
+    ranked.head.alreadyHeld shouldBe 0
+    ranked.last.alreadyHeld shouldBe 2
+  }
+
+  it should "prefer the tighter fit when gap covered and held are equal" in {
+    val ranked = GapCalculator.rankCandidates(
+      candidates = List(
+        cand("sprawling", "ppe-use", "x", "y", "z"),
+        cand("tight", "ppe-use")),
+      outstanding = Set("ppe-use"),
+      held = Set.empty)
+    ranked.map(_.candidate.id) shouldBe List("tight", "sprawling")
+  }
+
+  it should "order deterministically when everything else ties" in {
+    val a = cand("aaa", "ppe-use")
+    val b = cand("bbb", "ppe-use")
+    val one = GapCalculator.rankCandidates(List(a, b), Set("ppe-use"), Set.empty)
+    val two = GapCalculator.rankCandidates(List(b, a), Set("ppe-use"), Set.empty)
+    one.map(_.candidate.id) shouldBe two.map(_.candidate.id)
+    one.map(_.candidate.id) shouldBe List("aaa", "bbb")
+  }
+
+  it should "return nothing when there are no candidates" in {
+    GapCalculator.rankCandidates(Nil, Set("ppe-use"), Set.empty) shouldBe Nil
+  }
+
+  // ---- coverage -------------------------------------------------------------------------------
+
+  "coverage" should "name every course that teaches a required skill" in {
+    val byCourse = Map(
+      "safe-medication" -> List("dosage-calculation"),
+      "infection-control" -> List("hand-hygiene", "ppe-use"),
+      "refresher" -> List("hand-hygiene"))
+    val rows = GapCalculator.coverage(required, byCourse)
+    val byId = rows.map(r => r.skillId -> r).toMap
+    byId("hand-hygiene").taughtBy shouldBe List("infection-control", "refresher")
+    byId("hand-hygiene").status shouldBe GapCalculator.COVERED
+    byId("dosage-calculation").taughtBy shouldBe List("safe-medication")
+  }
+
+  it should "report a required skill nothing teaches, rather than omitting it" in {
+    val rows = GapCalculator.coverage(required, Map("c1" -> List("dosage-calculation")))
+    val notCovered = rows.filter(_.status == GapCalculator.NOT_COVERED).map(_.skillId)
+    notCovered shouldBe List("hand-hygiene", "hmis-reporting", "ppe-use")
+    rows.filter(_.status == GapCalculator.NOT_COVERED).flatMap(_.taughtBy) shouldBe Nil
+  }
+
+  it should "ignore course skills the role does not require" in {
+    val rows = GapCalculator.coverage(Set("ppe-use"), Map("c1" -> List("ppe-use", "team-briefing")))
+    rows.map(_.skillId) shouldBe List("ppe-use")
+  }
+
+  it should "return nothing when the role requires nothing" in {
+    GapCalculator.coverage(Set.empty, Map("c1" -> List("ppe-use"))) shouldBe Nil
+  }
+
+  "unassessed" should "name skills taught but never measured" in {
+    GapCalculator.unassessed(
+      taught = Set("ppe-use", "hand-hygiene", "dosage-calculation"),
+      assessed = Set("hand-hygiene")) shouldBe List("dosage-calculation", "ppe-use")
+  }
+
+  it should "be empty when every taught skill is measured somewhere" in {
+    GapCalculator.unassessed(Set("ppe-use"), Set("ppe-use", "extra")) shouldBe Nil
+  }
 }

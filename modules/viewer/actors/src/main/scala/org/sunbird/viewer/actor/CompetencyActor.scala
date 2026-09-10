@@ -8,7 +8,8 @@ import org.sunbird.keys.JsonKey
 import org.sunbird.learner.util.Util
 import org.sunbird.request.{Request, RequestContext}
 import org.sunbird.response.{Response, ResponseCode}
-import org.sunbird.viewer.competency.{CompetencyService, GapCalculator, GapRow, RoleAssignment, RoleSource}
+import org.sunbird.viewer.competency.{CompetencyService, CoverageRow, GapCalculator, GapRow,
+  RankedCandidate, RoleAssignment, RoleSource}
 
 import java.util
 import scala.collection.JavaConverters._
@@ -26,6 +27,7 @@ class CompetencyActor extends BaseEnrolmentActor {
       case "profileRead"     => profileRead(request)
       case "gapRead"         => gapRead(request)
       case "recommend"       => recommend(request)
+      case "coverageRead"    => coverageRead(request)
       case "roleUpdate"      => roleUpdate(request)
       case "evidenceImport"  => evidenceImport(request)
       case "evidenceRevoke"  => evidenceRevoke(request)
@@ -133,10 +135,10 @@ class CompetencyActor extends BaseEnrolmentActor {
   }
 
   /**
-   * Skills still outstanding for the role.
+   * The outstanding skills, plus the courses and paths that close them, best first.
    *
-   * Returns the gap itself rather than content ids: ranking candidate paths needs a content search,
-   * which belongs in the search service, and the caller filters on `skills` with these.
+   * A target role is preferred over the current one here, unlike gapRead: a learner asking what to
+   * do next is asking about where they are going, not where they already are.
    */
   private def recommend(request: Request): Unit = {
     val ctx = request.getRequestContext
@@ -144,15 +146,62 @@ class CompetencyActor extends BaseEnrolmentActor {
     val assignment = service.role(uid, ctx)
     val frameworkId = str(request, "frameworkId").orElse(assignment.map(_.frameworkId)).getOrElse("")
     val roleId = str(request, "role")
-      .orElse(assignment.flatMap(_.currentRole))
-      .orElse(assignment.flatMap(_.targetRoles.toList.sorted.headOption)).getOrElse("")
+      .orElse(assignment.flatMap(_.targetRoles.toList.sorted.headOption))
+      .orElse(assignment.flatMap(_.currentRole)).getOrElse("")
     if (frameworkId.isEmpty || roleId.isEmpty) {
-      reply("skills" -> new util.ArrayList[AnyRef](), "role" -> "")
+      reply("skills" -> new util.ArrayList[AnyRef](), "candidates" -> new util.ArrayList[AnyRef](),
+        "role" -> "")
       return
     }
-    val codes = service.outstanding(uid, frameworkId, roleId, ctx)
-    logger.info(ctx, s"competency.api: recommend | user=$uid role=$roleId outstanding=${codes.size}")
-    reply("skills" -> codes.asJava, "role" -> roleId, "frameworkId" -> frameworkId)
+    val (codes, ranked) = service.recommend(uid, frameworkId, roleId, ctx)
+    logger.info(ctx, s"competency.api: recommend | user=$uid role=$roleId " +
+      s"outstanding=${codes.size} candidates=${ranked.size}")
+    reply("skills" -> codes.asJava, "candidates" -> ranked.map(candidate).asJava,
+      "role" -> roleId, "frameworkId" -> frameworkId)
+  }
+
+  private def candidate(r: RankedCandidate): util.Map[String, AnyRef] = {
+    val m = new util.HashMap[String, AnyRef]()
+    m.put("identifier", r.candidate.id)
+    m.put("name", r.candidate.name)
+    m.put("primaryCategory", r.candidate.primaryCategory)
+    m.put("skills", r.candidate.skills.toList.sorted.asJava)
+    m.put("gapCovered", Integer.valueOf(r.gapCovered))
+    m.put("alreadyHeld", Integer.valueOf(r.alreadyHeld))
+    m.put("totalSkills", Integer.valueOf(r.totalSkills))
+    m
+  }
+
+  /**
+   * Coverage of a programme against its target role. Authoring-time, not learner-facing.
+   *
+   * Reports and never blocks, so a path with an uncovered skill still publishes; the author simply
+   * learns which one before any learner enrols.
+   */
+  private def coverageRead(request: Request): Unit = {
+    val ctx = request.getRequestContext
+    val collectionId = require(request, "collectionId")
+    val report = service.coverage(collectionId, str(request, "role"), ctx)
+    val notCovered = report.rows.filter(_.status == GapCalculator.NOT_COVERED).map(_.skillId)
+    reply(
+      "collectionId" -> report.collectionId,
+      "frameworkId" -> report.frameworkId,
+      "role" -> report.roleId,
+      "courses" -> Integer.valueOf(report.courses),
+      "required" -> Integer.valueOf(report.rows.size),
+      "covered" -> Integer.valueOf(report.rows.size - notCovered.size),
+      "coverage" -> report.rows.map(coverageRow).asJava,
+      "notCovered" -> notCovered.asJava,
+      "taught" -> report.taught.toList.sorted.asJava,
+      "unassessed" -> report.unassessed.asJava)
+  }
+
+  private def coverageRow(r: CoverageRow): util.Map[String, AnyRef] = {
+    val m = new util.HashMap[String, AnyRef]()
+    m.put("skillId", r.skillId)
+    m.put("status", r.status)
+    m.put("taughtBy", r.taughtBy.asJava)
+    m
   }
 
   private def roleUpdate(request: Request): Unit = {

@@ -29,4 +29,57 @@ object GapCalculator {
 
   def met(rows: List[GapRow]): List[String] =
     rows.filter(_.status == MET).map(_.skillId)
+
+  // ---- recommendation -------------------------------------------------------------------------
+
+  /**
+   * Candidates ranked against one learner's gap.
+   *
+   * Ordered by gap skills covered (most first), then by how much of the candidate the learner has
+   * already covered (least first), then by total size so a tight fit beats a sprawling one, then
+   * by id so the order is stable across calls.
+   *
+   * `alreadyHeld` stands in for effort after waiving. It is a proxy, not a course count: a
+   * candidate whose skills the learner mostly holds is one that waiving would mostly skip, and
+   * counting its actual remaining courses would need each candidate's hierarchy.
+   *
+   * A candidate covering none of the gap is dropped — recommending it would be noise.
+   */
+  def rankCandidates(candidates: List[Candidate], outstanding: Set[String],
+                     held: Set[String]): List[RankedCandidate] =
+    candidates
+      .map(c => RankedCandidate(
+        candidate = c,
+        gapCovered = c.skills.intersect(outstanding).size,
+        alreadyHeld = c.skills.intersect(held).size,
+        totalSkills = c.skills.size))
+      .filter(_.gapCovered > 0)
+      .sortBy(r => (-r.gapCovered, r.alreadyHeld, r.totalSkills, r.candidate.id))
+
+  // ---- coverage report ------------------------------------------------------------------------
+
+  val COVERED = "COVERED"
+  val NOT_COVERED = "NOT_COVERED"
+
+  /**
+   * Does anything in the programme teach each skill the role requires?
+   *
+   * `skillsByCourse` maps each course in the programme to the leaf skills it teaches. A skill no
+   * course teaches is reported, not raised: the check informs the author, it does not block them.
+   */
+  def coverage(required: Set[String],
+               skillsByCourse: Map[String, List[String]]): List[CoverageRow] =
+    required.toList.sorted.map { skill =>
+      val taughtBy = skillsByCourse.collect { case (course, skills) if skills.contains(skill) => course }
+        .toList.sorted
+      CoverageRow(skill, taughtBy, if (taughtBy.nonEmpty) COVERED else NOT_COVERED)
+    }
+
+  /**
+   * Skills the programme teaches but no question in it measures.
+   *
+   * Each can only ever be completion-derived, which is the weakest evidence the model accepts.
+   */
+  def unassessed(taught: Set[String], assessed: Set[String]): List[String] =
+    taught.diff(assessed).toList.sorted
 }

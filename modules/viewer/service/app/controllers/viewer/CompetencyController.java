@@ -56,6 +56,11 @@ public class CompetencyController extends BaseController {
         }
     }
 
+    /** Authoring-time check on a programme. Not learner-scoped: it reads content, not a profile. */
+    public CompletionStage<Result> coverageRead(Http.Request httpRequest) {
+        return body("coverageRead", httpRequest);
+    }
+
     public CompletionStage<Result> frameworkRead(String frameworkId, Http.Request httpRequest) {
         try {
             Request request = createAndInitRequest("frameworkRead", httpRequest);
