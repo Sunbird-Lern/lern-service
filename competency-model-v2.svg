@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1148" height="860" viewBox="-4.0 -16.0 1148.0 860.0">
+<defs><marker id="a1971c2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#1971c2"/></marker><marker id="a34a853" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#34a853"/></marker><marker id="a4285f4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#4285f4"/></marker><marker id="ad93025" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#d93025"/></marker></defs>
+<rect x="-4.0" y="-16.0" width="1148.0" height="860.0" fill="#ffffff"/>
+<text x="580.0" y="25.1" font-family="Helvetica, Arial, sans-serif" font-size="18" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">COMPETENCY FRAMEWORK  ·  the model</text>
+<rect x="780.0" y="48.0" width="340.0" height="86.0" rx="16.0" fill="#e8eaf6" stroke="#3f51b5" stroke-width="2"/>
+<text x="950.0" y="79.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">fw_health_competency</text>
+<text x="950.0" y="98.5" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">type = Competency</text>
+<text x="950.0" y="112.2" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">two categories:  competency  ·  role</text>
+<text x="530.0" y="92.2" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#f9ab00" text-anchor="middle" style="white-space:pre">SKILL TREE</text>
+<text x="530.0" y="111.0" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#f9ab00" text-anchor="middle" style="white-space:pre">one category `competency`, terms nested by `children`</text>
+<rect x="390.0" y="126.0" width="300.0" height="58.0" rx="14.5" fill="#fef7e0" stroke="#f9ab00" stroke-width="2"/>
+<text x="540.0" y="150.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">Domain</text>
+<text x="540.0" y="169.4" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">tier 1  ·  competency area</text>
+<rect x="390.0" y="224.0" width="300.0" height="58.0" rx="14.5" fill="#fef7e0" stroke="#f9ab00" stroke-width="2"/>
+<text x="540.0" y="248.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">Medication Administration</text>
+<text x="540.0" y="267.4" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">tier 2  ·  competency</text>
+<rect x="300.0" y="334.0" width="300.0" height="64.0" rx="16.0" fill="#fce8e6" stroke="#d93025" stroke-width="2"/>
+<text x="450.0" y="361.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">Dosage Calculation</text>
+<text x="450.0" y="380.4" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">tier 3  ·  LEAF SKILL</text>
+<rect x="650.0" y="334.0" width="300.0" height="64.0" rx="16.0" fill="#fce8e6" stroke="#d93025" stroke-width="2"/>
+<text x="800.0" y="361.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">IV Administration</text>
+<text x="800.0" y="380.4" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">tier 3  ·  LEAF SKILL</text>
+<polyline points="778.0,91.0 692.0,148.0" fill="none" stroke="#1971c2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#a1971c2)"/>
+<polyline points="540.0,184.0 540.0,224.0" fill="none" stroke="#1971c2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#a1971c2)"/>
+<polyline points="450.0,282.0 450.0,332.0" fill="none" stroke="#1971c2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#a1971c2)"/>
+<polyline points="620.0,282.0 800.0,332.0" fill="none" stroke="#1971c2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#a1971c2)"/>
+<text x="145.0" y="310.2" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#4285f4" text-anchor="middle" style="white-space:pre">ROLES  ·  optional</text>
+<rect x="20.0" y="326.0" width="250.0" height="62.0" rx="15.5" fill="#e8f0fe" stroke="#4285f4" stroke-width="2"/>
+<text x="145.0" y="352.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">staff-nurse-icu</text>
+<text x="145.0" y="371.4" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">role term</text>
+<rect x="20.0" y="426.0" width="250.0" height="62.0" rx="15.5" fill="#e8f0fe" stroke="#4285f4" stroke-width="2"/>
+<text x="145.0" y="452.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">nursing-officer</text>
+<text x="145.0" y="471.4" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">role term</text>
+<polyline points="270.0,357.0 298.0,364.0" fill="none" stroke="#d93025" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#ad93025)"/>
+<polyline points="250.0,326.0 250.0,306.0 880.0,306.0 880.0,332.0" fill="none" stroke="#d93025" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#ad93025)"/>
+<polyline points="270.0,457.0 770.0,457.0 770.0,400.0" fill="none" stroke="#d93025" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#ad93025)"/>
+<text x="625.0" y="514.2" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#34a853" text-anchor="middle" style="white-space:pre">TAGGED CONTENT  ·  leaf skills only</text>
+<rect x="300.0" y="530.0" width="300.0" height="76.0" rx="16.0" fill="#e6f4ea" stroke="#34a853" stroke-width="2"/>
+<text x="450.0" y="557.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">Course</text>
+<text x="450.0" y="575.5" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">skills: [dosage-calculation,</text>
+<text x="450.0" y="589.2" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">              iv-administration]</text>
+<rect x="650.0" y="530.0" width="300.0" height="76.0" rx="16.0" fill="#e6f4ea" stroke="#34a853" stroke-width="2"/>
+<text x="800.0" y="563.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">Question</text>
+<text x="800.0" y="582.5" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">skills: [dosage-calculation]</text>
+<rect x="300.0" y="660.0" width="650.0" height="84.0" rx="16.0" fill="#e6f4ea" stroke="#34a853" stroke-width="2"/>
+<text x="625.0" y="691.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">Learning Path</text>
+<text x="625.0" y="709.5" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">targetRole: staff-nurse-icu</text>
+<text x="625.0" y="723.2" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">skills: union of its courses&#x27; skills</text>
+<polyline points="450.0,398.0 450.0,528.0" fill="none" stroke="#34a853" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#a34a853)"/>
+<polyline points="800.0,398.0 800.0,528.0" fill="none" stroke="#34a853" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#a34a853)"/>
+<polyline points="450.0,606.0 450.0,658.0" fill="none" stroke="#34a853" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#a34a853)"/>
+<polyline points="800.0,606.0 800.0,658.0" fill="none" stroke="#34a853" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#a34a853)"/>
+<polyline points="270.0,380.0 288.0,380.0 288.0,702.0 298.0,702.0" fill="none" stroke="#4285f4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="8 5" marker-end="url(#a4285f4)"/>
+<text x="20.0" y="571.4" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#5f6368" text-anchor="start" style="white-space:pre">RELATIONS</text>
+<text x="20.0" y="601.4" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#5f6368" text-anchor="start" style="white-space:pre">blue        children</text>
+<text x="20.0" y="616.4" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#5f6368" text-anchor="start" style="white-space:pre">               framework → category</text>
+<text x="20.0" y="631.4" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#5f6368" text-anchor="start" style="white-space:pre">               → term → child term</text>
+<text x="20.0" y="661.4" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#5f6368" text-anchor="start" style="white-space:pre">red          associatedTo</text>
+<text x="20.0" y="676.4" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#5f6368" text-anchor="start" style="white-space:pre">               role term → leaf skill</text>
+<text x="20.0" y="691.4" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#5f6368" text-anchor="start" style="white-space:pre">               the only relation that</text>
+<text x="20.0" y="706.4" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#5f6368" text-anchor="start" style="white-space:pre">               crosses a category</text>
+<text x="20.0" y="736.4" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#5f6368" text-anchor="start" style="white-space:pre">green      skills tag on content</text>
+<text x="20.0" y="766.4" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#5f6368" text-anchor="start" style="white-space:pre">dashed    LP.targetRole</text>
+<text x="20.0" y="801.4" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#5f6368" text-anchor="start" style="white-space:pre">No proficiency levels.  No requirement terms.  A role names the leaf skills it needs, and content is tagged with the same leaves.</text>
+<text x="20.0" y="816.4" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#5f6368" text-anchor="start" style="white-space:pre">Depth is a minimum of three tiers and has no upper bound; the tier names are display labels on the framework, not categories.</text>
+</svg>

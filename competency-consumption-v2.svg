@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1110" height="730" viewBox="-6.0 -16.0 1110.0 730.0">
+<defs><marker id="a34a853" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#34a853"/></marker><marker id="a4285f4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#4285f4"/></marker></defs>
+<rect x="-6.0" y="-16.0" width="1110.0" height="730.0" fill="#ffffff"/>
+<text x="570.0" y="25.1" font-family="Helvetica, Arial, sans-serif" font-size="18" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">CONSUMPTION WORKFLOW  ·  the closed loop</text>
+<text x="250.0" y="91.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#4285f4" text-anchor="middle" style="white-space:pre">CONSUME</text>
+<rect x="40.0" y="108.0" width="230.0" height="80.0" rx="16.0" fill="#e8f0fe" stroke="#4285f4" stroke-width="2"/>
+<text x="155.0" y="137.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">Enrol in the LP</text>
+<text x="155.0" y="155.4" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">one enrolment; the engine</text>
+<text x="155.0" y="169.2" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">creates the child batches</text>
+<rect x="310.0" y="108.0" width="230.0" height="80.0" rx="16.0" fill="#e8f0fe" stroke="#4285f4" stroke-width="2"/>
+<text x="425.0" y="137.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">Pre-assessment</text>
+<text x="425.0" y="155.4" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">first level; its questions</text>
+<text x="425.0" y="169.2" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">are tagged with leaf skills</text>
+<rect x="580.0" y="108.0" width="230.0" height="80.0" rx="16.0" fill="#fce8e6" stroke="#d93025" stroke-width="2"/>
+<text x="695.0" y="137.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">Waive</text>
+<text x="695.0" y="155.4" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">course.skills ⊆ held</text>
+<text x="695.0" y="169.2" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">→ the course goes optional</text>
+<rect x="850.0" y="108.0" width="230.0" height="80.0" rx="16.0" fill="#e8f0fe" stroke="#4285f4" stroke-width="2"/>
+<text x="965.0" y="137.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">Open the rest</text>
+<text x="965.0" y="155.4" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">level-gated; only what the</text>
+<text x="965.0" y="169.2" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">learner has not proven</text>
+<polyline points="270.0,148.0 308.0,148.0" fill="none" stroke="#4285f4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#a4285f4)"/>
+<polyline points="540.0,148.0 578.0,148.0" fill="none" stroke="#4285f4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#a4285f4)"/>
+<polyline points="810.0,148.0 848.0,148.0" fill="none" stroke="#4285f4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#a4285f4)"/>
+<polyline points="965.0,190.0 965.0,268.0" fill="none" stroke="#4285f4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#a4285f4)"/>
+<text x="250.0" y="251.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#34a853" text-anchor="middle" style="white-space:pre">RECORD AND DERIVE</text>
+<rect x="850.0" y="268.0" width="230.0" height="80.0" rx="16.0" fill="#e6f4ea" stroke="#34a853" stroke-width="2"/>
+<text x="965.0" y="297.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">Append evidence</text>
+<text x="965.0" y="315.4" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">COURSE · ASSESSMENT</text>
+<text x="965.0" y="329.2" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">· EXTERNAL  ·  append-only</text>
+<rect x="580.0" y="268.0" width="230.0" height="80.0" rx="16.0" fill="#e6f4ea" stroke="#34a853" stroke-width="2"/>
+<text x="695.0" y="297.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">Skill profile</text>
+<text x="695.0" y="315.4" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">user_skill — derived,</text>
+<text x="695.0" y="329.2" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">held or not held</text>
+<rect x="310.0" y="268.0" width="230.0" height="80.0" rx="16.0" fill="#e6f4ea" stroke="#34a853" stroke-width="2"/>
+<text x="425.0" y="297.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">Gap vs target role</text>
+<text x="425.0" y="315.4" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">required − held</text>
+<text x="425.0" y="329.2" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">readiness = held / required</text>
+<rect x="40.0" y="268.0" width="230.0" height="80.0" rx="16.0" fill="#e6f4ea" stroke="#34a853" stroke-width="2"/>
+<text x="155.0" y="297.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">Recommend</text>
+<text x="155.0" y="315.4" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">courses and paths ranked</text>
+<text x="155.0" y="329.2" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">by how much gap they close</text>
+<polyline points="848.0,308.0 810.0,308.0" fill="none" stroke="#34a853" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#a34a853)"/>
+<polyline points="578.0,308.0 540.0,308.0" fill="none" stroke="#34a853" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#a34a853)"/>
+<polyline points="308.0,308.0 270.0,308.0" fill="none" stroke="#34a853" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#a34a853)"/>
+<polyline points="90.0,350.0 90.0,428.0" fill="none" stroke="#4285f4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#a4285f4)"/>
+<polyline points="230.0,350.0 390.0,428.0" fill="none" stroke="#4285f4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#a4285f4)"/>
+<rect x="40.0" y="430.0" width="230.0" height="80.0" rx="16.0" fill="#e8f0fe" stroke="#4285f4" stroke-width="2"/>
+<text x="155.0" y="459.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">Private LP</text>
+<text x="155.0" y="477.4" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">learner-curated;</text>
+<text x="155.0" y="491.2" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">owner = userid</text>
+<rect x="310.0" y="430.0" width="230.0" height="80.0" rx="16.0" fill="#e8f0fe" stroke="#4285f4" stroke-width="2"/>
+<text x="425.0" y="459.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">Authored LP</text>
+<text x="425.0" y="477.4" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">published, in</text>
+<text x="425.0" y="491.2" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">the catalogue</text>
+<polyline points="660.0,350.0 690.0,428.0" fill="none" stroke="#34a853" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#a34a853)"/>
+<polyline points="750.0,350.0 955.0,428.0" fill="none" stroke="#34a853" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#a34a853)"/>
+<rect x="580.0" y="430.0" width="230.0" height="80.0" rx="16.0" fill="#e6f4ea" stroke="#34a853" stroke-width="2"/>
+<text x="695.0" y="459.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">LP certificate</text>
+<text x="695.0" y="477.4" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">completion, plus the skills</text>
+<text x="695.0" y="491.2" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">the path attests</text>
+<rect x="850.0" y="430.0" width="230.0" height="80.0" rx="16.0" fill="#e6f4ea" stroke="#34a853" stroke-width="2"/>
+<text x="965.0" y="459.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">Skill badge</text>
+<text x="965.0" y="477.4" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">one per skill held,</text>
+<text x="965.0" y="491.2" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">carrying its evidence</text>
+<rect x="160.0" y="570.0" width="260.0" height="52.0" rx="13.0" fill="#e8f0fe" stroke="#4285f4" stroke-width="2"/>
+<text x="290.0" y="600.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">Enrol again</text>
+<polyline points="150.0,512.0 210.0,568.0" fill="none" stroke="#4285f4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#a4285f4)"/>
+<polyline points="410.0,512.0 370.0,568.0" fill="none" stroke="#4285f4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#a4285f4)"/>
+<polyline points="158.0,596.0 18.0,596.0 18.0,148.0 38.0,148.0" fill="none" stroke="#4285f4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#a4285f4)"/>
+<text x="460.0" y="589.4" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#5f6368" text-anchor="start" style="white-space:pre">Each pass leaves more skills held, so the next path waives more and takes less time.</text>
+<text x="460.0" y="604.4" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#5f6368" text-anchor="start" style="white-space:pre">A private LP is tracked and credited like any other; it issues course certificates and</text>
+<text x="460.0" y="619.4" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#5f6368" text-anchor="start" style="white-space:pre">skill badges, but no programme certificate.</text>
+<text x="40.0" y="671.4" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#5f6368" text-anchor="start" style="white-space:pre">A skill is held when a tagged course completes, when every question tagged with it is answered at full marks in the learner&#x27;s best attempt, or when an</text>
+<text x="40.0" y="686.4" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#5f6368" text-anchor="start" style="white-space:pre">external credential is imported. There are no levels and no cut-scores, so waiving is a set-subset test and the gap is a set difference.</text>
+</svg>
