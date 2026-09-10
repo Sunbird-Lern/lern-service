@@ -57,13 +57,14 @@ class LpProgressionEngine(cassandraOperation: CassandraOperation,
     val total = trackable.size
     val allComplete = levels.nonEmpty && levels.forall(levelComplete)
     writeRootProgress(userId, rootId, batchId, done, total,
-      allComplete, status.get((rootId, batchId)).getOrElse(0), meta, ctx)
+      allComplete, status.get((rootId, batchId)).getOrElse(0), meta, trackable, ctx)
 
     if (allComplete) logger.info(ctx, s"viewer.lp: complete | user=$userId root=$rootId")
   }
 
   private def writeRootProgress(userId: String, rootId: String, batchId: String, done: Int, total: Int,
-                                allComplete: Boolean, currentStatus: Int, meta: LpMeta, ctx: RequestContext): Unit = {
+                                allComplete: Boolean, currentStatus: Int, meta: LpMeta,
+                                trackable: List[String], ctx: RequestContext): Unit = {
     val pct = if (total <= 0) 100 else math.min(100, done * 100 / total)
     val rootStatus = if (allComplete) 2 else if (done > 0) 1 else 0
     val select = new util.HashMap[String, AnyRef]() {{ put("userid", userId); put("courseid", rootId); put("batchid", batchId) }}
@@ -74,11 +75,18 @@ class LpProgressionEngine(cassandraOperation: CassandraOperation,
     cassandraOperation.updateRecordV2(enrolKeyspace, enrolTable, select, update, true, ctx)
     logger.info(ctx, s"viewer.lp: root progress | user=$userId root=$rootId done=$done/$total pct=$pct status=$rootStatus")
     if (rootStatus == 2 && currentStatus != 2) {
-      certificateUtil.publishCertificateIssueEvent(userId, rootId, batchId, ctx)
-      // the skills the programme itself declares, credited once on the completion transition
-      if (meta.competencyFramework.nonEmpty)
-        competencyService.onNodeCompleted(userId, meta.competencyFramework, rootId, batchId,
+      val fw = meta.competencyFramework
+      // the skills the programme itself declares, credited once on the completion transition.
+      // Credit before issuing, so the certificate attests what the learner holds afterwards.
+      if (fw.nonEmpty)
+        competencyService.onNodeCompleted(userId, fw, rootId, batchId,
           isRoot = true, System.currentTimeMillis(), ctx)
+      if (fw.isEmpty) certificateUtil.publishCertificateIssueEvent(userId, rootId, batchId, ctx)
+      else {
+        val attested = competencyService.attestedSkills(userId, fw, trackable, ctx)
+        logger.info(ctx, s"viewer.lp: certificate attests ${attested.size} skills | user=$userId root=$rootId")
+        certificateUtil.publishSkillAwareCertificateIssueEvent(userId, rootId, batchId, attested, ctx)
+      }
     }
   }
 

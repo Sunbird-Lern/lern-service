@@ -100,6 +100,22 @@ class CompetencyService(cassandra: CassandraOperation, keyspace: String,
     (rows, GapCalculator.readiness(rows))
   }
 
+  /**
+   * The skills a programme attests for one learner: what its courses teach, intersected with what
+   * the learner actually holds.
+   *
+   * Not the programme's whole claim. A learner who was waived out of a course still holds its
+   * skills and so is attested for them; a learner who finished a course whose skills were later
+   * revoked is not.
+   */
+  def attestedSkills(userId: String, frameworkId: String, courses: List[String],
+                     ctx: RequestContext): List[String] = {
+    val m = meta(frameworkId, ctx)
+    if (m.isEmpty || courses.isEmpty) return Nil
+    val taught = claimsOf(courses, m, ctx).values.flatten.toSet
+    taught.intersect(heldSkills(userId, ctx)).toList.sorted
+  }
+
   /** Required skill set per role for the whole framework. */
   def allRequirements(frameworkId: String, ctx: RequestContext): Map[String, Set[String]] =
     frameworkUtil.allRequirements(frameworkId, ctx)

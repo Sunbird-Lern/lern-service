@@ -123,6 +123,28 @@ class AttainmentRulesSpec extends AnyFlatSpec with Matchers {
     AttainmentRules.isHeld(Nil) shouldBe false
   }
 
+  "transitions" should "name what was gained and what was lost" in {
+    AttainmentRules.transitions(
+      before = Set("hand-hygiene", "ppe-use"),
+      after = Set("ppe-use", "dosage-calculation")) shouldBe
+      ((Set("dosage-calculation"), Set("hand-hygiene")))
+  }
+
+  it should "report nothing when the profile is unchanged, which is what makes badges idempotent" in {
+    val held = Set("hand-hygiene", "ppe-use")
+    AttainmentRules.transitions(held, held) shouldBe ((Set.empty[String], Set.empty[String]))
+  }
+
+  it should "report a first attainment" in {
+    AttainmentRules.transitions(Set.empty, Set("ppe-use")) shouldBe
+      ((Set("ppe-use"), Set.empty[String]))
+  }
+
+  it should "report a full revocation" in {
+    AttainmentRules.transitions(Set("ppe-use"), Set.empty) shouldBe
+      ((Set.empty[String], Set("ppe-use")))
+  }
+
   "evidenceId" should "be stable for the same source, so a replay rewrites one row" in {
     AttainmentRules.evidenceId(1700000000000L, SourceType.COURSE, "do_course", "b1") shouldBe
       AttainmentRules.evidenceId(1700000000000L, SourceType.COURSE, "do_course", "b1")

@@ -11,27 +11,44 @@ import org.sunbird.request.RequestContext
  */
 class CompetencyProjector(dao: CompetencyDao,
                           ledger: CompetencyLedger,
-                          frameworkUtil: CompetencyFrameworkUtil) {
+                          frameworkUtil: CompetencyFrameworkUtil,
+                          badges: SkillBadgeUtil = SkillBadgeUtil()) {
 
   private val logger = new LoggerUtil(classOf[CompetencyProjector])
 
-  /** Recomputes the given skills for one learner. Returns how many are held afterwards. */
-  def project(userId: String, skillIds: Set[String], ctx: RequestContext): Int =
-    skillIds.filter(_ != null).filter(_.nonEmpty).count { sid =>
-      AttainmentRules.project(dao.evidenceOf(userId, sid, ctx)) match {
-        case Some(entry) =>
-          dao.upsertSkill(userId, entry, ctx)
-          logger.info(ctx, s"competency.projector: held | user=$userId skill=$sid " +
-            s"source=${entry.sourceType}")
-          true
-        case None =>
-          // every supporting row revoked: the skill is no longer held, so the row goes.
-          // The evidence stays, so a later un-revocation reprojects it back.
-          dao.deleteSkill(userId, sid, ctx)
-          logger.info(ctx, s"competency.projector: not held | user=$userId skill=$sid")
-          false
-      }
-    }
+  /**
+   * Recomputes the given skills for one learner. Returns how many are held afterwards.
+   *
+   * Reads the profile once up front so a badge is issued on the transition into held, not on every
+   * event that re-credits an already-held skill. A replay therefore issues nothing.
+   */
+  def project(userId: String, skillIds: Set[String], ctx: RequestContext): Int = {
+    val wanted = skillIds.filter(s => s != null && s.nonEmpty)
+    if (wanted.isEmpty) return 0
+
+    val beforeRows = dao.profileOf(userId, ctx)
+    val before = beforeRows.map(_.skillId).toSet
+    val beforeById = beforeRows.map(e => e.skillId -> e).toMap
+
+    val held = wanted.toList.flatMap { sid =>
+      AttainmentRules.project(dao.evidenceOf(userId, sid, ctx)).map(sid -> _)
+    }.toMap
+
+    held.foreach { case (_, entry) => dao.upsertSkill(userId, entry, ctx) }
+    // every supporting row revoked: the skill is no longer held, so the row goes. The evidence
+    // stays, so a later un-revocation reprojects it back.
+    wanted.diff(held.keySet).foreach(sid => dao.deleteSkill(userId, sid, ctx))
+
+    val after = before.diff(wanted) ++ held.keySet
+    val (attained, lost) = AttainmentRules.transitions(before, after)
+    attained.foreach(sid => badges.issue(userId, held(sid), ctx))
+    lost.foreach(sid => badges.revoke(userId, sid, beforeById.get(sid).map(_.frameworkId).getOrElse(""), ctx))
+
+    if (attained.nonEmpty || lost.nonEmpty)
+      logger.info(ctx, s"competency.projector: user=$userId held=${held.size} " +
+        s"attained=[${attained.toList.sorted.mkString(",")}] lost=[${lost.toList.sorted.mkString(",")}]")
+    held.size
+  }
 
   /**
    * Rebuilds a learner's whole profile.

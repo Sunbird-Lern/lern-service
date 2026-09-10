@@ -71,6 +71,15 @@ object AttainmentRules {
     attempts.flatMap(earnedIn).toSet
 
   /**
+   * What changed between two profiles: skills newly held, and skills no longer held.
+   *
+   * This is what makes badge issuance idempotent. A replayed completion produces the same profile,
+   * so both sets come back empty and no second badge is issued.
+   */
+  def transitions(before: Set[String], after: Set[String]): (Set[String], Set[String]) =
+    (after.diff(before), before.diff(after))
+
+  /**
    * Deterministic ledger id: time-ordered and idempotent. Replaying the same completion rewrites
    * the same row instead of appending a duplicate.
    */
