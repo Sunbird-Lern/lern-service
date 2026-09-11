@@ -91,7 +91,7 @@ class CompetencyDao(cassandra: CassandraOperation, keyspace: String) {
       RoleAssignment(
         userId = userId,
         frameworkId = get(r, "framework_id").getOrElse(""),
-        currentRole = get(r, "current_role"),
+        currentRole = get(r, "assigned_role"),
         targetRoles = Option(r.get("target_roles"))
           .map(_.asInstanceOf[util.Collection[String]].asScala.toSet).getOrElse(Set.empty),
         source = get(r, "source").getOrElse(""),
@@ -102,7 +102,7 @@ class CompetencyDao(cassandra: CassandraOperation, keyspace: String) {
     val row = new util.HashMap[String, AnyRef]()
     row.put("userid", a.userId)
     row.put("framework_id", a.frameworkId)
-    a.currentRole.foreach(v => row.put("current_role", v))
+    a.currentRole.foreach(v => row.put("assigned_role", v))
     if (a.targetRoles.nonEmpty) row.put("target_roles", a.targetRoles.asJava)
     row.put("source", a.source)
     row.put("assigned_on", new util.Date(if (a.assignedOn > 0) a.assignedOn else System.currentTimeMillis()))

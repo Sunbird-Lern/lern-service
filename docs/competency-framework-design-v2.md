@@ -434,7 +434,7 @@ CREATE TABLE IF NOT EXISTS sunbird_courses.user_skill (
 CREATE TABLE IF NOT EXISTS sunbird_courses.user_role (
   userid        text PRIMARY KEY,
   framework_id  text,
-  current_role  text,
+  assigned_role  text,
   target_roles  set<text>,
   source        text,         -- HRMS | PROFILE | SELF
   assigned_on   timestamp

@@ -69,12 +69,12 @@ CREATE TABLE IF NOT EXISTS sunbird_courses.user_skill (
 
 // --- Role assignment --------------------------------------------------------------------------
 
-// current_role is written by an HR feed or derived from the learner's profile; target_roles is
+// assigned_role is written by an HR feed or derived from the learner's profile; target_roles is
 // learner-chosen. A role's skill list is framework data and is cached in memory, not stored here.
 CREATE TABLE IF NOT EXISTS sunbird_courses.user_role (
     userid        text,
     framework_id  text,
-    current_role  text,
+    assigned_role  text,
     target_roles  set<text>,
     source        text,           // HRMS | PROFILE | SELF
     assigned_on   timestamp,
