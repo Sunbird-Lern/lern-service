@@ -27,6 +27,14 @@ POST   /v1/skill/gap/read                   @controllers.viewer.CompetencyContro
 POST   /v1/skill/recommend                  @controllers.viewer.CompetencyController.recommend(request: play.mvc.Http.Request)
 POST   /v1/skill/role/update                @controllers.viewer.CompetencyController.roleUpdate(request: play.mvc.Http.Request)
 POST   /v1/skill/coverage/read              @controllers.viewer.CompetencyController.coverageRead(request: play.mvc.Http.Request)
+
+# Role authoring. The role -> skill map lives in role_skill, not the framework, so lern owns these
+# writes. NOT under /private on purpose: that prefix bypasses token validation. Admin-only access is
+# enforced at Kong.
+POST   /v1/competency/role/read             @controllers.viewer.CompetencyController.roleDefRead(request: play.mvc.Http.Request)
+POST   /v1/competency/role/upsert           @controllers.viewer.CompetencyController.roleUpsert(request: play.mvc.Http.Request)
+POST   /v1/competency/role/retire           @controllers.viewer.CompetencyController.roleRetire(request: play.mvc.Http.Request)
+POST   /v1/competency/role/import           @controllers.viewer.CompetencyController.roleImport(request: play.mvc.Http.Request)
 GET    /v1/competency/framework/read/:frameworkId   @controllers.viewer.CompetencyController.frameworkRead(frameworkId: String, request: play.mvc.Http.Request)
 
 # Skill admin APIs (gateway-restricted, same convention as the other /private routes)

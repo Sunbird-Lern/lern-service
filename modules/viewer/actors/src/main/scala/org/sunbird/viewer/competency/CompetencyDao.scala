@@ -109,6 +109,73 @@ class CompetencyDao(cassandra: CassandraOperation, keyspace: String) {
     cassandra.insertRecord(keyspace, ROLE_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
   }
 
+  // ---- role requirements ----------------------------------------------------------------------
+
+  /**
+   * Every role in a framework, with the leaf skills it requires.
+   *
+   * This table is the source of truth for the role -> skill map; design-v2 put it in the Knowlg
+   * framework as a `role` category and that path is deliberately gone. Two authorities on what a
+   * role requires is the failure v1 shipped, where competency_requirement was written and read by
+   * nobody.
+   *
+   * Reads the whole `framework_id` partition in one go, which is why the table partitions on
+   * framework_id alone. RETIRED roles are dropped here rather than at the call site: a retired role
+   * must stop appearing as a target, but evidence already earned against its skills is untouched.
+   *
+   * Leaf validation is NOT done here - this returns what was authored. `CompetencyFrameworkUtil`
+   * filters against the tree, because only it knows the leaves.
+   */
+  def readRoleSkills(frameworkId: String, ctx: RequestContext): Map[String, Set[String]] =
+    read(ROLE_SKILL_TABLE, Map("framework_id" -> frameworkId), ctx)
+      .filterNot(r => get(r, "status").exists(_.equalsIgnoreCase(RoleStatus.RETIRED)))
+      .flatMap(r => for { role <- get(r, "roleid"); skill <- get(r, "skillid") } yield role -> skill)
+      .groupBy(_._1)
+      .map { case (role, pairs) => role -> pairs.map(_._2).toSet }
+
+  /** Display names, where authored. Denormalised onto every row of a role, so any row will do. */
+  def readRoleNames(frameworkId: String, ctx: RequestContext): Map[String, String] =
+    read(ROLE_SKILL_TABLE, Map("framework_id" -> frameworkId), ctx)
+      .flatMap(r => for { role <- get(r, "roleid"); name <- get(r, "role_name") } yield role -> name)
+      .toMap
+
+  /** Raw rows including RETIRED, which readRoleSkills hides. The writer needs to see everything. */
+  def roleRowsOf(frameworkId: String, ctx: RequestContext): List[RoleSkillRow] =
+    read(ROLE_SKILL_TABLE, Map("framework_id" -> frameworkId), ctx).flatMap { r =>
+      for { role <- get(r, "roleid"); skill <- get(r, "skillid") } yield RoleSkillRow(
+        frameworkId = frameworkId, roleId = role, skillId = skill,
+        roleName = get(r, "role_name").getOrElse(role),
+        status = get(r, "status").getOrElse(RoleStatus.LIVE),
+        version = intOf(r, "version").getOrElse(1),
+        addedOn = dateOf(r, "added_on").getOrElse(0L))
+    }
+
+  def writeRoleSkill(r: RoleSkillRow, ctx: RequestContext): Unit = {
+    val row = new util.HashMap[String, AnyRef]()
+    row.put("framework_id", r.frameworkId)
+    row.put("roleid", r.roleId)
+    row.put("skillid", r.skillId)
+    row.put("role_name", r.roleName)
+    row.put("status", r.status)
+    row.put("version", Integer.valueOf(r.version))
+    row.put("added_on", new util.Date(if (r.addedOn > 0) r.addedOn else System.currentTimeMillis()))
+    cassandra.insertRecord(keyspace, ROLE_SKILL_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
+  }
+
+  /**
+   * Removes one requirement. This IS a delete, unlike a role, which is retired: an un-ticked box in
+   * the matrix means the role never required that skill, so there is nothing to preserve. Evidence
+   * the learner already earned for the skill is untouched - it lives in user_skill_evidence and is
+   * not keyed by role.
+   */
+  def deleteRoleSkill(frameworkId: String, roleId: String, skillId: String, ctx: RequestContext): Unit = {
+    val key = new util.HashMap[String, String]()
+    key.put("framework_id", frameworkId)
+    key.put("roleid", roleId)
+    key.put("skillid", skillId)
+    cassandra.deleteRecord(keyspace, ROLE_SKILL_TABLE, key, ctx)
+  }
+
   // ---- enrolments (read-only, for reprojection) -----------------------------------------------
 
   def enrolmentsOf(userId: String, ctx: RequestContext): List[EnrolmentRow] =
@@ -137,6 +204,7 @@ object CompetencyDao {
   val EVIDENCE_TABLE = "user_skill_evidence"
   val PROFILE_TABLE = "user_skill"
   val ROLE_TABLE = "user_role"
+  val ROLE_SKILL_TABLE = "role_skill"
   val ENROLMENT_TABLE = "user_enrolments"
   val ASSESSMENT_TABLE = "assessment_aggregator"
 

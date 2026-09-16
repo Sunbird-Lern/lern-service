@@ -13,11 +13,18 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
 /**
- * Skill profile, gap and evidence APIs -> CompetencyActor (competency-actor).
+ * Monolith copy of the viewer module's CompetencyController. The deployed app is this monolith, so
+ * anything not mirrored here 404s no matter what modules/viewer/service/conf/routes declares.
  *
- * Learner-facing operations take the user id from the auth token, never the body, so one learner
- * cannot read or alter another's profile. Operations that act on somebody else, or on the whole
- * framework, are exposed only under /private and carry the target user in a distinct body key.
+ * WHAT IS DELIBERATELY NOT MIRRORED: the /private operations - privateRoleUpdate, evidenceImport,
+ * evidenceRevoke, reproject and cacheInvalidate. LernServiceRequestInterceptor.isRequestPrivate()
+ * exempts any path containing "private" from token validation, so exposing them here would put
+ * unauthenticated writes to learner evidence on the deployed surface. They stay in the viewer
+ * module, which is not internet-facing.
+ *
+ * The role authoring operations below ARE mirrored: they are ordinary authenticated routes, not
+ * /private ones, and without them the role -> skill map cannot be authored at all. Restricting them
+ * to admins is a Kong concern, which is where this platform authorises.
  */
 public class CompetencyController extends BaseController {
 
@@ -27,6 +34,8 @@ public class CompetencyController extends BaseController {
     public CompetencyController(@Named("competency-actor") ActorRef competencyActor) {
         this.competencyActor = competencyActor;
     }
+
+    // ---- learner-facing -------------------------------------------------------------------------
 
     public CompletionStage<Result> profileRead(Http.Request httpRequest) {
         return self("profileRead", httpRequest);
@@ -41,8 +50,8 @@ public class CompetencyController extends BaseController {
     }
 
     /**
-     * Learner sets their own target roles. currentRole is dropped here: the role a learner holds
-     * is an assignment, not a preference, so it is only settable through /private.
+     * Learner sets their own target roles. currentRole is dropped: the role a learner holds is an
+     * assignment, not a preference, and is only settable through the viewer module's /private route.
      */
     public CompletionStage<Result> roleUpdate(Http.Request httpRequest) {
         try {
@@ -71,13 +80,7 @@ public class CompetencyController extends BaseController {
         }
     }
 
-    // ---- role authoring -----------------------------------------------------------------------
-    //
-    // The role -> skill map is authored here, not in the Knowlg framework. These are ordinary
-    // authenticated routes and deliberately NOT under /private: isRequestPrivate() skips token
-    // validation for any path containing "private", and these requirements drive every learner's
-    // readiness. Restricting them to admins belongs in Kong, which is where this platform
-    // authorises.
+    // ---- role authoring -------------------------------------------------------------------------
 
     /** Roles as authored, RETIRED included. Distinct from frameworkRead, which serves learners. */
     public CompletionStage<Result> roleDefRead(Http.Request httpRequest) {
@@ -99,29 +102,7 @@ public class CompetencyController extends BaseController {
         return body("roleImport", httpRequest);
     }
 
-    // ---- privileged ---------------------------------------------------------------------------
-
-    public CompletionStage<Result> privateRoleUpdate(Http.Request httpRequest) {
-        return privileged("roleUpdate", httpRequest, "roleUserId", JsonKey.USER_ID);
-    }
-
-    public CompletionStage<Result> evidenceImport(Http.Request httpRequest) {
-        return body("evidenceImport", httpRequest);
-    }
-
-    public CompletionStage<Result> evidenceRevoke(Http.Request httpRequest) {
-        return body("evidenceRevoke", httpRequest);
-    }
-
-    public CompletionStage<Result> reproject(Http.Request httpRequest) {
-        return body("reproject", httpRequest);
-    }
-
-    public CompletionStage<Result> cacheInvalidate(Http.Request httpRequest) {
-        return body("cacheInvalidate", httpRequest);
-    }
-
-    // ---- plumbing -----------------------------------------------------------------------------
+    // ---- plumbing -------------------------------------------------------------------------------
 
     /** userId comes from the token, so the body cannot name a different learner. */
     private CompletionStage<Result> self(String operation, Http.Request httpRequest) {
@@ -136,26 +117,11 @@ public class CompetencyController extends BaseController {
         }
     }
 
-    /** Body-driven operation; the target user is a named body key, validated in the actor. */
     private CompletionStage<Result> body(String operation, Http.Request httpRequest) {
         try {
             Request request = httpRequest.body().asJson() != null
                 ? createAndInitRequest(operation, httpRequest.body().asJson(), httpRequest)
                 : createAndInitRequest(operation, httpRequest);
-            return actorResponseHandler(competencyActor, request, timeout, null, httpRequest);
-        } catch (Exception e) {
-            return CompletableFuture.completedFuture(createCommonExceptionResponse(e, httpRequest));
-        }
-    }
-
-    /** Copies a body key onto another key before dispatch. */
-    private CompletionStage<Result> privileged(String operation, Http.Request httpRequest,
-                                               String fromKey, String toKey) {
-        try {
-            Request request = createAndInitRequest(operation, httpRequest.body().asJson(), httpRequest);
-            Object target = request.getRequest().get(fromKey);
-            if (target != null) request.getRequest().put(toKey, target);
-            request.getRequest().put("source", "HRMS");
             return actorResponseHandler(competencyActor, request, timeout, null, httpRequest);
         } catch (Exception e) {
             return CompletableFuture.completedFuture(createCommonExceptionResponse(e, httpRequest));

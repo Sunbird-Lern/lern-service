@@ -113,29 +113,51 @@ class CompetencyFrameworkUtilParseSpec extends AnyFlatSpec with Matchers {
     parseTierLabels(flatFramework) shouldBe Nil
   }
 
-  "parseRoles" should "map each role to the leaf skills it requires" in {
+  // The role -> skill map is authored in `role_skill` and read through the DAO, NOT parsed out of
+  // the framework. `leafOnly` is all that stands between an authored row and readiness, because
+  // nothing validates it at write time against a tree the writer cannot see.
+  "leafOnly" should "keep the requirements that name a real leaf" in {
     val (leaves, _) = parseTree(healthFramework)
-    val roles = parseRoles(healthFramework, leaves)
+    val authored = Map(
+      "staff-nurse-icu" -> Set("dosage-calculation", "hand-hygiene", "ppe-use"),
+      "nursing-officer" -> Set("dosage-calculation", "iv-administration"))
+    val roles = leafOnly("fw", authored, leaves)
     roles("staff-nurse-icu") shouldBe Set("dosage-calculation", "hand-hygiene", "ppe-use")
     roles("nursing-officer") shouldBe Set("dosage-calculation", "iv-administration")
   }
 
-  it should "drop an association to a non-leaf term and keep the rest" in {
-    val (leaves, _) = parseTree(badRoleFramework)
-    parseRoles(badRoleFramework, leaves)("r1") shouldBe Set("leaf-a")
+  // An interior term is never tagged, so no evidence path exists and the skill can never be held.
+  // Crediting it would report a learner ready for a role they cannot complete.
+  it should "drop a requirement naming an interior term and keep the rest" in {
+    val (leaves, _) = parseTree(healthFramework)
+    leafOnly("fw", Map("r1" -> Set("dosage-calculation", "domain")), leaves) shouldBe
+      Map("r1" -> Set("dosage-calculation"))
+  }
+
+  it should "drop a requirement naming a code absent from the tree" in {
+    val (leaves, _) = parseTree(healthFramework)
+    leafOnly("fw", Map("r1" -> Set("dosage-calculation", "retired-code")), leaves) shouldBe
+      Map("r1" -> Set("dosage-calculation"))
   }
 
   it should "keep a role that requires nothing, rather than dropping it" in {
-    val json = """{"result":{"framework":{"categories":[
-      {"code":"competency","terms":[{"code":"a","children":[{"code":"b","children":[{"code":"c"}]}]}]},
-      {"code":"role","terms":[{"code":"empty-role"}]}]}}}"""
-    val (leaves, _) = parseTree(json)
-    parseRoles(json, leaves) shouldBe Map("empty-role" -> Set.empty[String])
+    val (leaves, _) = parseTree(healthFramework)
+    leafOnly("fw", Map("empty-role" -> Set.empty[String]), leaves) shouldBe
+      Map("empty-role" -> Set.empty[String])
   }
 
-  it should "be empty when the framework has no role category" in {
-    val (leaves, _) = parseTree(flatFramework)
-    parseRoles(flatFramework, leaves) shouldBe Map.empty[String, Set[String]]
+  it should "be empty when no roles are authored" in {
+    val (leaves, _) = parseTree(healthFramework)
+    leafOnly("fw", Map.empty, leaves) shouldBe Map.empty[String, Set[String]]
+  }
+
+  // Regression: design-v2 read roles out of a `role` category in the framework. That path is gone,
+  // so a framework still carrying one must contribute nothing - otherwise there are two authorities
+  // on what a role requires, which is exactly the divergence v1 shipped.
+  it should "ignore a role category left behind in the framework" in {
+    val (leaves, _) = parseTree(healthFramework)   // healthFramework DOES declare a role category
+    leafOnly("fw", Map.empty, leaves) shouldBe Map.empty[String, Set[String]]
+    parseTree(healthFramework)._1 should not contain "staff-nurse-icu"
   }
 
   "parseClaims" should "read a flat skills array off a search row" in {
@@ -206,7 +228,7 @@ class CompetencyFrameworkUtilParseSpec extends AnyFlatSpec with Matchers {
   it should "answer isLeaf and skillsOf off the resolved tree" in {
     val (leaves, depth) = parseTree(healthFramework)
     val m = CompetencyMeta("fw_health_competency", parseTierLabels(healthFramework), leaves, depth,
-      parseRoles(healthFramework, leaves), Map.empty)
+      Map("nursing-officer" -> Set("dosage-calculation", "iv-administration")), Map.empty)
     m.isLeaf("ppe-use") shouldBe true
     m.isLeaf("domain") shouldBe false
     m.isLeaf(null) shouldBe false

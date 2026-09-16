@@ -27,7 +27,6 @@ object CompetencyFrameworkUtil {
   private val logger = LoggerFactory.getLogger(classOf[CompetencyFrameworkUtil])
 
   val CAT_COMPETENCY = "competency"
-  val CAT_ROLE = "role"
 
   private def cfg(key: String, default: String): String =
     Option(ProjectUtil.getConfigValue(key)).map(_.trim).filter(_.nonEmpty).getOrElse(default)
@@ -153,29 +152,28 @@ object CompetencyFrameworkUtil {
     (leaves, if (leaves.isEmpty) 0 else leaves.map(c => tierOf(c)).max)
   }
 
-  /** A term's `associations`, grouped by the associated term's category code. */
-  private[competency] def associationsByCategory(term: util.Map[String, AnyRef]): Map[String, List[String]] =
-    asList(term.get("associations"))
-      .flatMap(a => for { cat <- str(a, "category"); code <- str(a, "code").orElse(str(a, "identifier")) }
-        yield cat.toLowerCase -> code)
-      .groupBy(_._1).map { case (k, v) => k -> v.map(_._2) }
-
   /**
-   * Role code to the leaf skills it requires.
+   * Keeps only the role requirements that name a real leaf.
    *
-   * A role associating a non-leaf term is a spec error the importer should have caught; drop the
-   * association and say so rather than crediting a skill nothing can be tagged with.
+   * The role -> skill map is authored in `role_skill`, not in the framework, so nothing validates it
+   * at write time against a tree the writer cannot see. A role requiring a non-leaf - an interior
+   * term, or a code retired out of the tree - is a spec error: interior terms are never tagged, so
+   * no evidence path exists and the skill can never be held. Dropping it keeps readiness honest;
+   * crediting it would report a learner ready for a role they cannot complete.
+   *
+   * Drops are logged rather than thrown: one bad requirement must not take down the profile page
+   * for every learner on the framework.
    */
-  private[competency] def parseRoles(frameworkJson: String, leaves: Set[String]): Map[String, Set[String]] =
-    termsOf(frameworkJson, CAT_ROLE).flatMap { t =>
-      str(t, "code").map { role =>
-        val declared = associationsByCategory(t).getOrElse(CAT_COMPETENCY, Nil).distinct
-        val (ok, bad) = declared.partition(leaves.contains)
-        if (bad.nonEmpty)
-          logger.warn(s"CompetencyFrameworkUtil: role $role requires non-leaf terms [${bad.mkString(",")}]; ignored")
-        role -> ok.toSet
-      }
-    }.toMap
+  private[competency] def leafOnly(frameworkId: String,
+                                   authored: Map[String, Set[String]],
+                                   leaves: Set[String]): Map[String, Set[String]] =
+    authored.map { case (role, declared) =>
+      val (ok, bad) = declared.partition(leaves.contains)
+      if (bad.nonEmpty)
+        logger.warn(s"CompetencyFrameworkUtil: framework $frameworkId role $role requires non-leaf " +
+          s"or unknown skills [${bad.toList.sorted.mkString(",")}]; ignored")
+      role -> ok
+    }
 
   /** Courses and Learning Paths off a search row, for the recommendation. */
   private[competency] def parseCandidates(searchJson: String): List[Candidate] = {
@@ -202,10 +200,16 @@ object CompetencyFrameworkUtil {
     }.filter(_._2.nonEmpty).toMap
   }
 
-  def apply(): CompetencyFrameworkUtil = new CompetencyFrameworkUtil()
+  /**
+   * `roleSource` supplies the role -> skill map for a framework, normally `CompetencyDao
+   * .readRoleSkills`. Injected rather than taken as a DAO dependency so the parsing half of this
+   * object stays free of Cassandra, and so a test can drive it with a literal map.
+   */
+  def apply(roleSource: (String, RequestContext) => Map[String, Set[String]]): CompetencyFrameworkUtil =
+    new CompetencyFrameworkUtil(roleSource)
 }
 
-class CompetencyFrameworkUtil {
+class CompetencyFrameworkUtil(roleSource: (String, RequestContext) => Map[String, Set[String]]) {
 
   import CompetencyFrameworkUtil._
 
@@ -266,7 +270,7 @@ class CompetencyFrameworkUtil {
       tierLabels = parseTierLabels(json),
       leaves = leaves,
       depth = depth,
-      roleSkills = parseRoles(json, leaves),
+      roleSkills = leafOnly(frameworkId, roleSource(frameworkId, ctx), leaves),
       claimsByNode = Map.empty)
     metaCache.put(frameworkId, (now + metaTtl, built))
     built

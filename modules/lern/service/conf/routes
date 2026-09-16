@@ -293,6 +293,24 @@ POST     /v1/view/read                      @controllers.viewer.ViewController.v
 POST     /v1/assessment/submit              @controllers.viewer.ViewController.assessmentSubmit(request: play.mvc.Http.Request)
 POST     /v1/assessment/read                @controllers.viewer.ViewController.assessmentRead(request: play.mvc.Http.Request)
 POST     /v1/view/agg                       @controllers.viewer.ViewAggregateController.agg(request: play.mvc.Http.Request)
+
+# --- Competency / skill APIs (mirrored from modules/viewer/service/conf/routes) ---
+# The deployed app is this monolith, so anything declared only in the viewer module 404s here.
+# The /private operations are deliberately NOT mirrored: isRequestPrivate() skips token validation
+# for any path containing "private", which would expose unauthenticated writes to learner evidence.
+POST   /v1/skill/profile/read               @controllers.viewer.CompetencyController.profileRead(request: play.mvc.Http.Request)
+POST   /v1/skill/gap/read                   @controllers.viewer.CompetencyController.gapRead(request: play.mvc.Http.Request)
+POST   /v1/skill/recommend                  @controllers.viewer.CompetencyController.recommend(request: play.mvc.Http.Request)
+POST   /v1/skill/role/update                @controllers.viewer.CompetencyController.roleUpdate(request: play.mvc.Http.Request)
+POST   /v1/skill/coverage/read              @controllers.viewer.CompetencyController.coverageRead(request: play.mvc.Http.Request)
+GET    /v1/competency/framework/read/:frameworkId   @controllers.viewer.CompetencyController.frameworkRead(frameworkId: String, request: play.mvc.Http.Request)
+
+# Role authoring. Authenticated, NOT /private; admin-only access is enforced at Kong.
+POST   /v1/competency/role/read             @controllers.viewer.CompetencyController.roleDefRead(request: play.mvc.Http.Request)
+POST   /v1/competency/role/upsert           @controllers.viewer.CompetencyController.roleUpsert(request: play.mvc.Http.Request)
+POST   /v1/competency/role/retire           @controllers.viewer.CompetencyController.roleRetire(request: play.mvc.Http.Request)
+POST   /v1/competency/role/import           @controllers.viewer.CompetencyController.roleImport(request: play.mvc.Http.Request)
+
 POST     /v1/summary/read                   @controllers.viewer.ViewSummaryController.summaryRead(request: play.mvc.Http.Request)
 GET      /v1/summary/list/:userId           @controllers.viewer.ViewSummaryController.summaryList(userId: String, request: play.mvc.Http.Request)
 GET      /v1/summary/download/:userId       @controllers.viewer.ViewSummaryController.summaryDownload(userId: String, request: play.mvc.Http.Request)

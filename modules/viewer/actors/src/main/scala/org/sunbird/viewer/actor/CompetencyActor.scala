@@ -9,7 +9,7 @@ import org.sunbird.learner.util.Util
 import org.sunbird.request.{Request, RequestContext}
 import org.sunbird.response.{Response, ResponseCode}
 import org.sunbird.viewer.competency.{CompetencyService, CoverageRow, GapCalculator, GapRow,
-  RankedCandidate, RoleAssignment, RoleSource}
+  RankedCandidate, RoleAssignment, RoleDefinition, RoleDiff, RoleSource}
 
 import java.util
 import scala.collection.JavaConverters._
@@ -32,6 +32,10 @@ class CompetencyActor extends BaseEnrolmentActor {
       case "evidenceImport"  => evidenceImport(request)
       case "evidenceRevoke"  => evidenceRevoke(request)
       case "frameworkRead"   => frameworkRead(request)
+      case "roleDefRead"     => roleDefRead(request)
+      case "roleUpsert"      => roleUpsert(request)
+      case "roleRetire"      => roleRetire(request)
+      case "roleImport"      => roleImport(request)
       case "reproject"       => reproject(request)
       case "cacheInvalidate" => cacheInvalidate(request)
       case _                 => onReceiveUnsupportedOperation(request.getOperation)
@@ -266,6 +270,112 @@ class CompetencyActor extends BaseEnrolmentActor {
       "leafSkills" -> m.leaves.toList.sorted.asJava,
       "leafCount" -> Integer.valueOf(m.leaves.size),
       "roles" -> roles)
+  }
+
+  // ---- role authoring -------------------------------------------------------------------------
+  //
+  // The role -> skill map lives in `role_skill`, not in the framework, so lern owns these writes.
+  // They are ordinary authenticated routes, deliberately NOT under /private: any path containing
+  // "private" skips token validation in LernServiceRequestInterceptor, and these requirements are
+  // the input to every learner's readiness. Restricting them to admins is a Kong concern, which is
+  // where this platform does authorisation.
+
+  private def strings(request: Request, key: String): Set[String] =
+    Option(request.get(key)).collect {
+      case l: util.List[_] => l.asScala.map(_.toString.trim).filter(_.nonEmpty).toSet
+    }.getOrElse(Set.empty)
+
+  private def roleDef(m: util.Map[String, AnyRef]): RoleDefinition = {
+    val code = Option(m.get("roleId")).map(_.toString.trim).filter(_.nonEmpty).getOrElse(
+      throw new ProjectCommonException(
+        ResponseCode.mandatoryParamsMissing.getErrorCode,
+        "Every entry in `roles` needs a roleId",
+        ResponseCode.CLIENT_ERROR.getResponseCode))
+    val skills = Option(m.get("skills")).collect {
+      case l: util.List[_] => l.asScala.map(_.toString.trim).filter(_.nonEmpty).toSet
+    }.getOrElse(Set.empty)
+    RoleDefinition(code, Option(m.get("name")).map(_.toString).getOrElse(code), skills)
+  }
+
+  private def diffRow(d: RoleDiff): util.Map[String, AnyRef] = {
+    val m = new util.HashMap[String, AnyRef]()
+    m.put("roleId", d.roleId)
+    m.put("added", d.added.toList.sorted.asJava)
+    m.put("removed", d.removed.toList.sorted.asJava)
+    m.put("unchanged", d.unchanged.toList.sorted.asJava)
+    m.put("rejected", d.rejected.toList.sorted.asJava)
+    m.put("changed", java.lang.Boolean.valueOf(d.changed))
+    if (d.retired) m.put("retired", java.lang.Boolean.TRUE)
+    m
+  }
+
+  private def roleRow(r: RoleDefinition): util.Map[String, AnyRef] = {
+    val m = new util.HashMap[String, AnyRef]()
+    m.put("roleId", r.roleId)
+    m.put("name", r.name)
+    m.put("skills", r.skills.toList.sorted.asJava)
+    m.put("skillCount", Integer.valueOf(r.skills.size))
+    m.put("status", r.status)
+    m.put("version", Integer.valueOf(r.version))
+    m
+  }
+
+  /** Roles as authored, RETIRED included - distinct from frameworkRead, which serves learners. */
+  private def roleDefRead(request: Request): Unit = {
+    val ctx = request.getRequestContext
+    val frameworkId = require(request, "frameworkId")
+    val roles = service.roleRead(frameworkId, str(request, "roleId"), ctx)
+    reply("frameworkId" -> frameworkId,
+      "roles" -> roles.map(roleRow).asJava,
+      "count" -> Integer.valueOf(roles.size))
+  }
+
+  /** Replaces a role's requirement set. `skills` is the FULL set; anything absent is removed. */
+  private def roleUpsert(request: Request): Unit = {
+    val ctx = request.getRequestContext
+    val frameworkId = require(request, "frameworkId")
+    val roleId = require(request, "roleId")
+    val d = service.roleUpsert(frameworkId,
+      RoleDefinition(roleId, str(request, "name").getOrElse(roleId), strings(request, "skills")), ctx)
+    logger.info(ctx, s"competency.role: upsert | framework=$frameworkId role=$roleId " +
+      s"added=${d.added.size} removed=${d.removed.size} rejected=${d.rejected.size}")
+    reply("frameworkId" -> frameworkId, "diff" -> diffRow(d))
+  }
+
+  private def roleRetire(request: Request): Unit = {
+    val ctx = request.getRequestContext
+    val frameworkId = require(request, "frameworkId")
+    val roleId = require(request, "roleId")
+    val d = service.roleRetire(frameworkId, roleId, ctx)
+    if (!d.retired) throw new ProjectCommonException(
+      ResponseCode.resourceNotFound.getErrorCode,
+      s"No such role in framework $frameworkId: $roleId",
+      ResponseCode.RESOURCE_NOT_FOUND.getResponseCode)
+    logger.info(ctx, s"competency.role: retired | framework=$frameworkId role=$roleId")
+    reply("frameworkId" -> frameworkId, "diff" -> diffRow(d))
+  }
+
+  /** The whole authoring matrix. `dryRun: true` reports the diff without writing. */
+  private def roleImport(request: Request): Unit = {
+    val ctx = request.getRequestContext
+    val frameworkId = require(request, "frameworkId")
+    val rows = Option(request.get("roles")).collect {
+      case l: util.List[_] => l.asScala.toList.collect {
+        case m: util.Map[_, _] => roleDef(m.asInstanceOf[util.Map[String, AnyRef]])
+      }
+    }.getOrElse(Nil)
+    if (rows.isEmpty) throw new ProjectCommonException(
+      ResponseCode.mandatoryParamsMissing.getErrorCode,
+      "Missing mandatory parameter: roles",
+      ResponseCode.CLIENT_ERROR.getResponseCode)
+    val dryRun = Option(request.get("dryRun")).exists(v => v.toString.equalsIgnoreCase("true"))
+    val diffs = service.roleImport(frameworkId, rows, dryRun, ctx)
+    logger.info(ctx, s"competency.role: import | framework=$frameworkId roles=${rows.size} " +
+      s"dryRun=$dryRun changed=${diffs.count(_.changed)}")
+    reply("frameworkId" -> frameworkId,
+      "dryRun" -> java.lang.Boolean.valueOf(dryRun),
+      "roles" -> diffs.map(diffRow).asJava,
+      "changed" -> Integer.valueOf(diffs.count(_.changed)))
   }
 
   /** Rebuilds a learner's profile from the ledger, re-deriving evidence first. */

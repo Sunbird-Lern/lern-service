@@ -67,14 +67,55 @@ CREATE TABLE IF NOT EXISTS sunbird_courses.user_skill (
     PRIMARY KEY (userid, skillid)
 );
 
-// --- Role assignment --------------------------------------------------------------------------
+// --- Roles -------------------------------------------------------------------------------------
 
-// assigned_role is written by an HR feed or derived from the learner's profile; target_roles is
-// learner-chosen. A role's skill list is framework data and is cached in memory, not stored here.
+// A "role" here is a named set of leaf skills. It is deliberately abstract, because it means
+// something different per deployment: a job post (Staff Nurse (ICU)), a GRADE (grade-6, codes
+// reused from the taxonomy), or a career track (Backend Engineer). Do not narrow the name to
+// `job_role` - that reading is wrong for the school education use case.
+//
+// NOTE the collision: sunbird.role / role_group / user_action_role already mean RBAC permissions
+// (PUBLIC, ORG_ADMIN, CONTENT_CREATOR). Unrelated concept, same word. They are disambiguated by
+// keyspace - RBAC in `sunbird`, competency in `sunbird_courses` - and no competency code path
+// touches the RBAC tables. Worth knowing in review; not worth a deployment-specific name.
+
+// What a role requires. One row per (role, skill) pair - one tick in the authoring matrix.
+//
+// THIS TABLE IS THE SOURCE OF TRUTH, not a cache. design-v2 put the map in the Knowlg framework as
+// a `role` category carrying associations to leaf terms; it lives here instead, so roles can change
+// without republishing the framework and so nothing depends on Knowlg round-tripping custom term
+// associations. The framework path is deleted outright rather than kept as a fallback - two
+// authorities on what a role requires is the failure mode v1 shipped, where competency_requirement
+// was written and never read.
+//
+// The skill TREE stays in the framework: it is the vocabulary, and still the authority on what a
+// leaf is. Only these role edges moved out.
+//
+// Partitioned on framework_id alone so `WHERE framework_id = ?` returns every role in one read -
+// that is how CompetencyMeta.roleSkills is built. v1's ((framework_id, positionid), competencyid)
+// made "list all roles" unqueryable. 500 roles x ~20 skills is 10k rows per partition.
+//
+// role_name and status are denormalised onto every row of a role: a role exists because it requires
+// something, so there is no separate registry table. Renaming or retiring rewrites all of a role's
+// rows - safe as a single-partition BATCH, since they share framework_id.
+CREATE TABLE IF NOT EXISTS sunbird_courses.role_skill (
+    framework_id text,
+    roleid       text,
+    skillid      text,          // must be a LEAF of the framework's competency tree
+    role_name    text,          // identical on every row of a role
+    status       text,          // LIVE | RETIRED - roles are retired, never deleted
+    version      int,           // requirement-set version; bumped on any change to this role
+    added_on     timestamp,
+    PRIMARY KEY (framework_id, roleid, skillid)
+);
+
+// Which role a LEARNER holds or targets. Distinct from role_skill above: that is per-framework
+// reference data with no user, this is per-learner assignment. assigned_role is written by an HR feed
+// or derived from the learner's profile; target_roles is learner-chosen.
 CREATE TABLE IF NOT EXISTS sunbird_courses.user_role (
     userid        text,
     framework_id  text,
-    assigned_role  text,
+    assigned_role text,
     target_roles  set<text>,
     source        text,           // HRMS | PROFILE | SELF
     assigned_on   timestamp,

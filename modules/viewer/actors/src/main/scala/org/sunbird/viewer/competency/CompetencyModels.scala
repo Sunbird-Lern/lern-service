@@ -125,3 +125,36 @@ object RoleSource {
   val PROFILE = "PROFILE"
   val SELF = "SELF"
 }
+
+/** One authored requirement row: role X requires leaf skill Y, in framework Z. */
+case class RoleSkillRow(frameworkId: String, roleId: String, skillId: String,
+                        roleName: String, status: String, version: Int, addedOn: Long)
+
+/** A role as authored: its identity plus the full set of leaf skills it requires. */
+case class RoleDefinition(roleId: String, name: String, skills: Set[String],
+                          status: String = RoleStatus.LIVE, version: Int = 1)
+
+/**
+ * What an upsert or import changed for one role.
+ *
+ * `rejected` is the requirements dropped because they do not name a leaf. They are reported rather
+ * than silently ignored: an author who mistypes a code, or points a role at an interior term, needs
+ * to see it at write time - the alternative is a role that quietly requires less than intended.
+ */
+case class RoleDiff(roleId: String, added: Set[String], removed: Set[String],
+                    unchanged: Set[String], rejected: Set[String], retired: Boolean = false) {
+  def changed: Boolean = added.nonEmpty || removed.nonEmpty || retired
+}
+
+/**
+ * Lifecycle of a role definition in `role_skill`.
+ *
+ * Roles are RETIRED, never deleted, for the same reason terms are: evidence and enrolments point at
+ * them, and `user_role.assigned_role` / a collection's `targetRole` hold the code with no foreign
+ * key behind it. A retired role stops being offerable as a target but still resolves for anyone
+ * already holding it.
+ */
+object RoleStatus {
+  val LIVE = "LIVE"
+  val RETIRED = "RETIRED"
+}

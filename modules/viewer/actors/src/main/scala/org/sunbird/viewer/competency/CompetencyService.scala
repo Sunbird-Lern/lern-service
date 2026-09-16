@@ -16,7 +16,7 @@ class CompetencyService(cassandra: CassandraOperation, keyspace: String,
   private val logger = new LoggerUtil(classOf[CompetencyService])
 
   private[competency] val dao = new CompetencyDao(cassandra, keyspace)
-  private[competency] val frameworkUtil = CompetencyFrameworkUtil()
+  private[competency] val frameworkUtil = CompetencyFrameworkUtil(dao.readRoleSkills)
   private[competency] val ledger =
     new CompetencyLedger(dao, frameworkUtil, new CassandraService(Some(cassandra)))
   private[competency] val projector = new CompetencyProjector(dao, ledger, frameworkUtil)
@@ -168,6 +168,108 @@ class CompetencyService(cassandra: CassandraOperation, keyspace: String,
       s"required=${report.rows.size} notCovered=" +
       s"${report.rows.count(_.status == GapCalculator.NOT_COVERED)} unassessed=${report.unassessed.size}")
     report
+  }
+
+  // ---- role authoring -------------------------------------------------------------------------
+
+  /**
+   * Leaf codes for a framework, or None when the framework does not resolve.
+   *
+   * FAILS CLOSED on purpose. A write cannot be validated without the tree, and accepting an
+   * unvalidated requirement can mint a role no content is able to satisfy - a failure that only
+   * surfaces much later, as a learner stuck short of 100% with no course that closes the gap.
+   * Rejecting the write is recoverable; a bad requirement silently in the table is not.
+   */
+  private def leavesOf(frameworkId: String, ctx: RequestContext): Option[Set[String]] = {
+    val m = frameworkUtil.meta(frameworkId, ctx)
+    if (m.isEmpty) None else Some(m.leaves)
+  }
+
+  /** Roles as authored, RETIRED included, so an admin can see what a learner-facing read hides. */
+  def roleRead(frameworkId: String, roleId: Option[String],
+               ctx: RequestContext): List[RoleDefinition] =
+    dao.roleRowsOf(frameworkId, ctx)
+      .filter(r => roleId.forall(_ == r.roleId))
+      .groupBy(_.roleId).toList
+      .map { case (role, rows) =>
+        RoleDefinition(
+          roleId = role,
+          name = rows.head.roleName,
+          skills = rows.map(_.skillId).toSet,
+          status = rows.head.status,
+          version = rows.map(_.version).max)
+      }.sortBy(_.roleId)
+
+  /**
+   * Replaces one role's requirement set wholesale.
+   *
+   * REPLACE, NOT MERGE. Upserting only the skills named would make un-ticking a box in the
+   * authoring matrix a no-op, so a role could only ever grow and would drift silently from the
+   * spreadsheet it was authored in. The caller sends the full set; anything absent is removed.
+   *
+   * The version is bumped on every change so an in-flight learning path can pin the requirements it
+   * was planned against (G2) rather than having its finish line moved underneath it.
+   */
+  def roleUpsert(frameworkId: String, role: RoleDefinition, ctx: RequestContext): RoleDiff = {
+    val leaves = leavesOf(frameworkId, ctx).getOrElse(
+      throw new IllegalArgumentException(
+        s"Competency framework did not resolve: $frameworkId. Requirements cannot be validated, " +
+          "so the write is rejected rather than stored unchecked."))
+
+    val existing = dao.roleRowsOf(frameworkId, ctx).filter(_.roleId == role.roleId)
+    val d = RoleAuthoring.diff(role.roleId, role.skills, existing.map(_.skillId).toSet, leaves)
+    val version = RoleAuthoring.nextVersion(
+      if (existing.isEmpty) 0 else existing.map(_.version).max, d)
+    val name = if (role.name.nonEmpty) role.name else role.roleId
+
+    d.removed.foreach(sk => dao.deleteRoleSkill(frameworkId, role.roleId, sk, ctx))
+    // Unchanged rows are rewritten too, so a rename or an un-retire reaches every row of the role.
+    (d.added ++ d.unchanged).foreach(sk => dao.writeRoleSkill(
+      RoleSkillRow(frameworkId, role.roleId, sk, name, RoleStatus.LIVE, version, 0L), ctx))
+
+    if (d.rejected.nonEmpty)
+      logger.info(ctx, s"competency.role: rejected non-leaf requirements | framework=$frameworkId " +
+        s"role=${role.roleId} skills=[${d.rejected.toList.sorted.mkString(",")}]")
+    invalidate(frameworkId, ctx)
+    d
+  }
+
+  /**
+   * Retires a role: it stops being offerable as a target but still resolves for anyone holding it.
+   *
+   * Not a delete. `user_role.assigned_role`, a collection's `targetRole` and this table all carry
+   * the role code with no foreign key behind them, so deleting would orphan learner assignments and
+   * leave learning paths pointing at nothing.
+   */
+  def roleRetire(frameworkId: String, roleId: String, ctx: RequestContext): RoleDiff = {
+    val rows = dao.roleRowsOf(frameworkId, ctx).filter(_.roleId == roleId)
+    rows.foreach(r => dao.writeRoleSkill(r.copy(status = RoleStatus.RETIRED), ctx))
+    invalidate(frameworkId, ctx)
+    RoleDiff(roleId, Set.empty, Set.empty, rows.map(_.skillId).toSet, Set.empty, retired = rows.nonEmpty)
+  }
+
+  /**
+   * Applies a whole authoring matrix, reporting what changed.
+   *
+   * `dryRun` is the `plan` half of the spec engine's validate -> plan -> apply: moving the map out
+   * of the framework lost that diff, and a blind upsert cannot express a removal.
+   *
+   * A role present in the table but absent from the matrix is NOT touched. An import is a statement
+   * about the roles it names, not a declaration that no others exist - a partial spreadsheet must
+   * not retire half the framework. Removing a role is the explicit retire call.
+   */
+  def roleImport(frameworkId: String, roles: List[RoleDefinition], dryRun: Boolean,
+                 ctx: RequestContext): List[RoleDiff] = {
+    val leaves = leavesOf(frameworkId, ctx).getOrElse(
+      throw new IllegalArgumentException(
+        s"Competency framework did not resolve: $frameworkId. Nothing was imported."))
+    val existing = dao.roleRowsOf(frameworkId, ctx).groupBy(_.roleId)
+
+    roles.map { role =>
+      if (dryRun) RoleAuthoring.diff(role.roleId, role.skills,
+        existing.getOrElse(role.roleId, Nil).map(_.skillId).toSet, leaves)
+      else roleUpsert(frameworkId, role, ctx)
+    }
   }
 
   // ---- admin ----------------------------------------------------------------------------------
