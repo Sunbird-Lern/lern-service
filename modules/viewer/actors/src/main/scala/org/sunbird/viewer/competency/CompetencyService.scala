@@ -185,6 +185,15 @@ class CompetencyService(cassandra: CassandraOperation, keyspace: String,
     if (m.isEmpty) None else Some(m.leaves)
   }
 
+  /**
+   * Role display names, for a learner-facing read.
+   *
+   * Kept OUT of CompetencyMeta: that is cached for an hour and keyed on the framework, whereas a
+   * rename should show up at once. One extra partition read on an endpoint the client caches.
+   */
+  def roleNames(frameworkId: String, ctx: RequestContext): Map[String, String] =
+    dao.readRoleNames(frameworkId, ctx)
+
   /** Roles as authored, RETIRED included, so an admin can see what a learner-facing read hides. */
   def roleRead(frameworkId: String, roleId: Option[String],
                ctx: RequestContext): List[RoleDefinition] =

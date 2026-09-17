@@ -269,7 +269,10 @@ class CompetencyActor extends BaseEnrolmentActor {
       "depth" -> Integer.valueOf(m.depth),
       "leafSkills" -> m.leaves.toList.sorted.asJava,
       "leafCount" -> Integer.valueOf(m.leaves.size),
-      "roles" -> roles)
+      "roles" -> roles,
+      // Codes are not display strings: without these the client de-slugs "staff-nurse-icu" into
+      // "Staff nurse icu", losing the authored capitalisation and punctuation.
+      "roleNames" -> service.roleNames(frameworkId, ctx).asJava)
   }
 
   // ---- role authoring -------------------------------------------------------------------------
