@@ -116,6 +116,81 @@ class CompetencyFrameworkUtilParseSpec extends AnyFlatSpec with Matchers {
   // The role -> skill map is authored in `role_skill` and read through the DAO, NOT parsed out of
   // the framework. `leafOnly` is all that stands between an authored row and readiness, because
   // nothing validates it at write time against a tree the writer cannot see.
+  // The tiers live in SEPARATE categories, joined by associations - how the existing frameworks are
+  // authored. `competency` terms are interior here; the leaves sit in `skill`.
+  private val assocFramework =
+    """{"result":{"framework":{"categories":[
+      {"code":"competencyarea","terms":[
+        {"identifier":"fw_competencyarea_domain","code":"domain","category":"competencyarea",
+         "associations":[{"identifier":"fw_competency_med-admin","code":"med-admin","category":"competency"}]}]},
+      {"code":"competency","terms":[
+        {"identifier":"fw_competency_med-admin","code":"med-admin","category":"competency",
+         "associations":[
+           {"identifier":"fw_skill_dosage","code":"dosage","category":"skill"},
+           {"identifier":"fw_skill_iv","code":"iv","category":"skill"}]},
+        {"identifier":"fw_competency_comms","code":"comms","category":"competency",
+         "associations":[{"identifier":"fw_skill_counselling","code":"counselling","category":"skill"}]}]},
+      {"code":"skill","terms":[
+        {"identifier":"fw_skill_dosage","code":"dosage","category":"skill"},
+        {"identifier":"fw_skill_iv","code":"iv","category":"skill"},
+        {"identifier":"fw_skill_counselling","code":"counselling","category":"skill"}]}]}}}"""
+
+  "parseTree" should "follow associations across categories to the real leaves" in {
+    val (leaves, depth) = parseTree(assocFramework)
+    leaves shouldBe Set("dosage", "iv", "counselling")
+    depth shouldBe 2
+  }
+
+  // The regression this guards: taking the association targets at face value stops after one hop,
+  // because an association entry in a read is shallow and carries none of its own relations. The
+  // 7 interior competency terms would then be reported as the leaves, and every role requirement
+  // naming a real skill would be silently rejected as a non-leaf.
+  it should "not mistake an interior competency term for a leaf" in {
+    val (leaves, _) = parseTree(assocFramework)
+    leaves should not contain "med-admin"
+    leaves should not contain "comms"
+  }
+
+  // v1 requirement terms associate sideways to a position and a proficiency level as well as down
+  // to a competency. Following those would walk back up and turn an interior term into a leaf.
+  it should "ignore an association that does not leave the term's own category" in {
+    val sideways =
+      """{"result":{"framework":{"categories":[
+        {"code":"competency","terms":[
+          {"identifier":"fw_competency_a","code":"a","category":"competency",
+           "associations":[{"identifier":"fw_competency_b","code":"b","category":"competency"}]},
+          {"identifier":"fw_competency_b","code":"b","category":"competency"}]}]}}}"""
+    val (leaves, depth) = parseTree(sideways)
+    leaves shouldBe Set("a", "b")
+    depth shouldBe 1
+  }
+
+  it should "terminate on an association cycle in authored data" in {
+    val cyclic =
+      """{"result":{"framework":{"categories":[
+        {"code":"competency","terms":[
+          {"identifier":"fw_competency_a","code":"a","category":"competency",
+           "associations":[{"identifier":"fw_skill_x","code":"x","category":"skill"}]}]},
+        {"code":"skill","terms":[
+          {"identifier":"fw_skill_x","code":"x","category":"skill",
+           "associations":[{"identifier":"fw_competency_a","code":"a","category":"competency"}]}]}]}}}"""
+    val (leaves, _) = parseTree(cyclic)
+    leaves should not be empty
+  }
+
+  // `children` must keep winning where it is present, so the nested frameworks are unaffected.
+  it should "still prefer children when a term has both" in {
+    val both =
+      """{"result":{"framework":{"categories":[
+        {"code":"competency","terms":[
+          {"identifier":"fw_competency_a","code":"a","category":"competency",
+           "children":[{"identifier":"fw_competency_kid","code":"kid","category":"competency"}],
+           "associations":[{"identifier":"fw_skill_other","code":"other","category":"skill"}]}]},
+        {"code":"skill","terms":[{"identifier":"fw_skill_other","code":"other","category":"skill"}]}]}}}"""
+    val (leaves, _) = parseTree(both)
+    leaves shouldBe Set("kid")
+  }
+
   "leafOnly" should "keep the requirements that name a real leaf" in {
     val (leaves, _) = parseTree(healthFramework)
     val authored = Map(

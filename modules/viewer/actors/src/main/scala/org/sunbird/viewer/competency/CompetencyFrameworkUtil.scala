@@ -111,25 +111,76 @@ object CompetencyFrameworkUtil {
    * a flat term list carrying `parents` or `parentCode`: a code no other term claims as its parent
    * is a leaf. Both shapes agree on the answer; only the traversal differs.
    */
+  /**
+   * identifier -> the full term, across every category.
+   *
+   * An `associations` entry in a framework read is SHALLOW - it carries identifier, code, name and
+   * category, but not the target's own relations. Following an association chain therefore means
+   * looking each hop up here; walking the inline objects alone stops after one tier.
+   */
+  private[competency] def termIndex(frameworkJson: String): Map[String, util.Map[String, AnyRef]] =
+    asList(frameworkMap(frameworkJson).get("categories")).flatMap { c =>
+      asList(c.get("terms")).flatMap(t => str(t, "identifier").map(_ -> t))
+    }.toMap
+
+  /**
+   * The skill tree's leaves, and how deep it goes.
+   *
+   * THREE AUTHORING SHAPES, one answer. All of them exist in the wild, so all are read:
+   *
+   *   1. `children`      - tiers nested inside the one `competency` category.
+   *   2. `associations`  - tiers held in SEPARATE categories (competencyarea / competency / skill)
+   *                        and joined across them. This is how the existing frameworks are
+   *                        authored, and how the framework workbook exports.
+   *   3. `parentCode`    - a flat term list carrying its parent.
+   *
+   * A term is a leaf when it has no descendant by any of these. Shape 2 needs the index above,
+   * because an association entry does not carry the target's own associations.
+   *
+   * An association is followed ONLY when it leaves the term's own category. Within v1 frameworks a
+   * requirement term associates sideways to a position and a proficiency level as well as down to a
+   * competency; and `associationswith` means a term can be pointed at from above. Following those
+   * would walk back up the tree and turn an interior term into a leaf. `seen` additionally stops a
+   * cycle in authored data from recursing until the stack blows.
+   */
   private[competency] def parseTree(frameworkJson: String): (Set[String], Int) = {
     val roots = termsOf(frameworkJson, CAT_COMPETENCY)
     if (roots.isEmpty) return (Set.empty, 0)
 
-    val nestedLeaves = scala.collection.mutable.Set[String]()
-    var nestedDepth = 0
+    val index = termIndex(frameworkJson)
+    def resolve(ref: util.Map[String, AnyRef]): util.Map[String, AnyRef] =
+      str(ref, "identifier").flatMap(index.get).getOrElse(ref)
 
-    def walk(terms: List[util.Map[String, AnyRef]], tier: Int): Unit =
-      terms.foreach { t =>
-        val kids = asList(t.get("children"))
-        if (kids.isEmpty) str(t, "code").foreach { code =>
-          nestedLeaves += code
-          if (tier > nestedDepth) nestedDepth = tier
-        }
-        else walk(kids, tier + 1)
+    def descendants(t: util.Map[String, AnyRef], seen: Set[String]): List[util.Map[String, AnyRef]] = {
+      val kids = asList(t.get("children"))
+      if (kids.nonEmpty) return kids.map(resolve)
+      val ownCategory = str(t, "category").getOrElse("")
+      asList(t.get("associations")).flatMap { a =>
+        val targetCategory = str(a, "category").getOrElse("")
+        if (targetCategory.isEmpty || targetCategory == ownCategory) None
+        else str(a, "identifier").filterNot(seen.contains).flatMap(index.get)
       }
+    }
 
-    walk(roots, 1)
-    if (nestedDepth > 1) return (nestedLeaves.toSet, nestedDepth)
+    val walked = scala.collection.mutable.Set[String]()
+    var walkedDepth = 0
+
+    def walk(t: util.Map[String, AnyRef], tier: Int, seen: Set[String]): Unit = {
+      // A nested `children` entry carries no identifier, so an absent one must NOT join `seen` -
+      // every such term would share the empty key and the second sibling would look like a cycle.
+      val id = str(t, "identifier").filter(_.nonEmpty)
+      if (id.exists(seen.contains)) return
+      val nextSeen = id.fold(seen)(seen + _)
+      val next = descendants(t, nextSeen)
+      if (next.isEmpty) str(t, "code").foreach { code =>
+        walked += code
+        if (tier > walkedDepth) walkedDepth = tier
+      }
+      else next.foreach(n => walk(n, tier + 1, nextSeen))
+    }
+
+    roots.foreach(r => walk(r, 1, Set.empty))
+    if (walkedDepth > 1) return (walked.toSet, walkedDepth)
 
     // Flat shape: derive the parent of each term, then anything that is nobody's parent is a leaf.
     val parentOf: Map[String, String] = roots.flatMap { t =>
@@ -137,7 +188,7 @@ object CompetencyFrameworkUtil {
         .orElse(asList(t.get("parents")).flatMap(p => str(p, "code")).headOption)
       for { code <- str(t, "code"); p <- parent } yield code -> p
     }.toMap
-    if (parentOf.isEmpty) return (nestedLeaves.toSet, nestedDepth)
+    if (parentOf.isEmpty) return (walked.toSet, walkedDepth)
 
     val codes = roots.flatMap(t => str(t, "code")).toSet
     val parents = parentOf.values.toSet
