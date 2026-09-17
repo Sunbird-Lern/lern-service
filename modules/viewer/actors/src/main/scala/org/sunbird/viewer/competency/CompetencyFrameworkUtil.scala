@@ -226,13 +226,22 @@ object CompetencyFrameworkUtil {
       role -> ok
     }
 
-  /** Courses and Learning Paths off a search row, for the recommendation. */
+  /**
+   * Courses and Learning Paths off a search row, for the recommendation.
+   *
+   * THE CONTENT FIELD IS `skill`, NOT `skills`. design-v2 specified `skills: array<text>`, but that
+   * name is already taken on the content and collection schemas by a taxonomy field locked to
+   * [Listening, Speaking, Reading, Writing, Touch, Gestures, Draw] - tagging a course with a
+   * competency code there is rejected outright. `skill` is the framework category the leaves live
+   * in, so content carries its terms under the category's own name, which is the ordinary Sunbird
+   * convention for framework-driven metadata.
+   */
   private[competency] def parseCandidates(searchJson: String): List[Candidate] = {
     val rows = result(searchJson).asScala.values.collect {
       case l: util.List[_] => l.asInstanceOf[util.List[util.Map[String, AnyRef]]].asScala
     }.flatten.toList
     rows.flatMap { r =>
-      val skills = asStrings(r.get("skills")).distinct.toSet
+      val skills = asStrings(r.get("skill")).distinct.toSet
       for { id <- str(r, "identifier") if skills.nonEmpty } yield Candidate(
         id = id,
         name = str(r, "name").getOrElse(id),
@@ -241,13 +250,13 @@ object CompetencyFrameworkUtil {
     }.distinct
   }
 
-  /** `skills: [code]` off a content, collection or question search row. */
+  /** `skill: [code]` off a content, collection or question search row. */
   private[competency] def parseClaims(searchJson: String): Map[String, List[String]] = {
     val rows = result(searchJson).asScala.values.collect {
       case l: util.List[_] => l.asInstanceOf[util.List[util.Map[String, AnyRef]]].asScala
     }.flatten.toList
     rows.flatMap { r =>
-      str(r, "identifier").map(id => id -> asStrings(r.get("skills")).distinct)
+      str(r, "identifier").map(id => id -> asStrings(r.get("skill")).distinct)
     }.filter(_._2.nonEmpty).toMap
   }
 
@@ -373,12 +382,12 @@ class CompetencyFrameworkUtil(roleSource: (String, RequestContext) => Map[String
       .split(",").map(_.trim).filter(_.nonEmpty).toList
     val filters = new util.HashMap[String, AnyRef]() {{
       put("status", util.Arrays.asList("Live"))
-      put("skills", skills.toList.asJava)
+      put("skill", skills.toList.asJava)
       put("primaryCategory", categories.asJava)
     }}
     val request = new util.HashMap[String, AnyRef]() {{
       put("filters", filters)
-      put("fields", List("identifier", "name", "primaryCategory", "skills").asJava)
+      put("fields", List("identifier", "name", "primaryCategory", "skill").asJava)
       put("limit", Integer.valueOf(cfg("competency_recommend_limit", "50").toInt))
     }}
     val json = post(searchUrl,
@@ -386,7 +395,7 @@ class CompetencyFrameworkUtil(roleSource: (String, RequestContext) => Map[String
     parseCandidates(json)
   }
 
-  /** `skills` tags for the given content ids (courses, question sets, questions). */
+  /** `skill` tags for the given content ids (courses, question sets, questions). */
   def claimsOf(nodeIds: List[String], ctx: RequestContext): Map[String, List[String]] = {
     if (nodeIds.isEmpty) return Map.empty
     val now = System.currentTimeMillis()
@@ -398,7 +407,7 @@ class CompetencyFrameworkUtil(roleSource: (String, RequestContext) => Map[String
     val missing = wanted.filterNot(cached.contains)
     val fetched =
       if (missing.isEmpty) Map.empty[String, List[String]]
-      else parseClaims(searchByIds(missing, List("skills", "primaryCategory")))
+      else parseClaims(searchByIds(missing, List("skill", "primaryCategory")))
     // negative-cache the misses too, so an untagged node is not searched again on every event
     missing.foreach(id => claimCache.put(id, (now + metaTtl, fetched.getOrElse(id, Nil))))
     (cached ++ fetched).filter(_._2.nonEmpty)

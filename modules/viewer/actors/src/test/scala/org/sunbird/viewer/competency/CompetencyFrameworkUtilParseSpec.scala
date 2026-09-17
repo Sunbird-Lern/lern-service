@@ -235,25 +235,28 @@ class CompetencyFrameworkUtilParseSpec extends AnyFlatSpec with Matchers {
     parseTree(healthFramework)._1 should not contain "staff-nurse-icu"
   }
 
-  "parseClaims" should "read a flat skills array off a search row" in {
+  // The content field is `skill`, NOT `skills`: on the content and collection schemas `skills` is
+  // a pre-existing taxonomy field locked to [Listening, Speaking, Reading, Writing, Touch,
+  // Gestures, Draw], so a competency code written there is rejected by Knowlg outright.
+  "parseClaims" should "read a flat skill array off a search row" in {
     val json = """{"result":{"content":[
-      {"identifier":"crs1","skills":["dosage-calculation","iv-administration"]},
-      {"identifier":"crs2","skills":[]}]}}"""
+      {"identifier":"crs1","skill":["dosage-calculation","iv-administration"]},
+      {"identifier":"crs2","skill":[]}]}}"""
     parseClaims(json) shouldBe Map("crs1" -> List("dosage-calculation", "iv-administration"))
   }
 
   it should "read a question row the same way" in {
-    val json = """{"result":{"questions":[{"identifier":"q1","skills":["fr-compare"]}]}}"""
+    val json = """{"result":{"questions":[{"identifier":"q1","skill":["fr-compare"]}]}}"""
     parseClaims(json) shouldBe Map("q1" -> List("fr-compare"))
   }
 
   it should "accept a single string where an array was expected" in {
-    val json = """{"result":{"content":[{"identifier":"c","skills":"hand-hygiene"}]}}"""
+    val json = """{"result":{"content":[{"identifier":"c","skill":"hand-hygiene"}]}}"""
     parseClaims(json) shouldBe Map("c" -> List("hand-hygiene"))
   }
 
   it should "de-duplicate a repeated tag" in {
-    val json = """{"result":{"content":[{"identifier":"c","skills":["ppe-use","ppe-use"]}]}}"""
+    val json = """{"result":{"content":[{"identifier":"c","skill":["ppe-use","ppe-use"]}]}}"""
     parseClaims(json) shouldBe Map("c" -> List("ppe-use"))
   }
 
@@ -265,7 +268,7 @@ class CompetencyFrameworkUtilParseSpec extends AnyFlatSpec with Matchers {
   "parseCandidates" should "read the fields the ranking needs" in {
     val json = """{"result":{"content":[
       {"identifier":"do_1","name":"Safe Medication Practice","primaryCategory":"Course",
-       "skills":["dosage-calculation","iv-administration"]}]}}"""
+       "skill":["dosage-calculation","iv-administration"]}]}}"""
     parseCandidates(json) shouldBe List(Candidate("do_1", "Safe Medication Practice", "Course",
       Set("dosage-calculation", "iv-administration")))
   }
@@ -273,12 +276,12 @@ class CompetencyFrameworkUtilParseSpec extends AnyFlatSpec with Matchers {
   it should "skip a row with no skills, since it can close no gap" in {
     val json = """{"result":{"content":[
       {"identifier":"do_1","name":"Untagged","primaryCategory":"Course"},
-      {"identifier":"do_2","name":"Tagged","primaryCategory":"Course","skills":["ppe-use"]}]}}"""
+      {"identifier":"do_2","name":"Tagged","primaryCategory":"Course","skill":["ppe-use"]}]}}"""
     parseCandidates(json).map(_.id) shouldBe List("do_2")
   }
 
   it should "fall back to the identifier when a row has no name" in {
-    val json = """{"result":{"content":[{"identifier":"do_1","skills":["ppe-use"]}]}}"""
+    val json = """{"result":{"content":[{"identifier":"do_1","skill":["ppe-use"]}]}}"""
     parseCandidates(json).head.name shouldBe "do_1"
   }
 
