@@ -94,6 +94,8 @@ class LpProgressionEngine(cassandraOperation: CassandraOperation,
   private def creditCompleted(userId: String, rootId: String, batchId: String, meta: LpMeta,
                               completedNow: Set[String], ctx: RequestContext): Unit = {
     val fw = meta.competencyFramework
+    logger.info(ctx, s"viewer.lp: creditCompleted | user=$userId root=$rootId fw=[$fw] " +
+      s"completedNow=[${completedNow.mkString(",")}]")
     if (fw.isEmpty || completedNow.isEmpty) return
     val now = System.currentTimeMillis()
     completedNow.filter(_ != rootId).foreach { node =>

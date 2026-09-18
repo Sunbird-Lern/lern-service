@@ -207,7 +207,14 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
            activityAggUtil.getCompletionStatus(done, requiredLeaves.size) == 2 => nodeId
     }.toSet
 
-    (completedNow ++ completedByProgress).toSet
+    val union = (completedNow ++ completedByProgress).toSet
+    // Diagnostic: per-course crediting depends entirely on this set. `fromRows` is what the
+    // enrolment-row loop saw; `fromProgress` is the hierarchy-derived fallback. If fromProgress is
+    // empty while courses are visibly complete, nodeProgress is not carrying them.
+    logger.info(ctx, s"viewer.rollup: completedNow | user=$userId root=$rootId " +
+      s"fromRows=[${completedNow.mkString(",")}] fromProgress=[${completedByProgress.mkString(",")}] " +
+      s"nodeProgress=[${nodeProgress.map { case (n, (d, l)) => s"$n:$d/${l.size}" }.mkString(",")}]")
+    union
   }
 
   /**
