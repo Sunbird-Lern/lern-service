@@ -118,7 +118,27 @@ class CompetencyLedger(dao: CompetencyDao,
   def evidenceOf(userId: String, skillId: String, ctx: RequestContext): List[Evidence] =
     dao.evidenceOf(userId, skillId, ctx)
 
+  /**
+   * Appends evidence, unless this exact source already produced some.
+   *
+   * IDEMPOTENT PER SOURCE, not per call. `evidenceId` is "<occurredOn>:<digest of
+   * sourceType|sourceId|batchId>", so the same completion credited twice at different moments
+   * yields two different ids and two rows - the ledger grows every time a rollup re-runs, and the
+   * learner's profile shows "3 evidence" for one course they finished once.
+   *
+   * A completion is a fact about a node, not about when we noticed it, so the source triple is the
+   * real identity. Assessment evidence is deliberately NOT deduped this way: each attempt is a
+   * distinct event and `creditAssessments` relies on keeping them all.
+   */
   private def append(e: Evidence, ctx: RequestContext): Unit = {
+    val already = AttainmentRules.isDuplicateCompletion(
+      dao.evidenceOf(e.userId, e.skillId, ctx).map(x => (x.sourceType, x.sourceId, x.batchId, x.revoked)),
+      e.sourceType, e.sourceId, e.batchId)
+    if (already) {
+      logger.info(ctx, s"competency.ledger: append skip(duplicate source) | user=${e.userId} " +
+        s"skill=${e.skillId} source=${e.sourceType}:${e.sourceId}")
+      return
+    }
     dao.insertEvidence(e, ctx)
     logger.info(ctx, s"competency.ledger: append | user=${e.userId} skill=${e.skillId} " +
       s"source=${e.sourceType}:${e.sourceId}")

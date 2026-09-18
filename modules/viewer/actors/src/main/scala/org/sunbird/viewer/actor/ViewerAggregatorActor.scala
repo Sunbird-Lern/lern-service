@@ -188,7 +188,26 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
         }
       }
     }
-    completedNow.toSet
+    // Nodes whose leaves are ALL complete, taken straight from the hierarchy rollup.
+    //
+    // WHY NOT JUST THE LOOP ABOVE: that only sees a node when a `user_enrolments` row exists at
+    // `<rootBatch>:<courseId>`. The child-batch fan-out that would create those rows is a deferred
+    // Learning-Path feature, so for an LP-nested course there is usually no row - the node never
+    // entered `completedNow`, `LpProgressionEngine.creditCompleted` got an empty set, and nothing
+    // was credited until the whole PATH finished, at which point every skill landed at once from
+    // the root. A learner who finished two courses and stopped had nothing recorded at all.
+    //
+    // `nodeProgress` is computed from the published hierarchy and the content status the rollup
+    // already reads, so it knows a course is finished whether or not anyone enrolled into it.
+    // Re-crediting on later passes is harmless: completion evidence is idempotent per source
+    // (CompetencyLedger.append).
+    val completedByProgress = nodeProgress.collect {
+      case (nodeId, (done, requiredLeaves))
+        if requiredLeaves.nonEmpty &&
+           activityAggUtil.getCompletionStatus(done, requiredLeaves.size) == 2 => nodeId
+    }.toSet
+
+    (completedNow ++ completedByProgress).toSet
   }
 
   /**

@@ -87,4 +87,23 @@ object AttainmentRules {
     val digest = math.abs(s"$sourceType|$sourceId|$batchId".hashCode).toString
     f"$occurredOn%019d:$digest"
   }
+
+  /**
+   * Whether this completion has already been recorded.
+   *
+   * `evidenceId` embeds the moment of crediting, so the same course credited twice yields two ids
+   * and two rows: the ledger grows on every rollup re-run and a learner sees "3 evidence" for one
+   * course they finished once. A completion is a fact about a node, not about when it was noticed,
+   * so the source triple is its real identity.
+   *
+   * ASSESSMENT is excluded on purpose. Each attempt is a distinct event, and `creditAssessments`
+   * unions across attempts - deduping would discard the history the projector reads.
+   */
+  def isDuplicateCompletion(existing: Seq[(String, String, String, Boolean)],
+                            sourceType: String, sourceId: String, batchId: String): Boolean = {
+    val dedupable = sourceType == SourceType.COURSE || sourceType == SourceType.LEARNING_PATH
+    dedupable && existing.exists { case (t, id, b, revoked) =>
+      !revoked && t == sourceType && id == sourceId && b == batchId
+    }
+  }
 }

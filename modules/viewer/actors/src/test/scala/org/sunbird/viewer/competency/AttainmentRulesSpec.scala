@@ -160,4 +160,36 @@ class AttainmentRulesSpec extends AnyFlatSpec with Matchers {
     val late = AttainmentRules.evidenceId(1000L, SourceType.COURSE, "x", "b")
     early < late shouldBe true
   }
+
+  "AttainmentRules.isDuplicateCompletion" should "spot the same course credited again" in {
+    val existing = Seq(("COURSE", "do_course1", "b1", false))
+    AttainmentRules.isDuplicateCompletion(existing, "COURSE", "do_course1", "b1") shouldBe true
+  }
+
+  it should "allow a different course, batch or type through" in {
+    val existing = Seq(("COURSE", "do_course1", "b1", false))
+    AttainmentRules.isDuplicateCompletion(existing, "COURSE", "do_course2", "b1") shouldBe false
+    AttainmentRules.isDuplicateCompletion(existing, "COURSE", "do_course1", "b2") shouldBe false
+    AttainmentRules.isDuplicateCompletion(existing, "LEARNING_PATH", "do_course1", "b1") shouldBe false
+  }
+
+  // A revoked row is not evidence any more; re-earning the course must be able to record it again.
+  it should "ignore a revoked row" in {
+    AttainmentRules.isDuplicateCompletion(Seq(("COURSE", "do_c", "b1", true)), "COURSE", "do_c", "b1") shouldBe false
+  }
+
+  // Each attempt is its own event, and creditAssessments unions across them.
+  it should "never dedupe an assessment" in {
+    val existing = Seq(("ASSESSMENT", "do_qs1", "b1", false))
+    AttainmentRules.isDuplicateCompletion(existing, "ASSESSMENT", "do_qs1", "b1") shouldBe false
+  }
+
+  it should "be false when nothing has been recorded" in {
+    AttainmentRules.isDuplicateCompletion(Nil, "COURSE", "do_c", "b1") shouldBe false
+  }
+
+  it should "dedupe a Learning Path completion too" in {
+    AttainmentRules.isDuplicateCompletion(Seq(("LEARNING_PATH", "do_lp", "b", false)),
+      "LEARNING_PATH", "do_lp", "b") shouldBe true
+  }
 }
