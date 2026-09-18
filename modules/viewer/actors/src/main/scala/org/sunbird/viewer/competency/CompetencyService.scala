@@ -91,6 +91,38 @@ class CompetencyService(cassandra: CassandraOperation, keyspace: String,
       s"targets=[${a.targetRoles.mkString(",")}] source=${a.source}")
   }
 
+  /**
+   * Assigns a learner's CURRENT role - an organisational fact, not a preference.
+   *
+   * Distinct from `updateRole`, which the learner drives for their own target. The current role is
+   * what someone is accountable for today, so letting a learner set it would make readiness
+   * unreportable: an org cannot say "42% of our ICU nurses are ready" if nurses self-declare.
+   * Hence an admin path, stamped HRMS, with the learner's own `targetRoles` preserved untouched.
+   *
+   * The role must exist in the framework. Assigning an unknown one would leave a learner measured
+   * against requirements nobody authored, which reads as 100% ready for everything.
+   */
+  def assignRole(userId: String, frameworkId: String, role: String,
+                 ctx: RequestContext): RoleAssignment = {
+    val known = dao.readRoleSkills(frameworkId, ctx)
+    if (!known.contains(role))
+      throw new IllegalArgumentException(
+        s"No such role in $frameworkId: $role. Known roles: ${known.keys.toList.sorted.mkString(", ")}")
+
+    val existing = dao.roleOf(userId, ctx)
+    val next = RoleAssignment(
+      userId = userId,
+      frameworkId = frameworkId,
+      currentRole = Some(role),
+      // The learner's aspiration is theirs; an assignment must not silently clear it.
+      targetRoles = existing.map(_.targetRoles).getOrElse(Set.empty),
+      source = RoleSource.HRMS,
+      assignedOn = System.currentTimeMillis())
+    dao.upsertRole(next, ctx)
+    logger.info(ctx, s"competency.role: assigned | user=$userId framework=$frameworkId role=$role")
+    next
+  }
+
   /** Gap against one role. Empty when the role requires nothing. */
   def gap(userId: String, frameworkId: String, roleId: String,
           ctx: RequestContext): (List[GapRow], Int) = {

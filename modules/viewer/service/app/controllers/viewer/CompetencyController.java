@@ -94,6 +94,11 @@ public class CompetencyController extends BaseController {
         return body("roleRetire", httpRequest);
     }
 
+    /** Admin assigns a learner's current role. Target user is `assignUserId`, not the token. */
+    public CompletionStage<Result> roleAssign(Http.Request httpRequest) {
+        return body("roleAssign", httpRequest);
+    }
+
     /** The whole authoring matrix. `dryRun: true` reports the diff without writing. */
     public CompletionStage<Result> roleImport(Http.Request httpRequest) {
         return body("roleImport", httpRequest);

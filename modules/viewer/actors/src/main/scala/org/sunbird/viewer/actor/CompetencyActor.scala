@@ -36,6 +36,7 @@ class CompetencyActor extends BaseEnrolmentActor {
       case "roleUpsert"      => roleUpsert(request)
       case "roleRetire"      => roleRetire(request)
       case "roleImport"      => roleImport(request)
+      case "roleAssign"      => roleAssign(request)
       case "reproject"       => reproject(request)
       case "cacheInvalidate" => cacheInvalidate(request)
       case _                 => onReceiveUnsupportedOperation(request.getOperation)
@@ -321,6 +322,27 @@ class CompetencyActor extends BaseEnrolmentActor {
     m.put("status", r.status)
     m.put("version", Integer.valueOf(r.version))
     m
+  }
+
+  /**
+   * Admin assigns a learner's CURRENT role.
+   *
+   * The target user comes from an explicit `assignUserId` body key, NOT from the token: this is the
+   * one competency write that acts on somebody else. Restricting who may call it is a Kong concern,
+   * as with the other role-authoring endpoints.
+   */
+  private def roleAssign(request: Request): Unit = {
+    val ctx = request.getRequestContext
+    val frameworkId = require(request, "frameworkId")
+    val target = require(request, "assignUserId")
+    val role = require(request, "role")
+    val a = service.assignRole(target, frameworkId, role, ctx)
+    logger.info(ctx, s"competency.api: roleAssign | user=$target role=$role framework=$frameworkId")
+    reply("userId" -> a.userId,
+      "frameworkId" -> a.frameworkId,
+      "assignedRole" -> a.currentRole.getOrElse(""),
+      "targetRoles" -> a.targetRoles.toList.sorted.asJava,
+      "source" -> a.source)
   }
 
   /** Roles as authored, RETIRED included - distinct from frameworkRead, which serves learners. */

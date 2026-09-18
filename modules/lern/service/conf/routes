@@ -310,6 +310,7 @@ POST   /v1/competency/role/read             @controllers.viewer.CompetencyContro
 POST   /v1/competency/role/upsert           @controllers.viewer.CompetencyController.roleUpsert(request: play.mvc.Http.Request)
 POST   /v1/competency/role/retire           @controllers.viewer.CompetencyController.roleRetire(request: play.mvc.Http.Request)
 POST   /v1/competency/role/import           @controllers.viewer.CompetencyController.roleImport(request: play.mvc.Http.Request)
+POST   /v1/competency/role/assign           @controllers.viewer.CompetencyController.roleAssign(request: play.mvc.Http.Request)
 
 POST     /v1/summary/read                   @controllers.viewer.ViewSummaryController.summaryRead(request: play.mvc.Http.Request)
 GET      /v1/summary/list/:userId           @controllers.viewer.ViewSummaryController.summaryList(userId: String, request: play.mvc.Http.Request)
