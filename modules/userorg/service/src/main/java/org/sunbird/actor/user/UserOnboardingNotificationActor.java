@@ -151,11 +151,22 @@ public class UserOnboardingNotificationActor extends BaseActor {
       } else {
         countryCode = (String) userMap.get(JsonKey.COUNTRY_CODE);
       }
-      ISmsProvider smsProvider = SMSFactory.getInstance();
-      logger.debug(context, "SMS text : " + sms + " with phone " + userMap.get(JsonKey.PHONE));
-      boolean response =
-          smsProvider.send((String) userMap.get(JsonKey.PHONE), countryCode, sms, context);
-      logger.info(context, "Response from smsProvider : " + response);
+      // See OTPUtil.sendOTPViaSMS: a LinkageError from a mismatched notification jar would
+      // otherwise reach the Pekko dispatcher and tear down the ActorSystem. A welcome SMS
+      // must never be able to do that.
+      try {
+        ISmsProvider smsProvider = SMSFactory.getInstance();
+        logger.debug(context, "SMS text : " + sms + " with phone " + userMap.get(JsonKey.PHONE));
+        boolean response =
+            smsProvider.send((String) userMap.get(JsonKey.PHONE), countryCode, sms, context);
+        logger.info(context, "Response from smsProvider : " + response);
+      } catch (Throwable t) {
+        logger.error(
+            context,
+            "UserOnboardingNotificationActor: welcome SMS failed for phone = "
+                + userMap.get(JsonKey.PHONE),
+            t);
+      }
     }
   }
 

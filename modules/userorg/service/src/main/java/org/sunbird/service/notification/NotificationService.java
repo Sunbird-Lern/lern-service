@@ -89,10 +89,12 @@ public class NotificationService {
   private boolean sendSMS(List<String> phones, String smsText, RequestContext context) {
     logger.info(
         context, "NotificationService:sendSMS: Sending sendSMS to = " + phones.size() + " phones");
+    // Throwable rather than Exception: NoSuchMethodError from a mismatched notification jar
+    // is a LinkageError, which an Exception catch lets through to the Pekko dispatcher.
     try {
       ISmsProvider smsProvider = SMSFactory.getInstance();
       return smsProvider.send(phones, smsText, context);
-    } catch (Exception e) {
+    } catch (Throwable e) {
       logger.error(
           context,
           "NotificationService:sendSMS: Exception occurred with message = " + e.getMessage(),

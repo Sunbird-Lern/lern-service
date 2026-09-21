@@ -103,17 +103,30 @@ public final class OTPUtil {
     } else {
       countryCode = (String) otpMap.get(JsonKey.COUNTRY_CODE);
     }
-    ISmsProvider smsProvider = SMSFactory.getInstance();
+    boolean response;
+    // Catch Throwable, not Exception: a mismatched sunbird-notification jar surfaces as
+    // NoSuchMethodError, which is a LinkageError. Uncaught, it reaches the Pekko dispatcher
+    // and Pekko responds by shutting down the whole ActorSystem - one undeliverable OTP
+    // takes down login, profile, enrolment and progress with it. A failed send must cost
+    // one OTP, nothing more.
+    try {
+      ISmsProvider smsProvider = SMSFactory.getInstance();
 
-    logger.debug(
-        context,
-        "OTPUtil:sendOTPViaSMS: SMS OTP text = "
-            + sms
-            + " with phone = "
-            + otpMap.get(JsonKey.PHONE));
+      logger.debug(
+          context,
+          "OTPUtil:sendOTPViaSMS: SMS OTP text = "
+              + sms
+              + " with phone = "
+              + otpMap.get(JsonKey.PHONE));
 
-    boolean response =
-        smsProvider.send((String) otpMap.get(JsonKey.PHONE), countryCode, sms, context);
+      response = smsProvider.send((String) otpMap.get(JsonKey.PHONE), countryCode, sms, context);
+    } catch (Throwable t) {
+      logger.error(
+          context,
+          "OTPUtil:sendOTPViaSMS: SMS send failed for phone = " + otpMap.get(JsonKey.PHONE),
+          t);
+      return false;
+    }
 
     logger.info(
         context,
