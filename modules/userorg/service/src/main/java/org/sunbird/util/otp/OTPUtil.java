@@ -104,11 +104,13 @@ public final class OTPUtil {
       countryCode = (String) otpMap.get(JsonKey.COUNTRY_CODE);
     }
     boolean response;
-    // Catch Throwable, not Exception: a mismatched sunbird-notification jar surfaces as
-    // NoSuchMethodError, which is a LinkageError. Uncaught, it reaches the Pekko dispatcher
-    // and Pekko responds by shutting down the whole ActorSystem - one undeliverable OTP
-    // takes down login, profile, enrolment and progress with it. A failed send must cost
-    // one OTP, nothing more.
+    // Catch Error specifically. BaseActor.onReceive already handles Exception via
+    // onReceiveException, so those are deliberately left to propagate as before. What it
+    // does NOT catch is Error - and a mismatched sunbird-notification jar surfaces as
+    // NoSuchMethodError, a LinkageError. Uncaught, that reaches the Pekko dispatcher and
+    // Pekko shuts down the entire ActorSystem, so one undeliverable OTP took down login,
+    // profile, enrolment and progress with it. A failed send must cost one OTP, nothing
+    // more.
     try {
       ISmsProvider smsProvider = SMSFactory.getInstance();
 
@@ -120,11 +122,11 @@ public final class OTPUtil {
               + otpMap.get(JsonKey.PHONE));
 
       response = smsProvider.send((String) otpMap.get(JsonKey.PHONE), countryCode, sms, context);
-    } catch (Throwable t) {
+    } catch (Error e) {
       logger.error(
           context,
           "OTPUtil:sendOTPViaSMS: SMS send failed for phone = " + otpMap.get(JsonKey.PHONE),
-          t);
+          e);
       return false;
     }
 
