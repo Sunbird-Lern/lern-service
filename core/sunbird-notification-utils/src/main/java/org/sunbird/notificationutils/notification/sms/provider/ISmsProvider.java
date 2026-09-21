@@ -1,9 +1,9 @@
-package org.sunbird.notification.sms.provider;
+package org.sunbird.notificationutils.notification.sms.provider;
 
 import java.util.List;
 import java.util.Map;
 import org.sunbird.keys.JsonKey;
-import org.sunbird.notification.utils.SmsTemplateUtil;
+import org.sunbird.notificationutils.notification.utils.SmsTemplateUtil;
 import org.sunbird.request.RequestContext;
 
 /** Interface for SMS provider integrations. Defines methods for sending SMS notifications. */

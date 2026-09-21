@@ -1,7 +1,7 @@
-package org.sunbird.notification.sms.providerimpl;
+package org.sunbird.notificationutils.notification.sms.providerimpl;
 
-import org.sunbird.notification.sms.provider.ISmsProvider;
-import org.sunbird.notification.sms.provider.ISmsProviderFactory;
+import org.sunbird.notificationutils.notification.sms.provider.ISmsProvider;
+import org.sunbird.notificationutils.notification.sms.provider.ISmsProviderFactory;
 
 /**
  * Factory class for creating and managing a singleton instance of {@link NICGatewaySmsProvider}.

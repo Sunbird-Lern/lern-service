@@ -1,4 +1,4 @@
-package org.sunbird.notification.utils;
+package org.sunbird.notificationutils.notification.utils;
 
 import java.io.IOException;
 import java.io.InputStream;

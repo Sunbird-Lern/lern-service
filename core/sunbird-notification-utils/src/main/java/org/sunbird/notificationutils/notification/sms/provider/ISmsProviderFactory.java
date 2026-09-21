@@ -1,4 +1,4 @@
-package org.sunbird.notification.sms.provider;
+package org.sunbird.notificationutils.notification.sms.provider;
 
 /** Factory interface for creating instances of {@link ISmsProvider}. */
 public interface ISmsProviderFactory {

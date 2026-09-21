@@ -1,4 +1,4 @@
-package org.sunbird.notification.utils;
+package org.sunbird.notificationutils.notification.utils;
 
 import org.junit.Assert;
 import org.junit.Test;
