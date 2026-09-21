@@ -6,12 +6,18 @@ import java.util.Properties;
 import org.sunbird.logging.LoggerUtil;
 
 /**
- * Singleton class that caches properties from the 'configuration.properties' file. Provides methods
+ * Singleton class that caches properties from the 'notification-utils.properties' file. Provides methods
  * to retrieve property values by key.
  */
 public class PropertiesCache {
   private static final LoggerUtil logger = new LoggerUtil(PropertiesCache.class);
-  private final String fileName = "configuration.properties";
+  // Deliberately NOT "configuration.properties": notification-sdk ships a file of that
+  // exact name at the same classpath root, and whichever jar the classloader reached
+  // first won. The sdk copy keys everything with underscores
+  // (sunbird_msg_91_route) and omits country and sender entirely, so when it won,
+  // Msg91SmsProvider read nulls for three of its four mandatory settings and refused
+  // to send - silently, because that check logs at debug.
+  private final String fileName = "notification-utils.properties";
   private final Properties configProp = new Properties();
   private static PropertiesCache instance;
 
