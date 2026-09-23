@@ -9,6 +9,7 @@ import org.scalamock.scalatest.MockFactory
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 import org.sunbird.cassandra.CassandraOperation
+import org.sunbird.common.PropertiesCache
 import org.sunbird.request.{Request, RequestContext}
 import org.sunbird.response.Response
 
@@ -73,6 +74,62 @@ class ViewConsumptionActorTest extends AnyFlatSpec with Matchers with MockFactor
     req.setOperation(op)
     req.put("userId", "u1"); req.put("courseId", "c1"); req.put("batchId", "b1"); req.put("contentId", "ct1")
     req
+  }
+
+  // --- Phase 1: the mode resolver is wired into the write/read key paths. strict (default) is pinned by the tests above;
+  //     these flip the global config and assert the resolved key differs from strict, always resetting in finally. ---
+  private def withMode[T](mode: String, scope: String)(body: => T): T = {
+    val cache = PropertiesCache.getInstance()
+    cache.saveConfigProperty("viewer_context_mode", mode)
+    cache.saveConfigProperty("viewer_carry_scope", scope)
+    try body finally {
+      cache.saveConfigProperty("viewer_context_mode", "strict")
+      cache.saveConfigProperty("viewer_carry_scope", "content")
+    }
+  }
+
+  "viewStart in noContext content mode" should "key the ucc row at (content, content), ignoring course/batch" in {
+    withMode("noContext", "content") {
+      val ops = mock[CassandraOperation]
+      (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
+        .expects(*, *, *, *, *).returns(emptyRows)
+      (ops.upsertRecord(_: String, _: String, _: util.Map[String, AnyRef], _: RequestContext))
+        .expects(where { (_: String, _: String, row: util.Map[String, AnyRef], _: RequestContext) =>
+          row.get("collectionid") == "ct1" && row.get("contextid") == "ct1" && row.get("contentid") == "ct1" })
+        .returns(new Response()).once()
+      stubEnrolmentRead(ops, emptyRows)
+      val result = callActor(viewRequest("viewStart"),
+        Props(new ViewConsumptionActor(replyingAggregator).setCassandraOperation(ops)))
+      result should not be null
+    }
+  }
+
+  "viewRead in noContext collection mode" should "read the collection at (collection, collection), collapsing the batch" in {
+    withMode("noContext", "collection") {
+      val ops = mock[CassandraOperation]
+      (ops.getRecords(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
+        .expects(where { (_: String, _: String, f: util.Map[String, AnyRef], _: util.List[String], _: RequestContext) =>
+          f.get("collectionid") == "c1" && f.get("contextid") == "c1" })
+        .returns(emptyRows)
+      val req = new Request; req.setOperation("viewRead")
+      req.put("userId", "u1"); req.put("courseId", "c1"); req.put("batchId", "b1")
+      val result = callActor(req, Props(new ViewConsumptionActor(replyingAggregator).setCassandraOperation(ops)))
+      result should not be null
+    }
+  }
+
+  "assessmentRead in noContext content mode" should "read scores at (content, content, content)" in {
+    withMode("noContext", "content") {
+      val ops = mock[CassandraOperation]
+      (ops.getRecordsByProperties(_: String, _: String, _: util.Map[String, AnyRef], _: util.List[String], _: RequestContext))
+        .expects(where { (_: String, _: String, f: util.Map[String, AnyRef], _: util.List[String], _: RequestContext) =>
+          f.get("collection_id") == "ct1" && f.get("context_id") == "ct1" && f.get("content_id") == "ct1" })
+        .returns(emptyRows)
+      val req = new Request; req.setOperation("assessmentRead")
+      req.put("userId", "u1"); req.put("courseId", "c1"); req.put("batchId", "b1"); req.put("contentId", "ct1")
+      val result = callActor(req, Props(new ViewConsumptionActor(replyingAggregator).setCassandraOperation(ops)))
+      result should not be null
+    }
   }
 
   "viewStart" should "insert a new ucc row when absent" in {
