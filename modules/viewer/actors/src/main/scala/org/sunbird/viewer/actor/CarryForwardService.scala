@@ -28,10 +28,10 @@ class CarryForwardService(cassandraOperation: CassandraOperation) {
     var copied = 0
     leaves.foreach { leaf =>
       val eligible = sourceRows.filter { r =>
-        val cont = str(r.get("contentid"))
-        val coll = str(r.get("collectionid"))
+        val cont = field(r, "contentId", "contentid")
+        val coll = field(r, "collectionid", "collectionId")
         cont == leaf && num(r.get("status")).toInt == 2 &&
-          !(coll == courseId && str(r.get("contextid")) == batchId) &&       // don't re-copy into the target itself
+          !(coll == courseId && field(r, "contextid", "contextId") == batchId) &&   // don't re-copy into the target itself
           (scope != "collection" || (coll != null && coll != cont))          // collection scope: only in-collection (not organic)
       }
       eligible
@@ -39,7 +39,7 @@ class CarryForwardService(cassandraOperation: CassandraOperation) {
         .sortBy(r => lastCompletedMillis(r).getOrElse(0L)).lastOption
         .foreach { src =>
           copyConsumption(userId, courseId, batchId, leaf, src, ctx)
-          copyAssessment(userId, courseId, batchId, leaf, str(src.get("collectionid")), str(src.get("contextid")), ctx)
+          copyAssessment(userId, courseId, batchId, leaf, field(src, "collectionid", "collectionId"), field(src, "contextid", "contextId"), ctx)
           copied += 1
         }
     }
@@ -51,7 +51,7 @@ class CarryForwardService(cassandraOperation: CassandraOperation) {
     val row = new util.HashMap[String, AnyRef]()
     row.put("userid", userId); row.put("collectionid", courseId); row.put("contextid", batchId); row.put("contentid", leaf)
     row.put("status", Integer.valueOf(2)); row.put("progress", Integer.valueOf(100))
-    Option(src.get("last_completed_time")).foreach(row.put("last_completed_time", _))
+    Option(src.get("lastCompletedTime")).orElse(Option(src.get("last_completed_time"))).foreach(row.put("last_completed_time", _))
     row.put("last_updated_time", org.sunbird.common.ProjectUtil.getTimeStamp)
     cassandraOperation.upsertRecord(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE, row, ctx)
   }
@@ -65,7 +65,9 @@ class CarryForwardService(cassandraOperation: CassandraOperation) {
         put("user_id", userId); put("collection_id", srcColl); put("context_id", srcCtx); put("content_id", leaf)
       }}
       getRecords(assessmentDBInfo.getKeySpace, assessmentDBInfo.getTableName, filters, ctx).asScala.foreach { a =>
-        val copy = new util.HashMap[String, AnyRef](a)
+        // reads come back with some columns camelCased; write them under their real column names
+        val copy = new util.HashMap[String, AnyRef]()
+        a.asScala.foreach { case (k, v) => copy.put(CarryForwardService.assessmentColumn.getOrElse(k, k), v) }
         copy.put("collection_id", courseId); copy.put("context_id", batchId)
         cassandraOperation.upsertRecord(assessmentDBInfo.getKeySpace, assessmentDBInfo.getTableName, copy, ctx)
       }
@@ -80,16 +82,24 @@ class CarryForwardService(cassandraOperation: CassandraOperation) {
       .getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]])
       .asInstanceOf[util.List[util.Map[String, AnyRef]]]
 
-  private def str(v: AnyRef): String = if (v == null) null else v.toString
   private def num(v: AnyRef): Double = v match {
     case n: Number => n.doubleValue()
     case s: String if s.nonEmpty => try s.toDouble catch { case _: Throwable => 0.0 }
     case _ => 0.0
   }
-  private def lastCompletedMillis(r: util.Map[String, AnyRef]): Option[Long] = r.get("last_completed_time") match {
+  // production CassandraUtil camelCases some columns on read (cassandratablecolumn.properties); accept either spelling
+  private def field(r: util.Map[String, AnyRef], keys: String*): String = keys.iterator.map(r.get).find(_ != null).map(_.toString).orNull
+  private def lastCompletedMillis(r: util.Map[String, AnyRef]): Option[Long] = Option(r.get("lastCompletedTime")).orElse(Option(r.get("last_completed_time"))).orNull match {
     case d: java.util.Date => Some(d.getTime)
     case n: Number => Some(n.longValue())
     case s: String if s.nonEmpty => try Some(s.toLong) catch { case _: Throwable => None }
     case _ => None
   }
+}
+
+object CarryForwardService {
+  // assessment_aggregator columns CassandraUtil renames on read (cassandratablecolumn.properties) -> real column names
+  private[actor] val assessmentColumn: Map[String, String] = Map(
+    "attemptId" -> "attempt_id", "lastAttemptedOn" -> "last_attempted_on",
+    "totalScore" -> "total_score", "totalMaxScore" -> "total_max_score")
 }
