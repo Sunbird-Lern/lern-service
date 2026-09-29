@@ -23,6 +23,7 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
 
   private var cassandraOperation: CassandraOperation = ServiceFactory.getInstance
   private var hierarchyRelationsUtil: HierarchyRelationsUtil = HierarchyRelationsUtil(cassandraOperation)
+  private var carryForwardService: CarryForwardService = new CarryForwardService(cassandraOperation)
   private val activityAggUtil = new ActivityAggregateUtil()
   private var certificateUtil: CertificateUtil = CertificateUtil()
   private val gson = new Gson()
@@ -44,6 +45,9 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
             logger.error(request.getRequestContext, s"ViewerAggregatorActor.aggregate failed: ${ex.getMessage}", ex)
             ProjectCommonException.throwServerErrorException(ResponseCode.SERVER_ERROR, ex.getMessage)
         }
+      case "enrolHook" =>
+        try { enrolHook(request); sender().tell(successResponse(), self) }
+        catch { case ex: Exception => logger.error(request.getRequestContext, s"ViewerAggregatorActor.enrolHook failed: ${ex.getMessage}", ex); sender().tell(successResponse(), self) }
       case _           => onReceiveUnsupportedOperation(request.getOperation)
     }
   }
@@ -54,26 +58,120 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
     // accept courseId (else legacy courseId) / batchId (else legacy batchId)
     val courseId = ViewerRequestKeys.courseId(request).orNull
     val batchId = ViewerRequestKeys.batchId(request).orNull
+    val contentId = Option(request.get("contentId")).map(_.toString).filter(_.nonEmpty).orNull
     if (userId == null || courseId == null) {
       logger.warn(ctx, s"ViewerAggregatorActor: missing userId/courseId, skipping", null)
       return
     }
 
-    logger.info(ctx, s"viewer.rollup: start | user=$userId course=$courseId batch=$batchId")
+    logger.info(ctx, s"viewer.rollup: start | user=$userId course=$courseId batch=$batchId mode=${ViewerMode.mode()}")
 
-    // 1. Read this user's consumption for the (root) collection+context from viewer ucc, build status map
+    ViewerMode.mode() match {
+      // NoContext: the trigger key is collapsed (content/collection), so fan out to the user's REAL enrolments.
+      case "noContext" => aggregateNoContext(userId, courseId, contentId, ViewerMode.scope(), ctx)
+      // Copy: roll up the triggering enrolment, then carry the leaf into other active enrolments that contain it.
+      case "copy"      => aggregateCopy(userId, courseId, batchId, contentId, ViewerMode.scope(), ctx)
+      // strict: consumption lives at (collection, batch); recompute the triggering enrolment tree (today's path).
+      case _           => recomputeStrict(userId, courseId, batchId, ctx)
+    }
+  }
+
+  // strict / copy in-context recompute: consumption at (collection, batch) -> rollup the triggering enrolment tree.
+  private def recomputeStrict(userId: String, courseId: String, batchId: String, ctx: RequestContext): Unit = {
     val rows = readConsumption(userId, courseId, batchId, ctx)
     if (CollectionUtils.isEmpty(rows)) {
       logger.info(ctx, s"viewer.rollup: no-consumption skip | user=$userId course=$courseId")
       return
     }
     val contentStatusMap: Map[String, ContentStatus] = activityAggUtil.getContentStatusFromContents(rows)
+    rollupFromStatusMap(userId, courseId, batchId, contentStatusMap, storeContentStatus = true, ctx)
+  }
+
+  // Copy: recompute the triggering enrolment, then reverse fan-out - carry the just-consumed leaf into the user's other
+  // active enrolments whose hierarchy contains it (rule-gated), and recompute each. Guard skips already-complete enrolments.
+  private def aggregateCopy(userId: String, courseId: String, batchId: String, contentId: String, scope: String, ctx: RequestContext): Unit = {
+    recomputeStrict(userId, courseId, batchId, ctx)
+    if (contentId != null) {
+      activeTopLevelEnrolments(userId, ctx).foreach { case (course, batch, status) =>
+        if (status != 2 && !(course == courseId && batch == batchId) &&
+            hierarchyRelationsUtil.getLeafNodes(course, course, ctx).contains(contentId))
+          carryAndRecompute(userId, course, batch, scope, ctx)
+      }
+    }
+  }
+
+  // carry the user's qualifying prior completions into (course, batch), then recompute (copied rows are now at the strict key).
+  private def carryAndRecompute(userId: String, courseId: String, batchId: String, scope: String, ctx: RequestContext): Unit = {
+    val leaves = hierarchyRelationsUtil.getLeafNodes(courseId, courseId, ctx)
+    if (leaves.isEmpty) return
+    val target = targetOf(courseId, batchId, ctx) // the target (course, batch)'s own window -> withinContextDuration
+    carryForwardService.carryForward(userId, courseId, batchId, leaves, scope, target, System.currentTimeMillis(), ctx)
+    recomputeStrict(userId, courseId, batchId, ctx)
+  }
+
+  // carry-forward window = the target (course, batch)'s own start/end from course_batch (fail-safe None -> withinContextDuration abstains).
+  private def targetOf(courseId: String, batchId: String, ctx: RequestContext): CarryForwardRules.Target =
+    try {
+      val keyspace = Option(ProjectUtil.getConfigValue("sunbird_course_keyspace")).getOrElse("sunbird_courses")
+      val filters = new util.HashMap[String, AnyRef]() {{ put("courseid", courseId); put("batchid", batchId) }}
+      val rows = cassandraOperation.getRecords(keyspace, "course_batch", filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)
+        .getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]])
+        .asInstanceOf[util.List[util.Map[String, AnyRef]]]
+      if (rows.isEmpty) CarryForwardRules.Target(None, None, None)
+      else {
+        val r = rows.get(0)
+        val start = millisOf(r, "start_date", "startDate")     // batch schedule window
+        val end = millisOf(r, "end_date", "endDate")           // absent for an open-ended batch -> rule checks only "after start"
+        CarryForwardRules.Target(start, end, None)
+      }
+    } catch { case _: Throwable => CarryForwardRules.Target(None, None, None) }
+
+  // first non-null of the given columns, as epoch millis; tolerates Date, Number, epoch-string, or "yyyy-MM-dd[ HH:mm:ss]"
+  private def millisOf(r: util.Map[String, AnyRef], keys: String*): Option[Long] =
+    keys.iterator.map(r.get).find(_ != null).flatMap {
+      case d: java.util.Date => Some(d.getTime)
+      case n: Number         => Some(n.longValue())
+      case s: String if s.nonEmpty => parseMillis(s)
+      case _                 => None
+    }
+
+  // course_batch timestamps come back as Date (handled above); this is a fail-safe for a string form like "2026-07-14 18:30:00.000000+0000"
+  private def parseMillis(s: String): Option[Long] = {
+    try return Some(s.toLong) catch { case _: Throwable => }
+    List("yyyy-MM-dd HH:mm:ss.SSSSSSZ", "yyyy-MM-dd HH:mm:ss.SSSZ", "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd").foreach { f =>
+      try {
+        val fmt = new java.text.SimpleDateFormat(f); fmt.setTimeZone(java.util.TimeZone.getTimeZone("UTC"))
+        return Some(fmt.parse(s).getTime)
+      } catch { case _: Throwable => }
+    }
+    None
+  }
+
+  // Enrol hook (called after upsertEnrollment): copy carries prior completions; noContext recomputes from existing rows; strict is a no-op.
+  private def enrolHook(request: Request): Unit = {
+    val ctx = request.getRequestContext
+    val userId = request.get(JsonKey.USER_ID).asInstanceOf[String]
+    val courseId = ViewerRequestKeys.courseId(request).orNull
+    val batchId = ViewerRequestKeys.batchId(request).orNull
+    if (userId == null || courseId == null) return
+    ViewerMode.mode() match {
+      case "copy"      => carryAndRecompute(userId, courseId, batchId, ViewerMode.scope(), ctx)
+      case "noContext" => recomputeNoContext(userId, courseId, batchId, ViewerMode.scope(), ctx)
+      case _           => // strict: no-op
+    }
+  }
+
+  // The recursive rollup given a (userId, courseId, batchId) enrolment tree and an already-computed leaf-status map.
+  // storeContentStatus=false (NoContext Content) skips writing the contentstatus column - status is resolve-on-read.
+  private def rollupFromStatusMap(userId: String, courseId: String, batchId: String,
+                                  contentStatusMap: Map[String, ContentStatus], storeContentStatus: Boolean,
+                                  ctx: RequestContext): Unit = {
     val uc = UserContentConsumption(userId, batchId, courseId, contentStatusMap)
 
-    // 2. Per-learner optional COURSES from user_enrolments.optional_nodes (LP policy; course-level).
+    // Per-learner optional COURSES from user_enrolments.optional_nodes (LP policy; course-level).
     val perLearnerOptionalCourses: List[String] = readOptionalNodes(userId, courseId, batchId, ctx)
 
-    // 3. Root leaves + the tree's nodes (via ancestors) — needed before computing effectiveOptional.
+    // Root leaves + the tree's nodes (via ancestors) — needed before computing effectiveOptional.
     val leafNodes = hierarchyRelationsUtil.getLeafNodes(courseId, courseId, ctx)
     if (leafNodes.isEmpty) {
       logger.warn(ctx, s"ViewerAggregatorActor: no leafNodes for courseId=$courseId; is hierarchy_relations published?", null)
@@ -90,7 +188,7 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
     val optionalCourseLeaves = perLearnerOptionalCourses.flatMap(c => hierarchyRelationsUtil.getLeafNodes(courseId, c, ctx)).distinct
     val effectiveOptional: List[String] = (hierarchyOptionalLeaves ++ optionalCourseLeaves).distinct
 
-    // 4. Aggregates: root + every ancestor node; required per node = its leafNodes − effectiveOptional.
+    // Aggregates: root + every ancestor node; required per node = its leafNodes − effectiveOptional.
     val courseAgg = activityAggUtil.computeCourseActivityAgg(uc, leafNodes, effectiveOptional, ctx)
     val collectionsWithLeafNodes: Map[String, List[String]] = childCollections.map { col =>
       (col, hierarchyRelationsUtil.getLeafNodes(courseId, col, ctx).diff(effectiveOptional))
@@ -99,18 +197,79 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
 
     val allAggs: List[UserEnrolmentAgg] = courseAgg.toList ++ moduleAggs
 
-    // 5. Write user_activity_agg (frozen content_status + agg) for root + every node
+    // Write user_activity_agg (frozen content_status + agg) for root + every node
     writeActivityAggregates(allAggs, ctx)
     logger.info(ctx, s"viewer.rollup: nodes rolled-up n=${allAggs.size} | user=$userId course=$courseId batch=$batchId")
 
-    // 6. Per-node progress: nodeId -> (completedCount, requiredLeaves) for root + every trackable ancestor.
+    // Per-node progress: nodeId -> (completedCount, requiredLeaves) for root + every trackable ancestor.
     val nodeProgress = scala.collection.mutable.LinkedHashMap[String, (Int, List[String])]()
     courseAgg.foreach(a => nodeProgress(courseId) = (completedCountOf(a), leafNodes.diff(effectiveOptional)))
     moduleAggs.foreach(a => nodeProgress(a.activityAgg.activity_id) =
       (completedCountOf(a), collectionsWithLeafNodes.getOrElse(a.activityAgg.activity_id, Nil)))
 
-    // 7. Update user_enrolments status for every enrolled node in this tree (keyed off existing rows; root included)
-    writeAllNodeEnrolments(userId, courseId, batchId, nodeProgress.toMap, contentStatusMap, ctx)
+    // Update user_enrolments status for every enrolled node in this tree (keyed off existing rows; root included)
+    writeAllNodeEnrolments(userId, courseId, batchId, nodeProgress.toMap, contentStatusMap, storeContentStatus, ctx)
+  }
+
+  // NoContext: the write key is collapsed, so find the user's real active enrolments the completion affects and recompute each.
+  private def aggregateNoContext(userId: String, collapsedCourse: String, contentId: String, scope: String, ctx: RequestContext): Unit = {
+    val enrolments = activeTopLevelEnrolments(userId, ctx)
+    val targets = scope match {
+      // collection: the collapsed course IS the collection -> recompute each of the user's active batches of it
+      case "collection" => enrolments.filter { case (course, _, _) => course == collapsedCourse }
+      // content: the collapsed course IS the leaf -> recompute each active course whose hierarchy contains it
+      case _ =>
+        if (contentId == null) Nil
+        else enrolments.filter { case (course, _, _) => hierarchyRelationsUtil.getLeafNodes(course, course, ctx).contains(contentId) }
+    }
+    targets.foreach { case (course, batch, status) =>
+      // recompute guard: an already-complete enrolment is terminal (status is monotonic) -> skip the recompute
+      if (status != 2) recomputeNoContext(userId, course, batch, scope, ctx)
+    }
+  }
+
+  private def recomputeNoContext(userId: String, courseId: String, batchId: String, scope: String, ctx: RequestContext): Unit = {
+    val leafNodes = hierarchyRelationsUtil.getLeafNodes(courseId, courseId, ctx)
+    if (leafNodes.isEmpty) return
+    val rows = new util.ArrayList[util.Map[String, AnyRef]]()
+    scope match {
+      case "collection" =>
+        // NoContext Collection lands every leaf at (collection, collection) - clients consume at the root, so one slice has the whole tree
+        rows.addAll(readConsumption(userId, courseId, courseId, ctx))
+      case _ =>
+        // content: status lives at (leaf, leaf, leaf) -> point-read each leaf
+        leafNodes.foreach(l => rows.addAll(readLeaf(userId, l, ctx)))
+    }
+    if (CollectionUtils.isEmpty(rows)) return
+    val contentStatusMap = activityAggUtil.getContentStatusFromContents(rows)
+    rollupFromStatusMap(userId, courseId, batchId, contentStatusMap, storeContentStatus = scope == "collection", ctx)
+  }
+
+  // the user's active, top-level enrolments (synthetic child batches "parent:child" excluded); returns (courseId, batchId, status)
+  private def activeTopLevelEnrolments(userId: String, ctx: RequestContext): List[(String, String, Int)] = {
+    val filters = new util.HashMap[String, AnyRef]() {{ put("userid", userId) }}
+    val rows = cassandraOperation.getRecords(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName,
+      filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)
+      .getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]])
+      .asInstanceOf[util.List[util.Map[String, AnyRef]]]
+    rows.asScala.toList.flatMap { row =>
+      val course = Option(row.get("courseId")).map(_.toString).orNull
+      val batch = Option(row.get("batchId")).map(_.toString).orNull
+      val active = Option(row.get("active")).forall(a => a.toString.toBoolean)
+      val status = Option(row.get("status")).map(_.asInstanceOf[Number].intValue()).getOrElse(0)
+      if (course != null && batch != null && active && !batch.contains(":")) Some((course, batch, status)) else None
+    }
+  }
+
+  // point-read a single content-level completion at its NoContext Content key (leaf, leaf, leaf)
+  private def readLeaf(userId: String, leaf: String, ctx: RequestContext): util.List[util.Map[String, AnyRef]] = {
+    val filters = new util.HashMap[String, AnyRef]() {{
+      put("userid", userId); put("collectionid", leaf); put("contextid", leaf); put("contentid", leaf)
+    }}
+    cassandraOperation.getRecords(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE,
+      filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)
+      .getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]])
+      .asInstanceOf[util.List[util.Map[String, AnyRef]]]
   }
 
   private def completedCountOf(a: UserEnrolmentAgg): Int =
@@ -125,7 +284,7 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
   // update every node's enrolment row in this tree; matches on courseid ∈ tree AND this LP's batchid (standalone enrolments untouched)
   private def writeAllNodeEnrolments(userId: String, rootId: String, batchId: String,
                                      nodeProgress: Map[String, (Int, List[String])],
-                                     contentStatusMap: Map[String, ContentStatus], ctx: RequestContext): Unit = {
+                                     contentStatusMap: Map[String, ContentStatus], storeContentStatus: Boolean, ctx: RequestContext): Unit = {
     val filters = new util.HashMap[String, AnyRef]() {{ put("userid", userId) }}
     val enrolRows = cassandraOperation.getRecords(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName,
       filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)
@@ -142,10 +301,14 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
         val status = activityAggUtil.getCompletionStatus(completedCount, required)
         val pct = activityAggUtil.getCompletionPercentage(completedCount, required)
         val currentStatus = Option(row.get("status")).map(_.asInstanceOf[Number].intValue()).getOrElse(0)
-        val nodeContentStatus: Map[String, AnyRef] =
-          requiredLeaves.flatMap(l => contentStatusMap.get(l).map(cs => l -> Integer.valueOf(cs.status).asInstanceOf[AnyRef])).toMap
-        // updateRecordV2 replaces the whole contentstatus column, so merge into the existing map to avoid clobbering unseen leaves
-        val mergedContentStatus = ViewerAggregatorActor.mergeContentStatus(row.get("contentStatus"), nodeContentStatus)
+        // updateRecordV2 replaces the whole contentstatus column, so merge fresh leaf statuses into the existing map (avoid clobbering
+        // unseen leaves). Skipped entirely for NoContext Content (storeContentStatus=false), which is resolve-on-read.
+        val mergedContentStatus: java.util.Map[String, AnyRef] =
+          if (storeContentStatus) {
+            val nodeContentStatus: Map[String, AnyRef] =
+              requiredLeaves.flatMap(l => contentStatusMap.get(l).map(cs => l -> Integer.valueOf(cs.status).asInstanceOf[AnyRef])).toMap
+            ViewerAggregatorActor.mergeContentStatus(row.get("contentStatus"), nodeContentStatus)
+          } else null
         val selectMap = new util.HashMap[String, AnyRef]() {{
           put("userid", userId); put("courseid", nodeId); put("batchid", nodeCtx)
         }}
@@ -153,7 +316,8 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
           put("progress", Integer.valueOf(completedCount))
           put("status", Integer.valueOf(status))
           put("completionpercentage", Integer.valueOf(pct))
-          put("contentstatus", mergedContentStatus)
+          // NoContext Content is resolve-on-read: skip the stored map (a content-level completion belongs to every course containing the leaf)
+          if (storeContentStatus) put("contentstatus", mergedContentStatus)
           if (status == 2 && currentStatus != 2) put("completedon", new java.util.Date())
         }}
         cassandraOperation.updateRecordV2(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, selectMap, updateMap, true, ctx)
@@ -217,7 +381,7 @@ class ViewerAggregatorActor extends BaseEnrolmentActor {
 
   // for tests
   def configure(ops: CassandraOperation, hru: HierarchyRelationsUtil): ViewerAggregatorActor = {
-    cassandraOperation = ops; hierarchyRelationsUtil = hru; this
+    cassandraOperation = ops; hierarchyRelationsUtil = hru; carryForwardService = new CarryForwardService(ops); this
   }
 }
 
