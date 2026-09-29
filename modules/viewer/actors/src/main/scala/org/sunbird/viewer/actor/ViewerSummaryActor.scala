@@ -2,6 +2,8 @@ package org.sunbird.viewer.actor
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.apache.commons.lang3.StringUtils
+import org.sunbird.activity.util.HierarchyRelationsUtil
+import org.sunbird.cassandra.CassandraOperation
 import org.sunbird.common.ProjectUtil
 import org.sunbird.enrolments.BaseEnrolmentActor
 import org.sunbird.exception.ProjectCommonException
@@ -19,6 +21,8 @@ import scala.collection.JavaConverters._
 class ViewerSummaryActor extends BaseEnrolmentActor {
 
   private var cassandraOperation = ServiceFactory.getInstance
+  private var hierarchyRelationsUtil: HierarchyRelationsUtil = HierarchyRelationsUtil(cassandraOperation)
+  private val CONSUMPTION_TABLE = "user_content_consumption"
   private val enrolmentDBInfo = Util.dbInfoMap.get(JsonKey.LEARNER_COURSE_DB)
   private val assessmentDBInfo = Util.dbInfoMap.get(JsonKey.ASSESSMENT_AGGREGATOR_DB)
   private val consumptionDBInfo = Util.dbInfoMap.get(JsonKey.LEARNER_CONTENT_DB)
@@ -53,8 +57,9 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
     val response = new Response
     if (!enrolments.isEmpty) {
       val collections = collectionsMap(collectionIdsOf(enrolments), request)
-      val assess = assessmentMap(userId, collectionIdsOf(enrolments), ctx)
-      toSummary(enrolments.get(0), collections, assess, ctx).asScala.foreach { case (k, v) => response.put(k, v) }
+      val (contentMode, courseLeaves, completions, assessIds) = contentEnrichment(userId, enrolments, ctx)
+      val assess = assessmentMap(userId, assessIds, ctx)
+      toSummary(enrolments.get(0), collections, assess, ctx, contentMode, courseLeaves, completions).asScala.foreach { case (k, v) => response.put(k, v) }
     }
     sender().tell(response, self)
   }
@@ -68,9 +73,10 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
     val enrolments = getRecords(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, filters, ctx)
     logger.info(ctx, s"summary: list | user=$userId rows=${enrolments.size}")
     val collections = collectionsMap(collectionIdsOf(enrolments), request)
-    val assess = assessmentMap(userId, collectionIdsOf(enrolments), ctx)
+    val (contentMode, courseLeaves, completions, assessIds) = contentEnrichment(userId, enrolments, ctx)
+    val assess = assessmentMap(userId, assessIds, ctx)
     val summaries = new util.ArrayList[util.Map[String, AnyRef]]()
-    enrolments.asScala.foreach(r => summaries.add(toSummary(r, collections, assess, ctx)))
+    enrolments.asScala.foreach(r => summaries.add(toSummary(r, collections, assess, ctx, contentMode, courseLeaves, completions)))
     val response = new Response
     response.put("summary", summaries)
     sender().tell(response, self)
@@ -88,9 +94,10 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
       if (format == "csv") ("csv", toCsv(enrolments))
       else {
         val collections = collectionsMap(collectionIdsOf(enrolments), request)
-        val assess = assessmentMap(userId, collectionIdsOf(enrolments), ctx)
+        val (contentMode, courseLeaves, completions, assessIds) = contentEnrichment(userId, enrolments, ctx)
+        val assess = assessmentMap(userId, assessIds, ctx)
         val summaries = new util.ArrayList[util.Map[String, AnyRef]]()
-        enrolments.asScala.foreach(r => summaries.add(toSummary(r, collections, assess, ctx)))
+        enrolments.asScala.foreach(r => summaries.add(toSummary(r, collections, assess, ctx, contentMode, courseLeaves, completions)))
         ("json", mapper.writeValueAsString(summaries))
       }
     val response = new Response
@@ -100,7 +107,9 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
   }
 
   private def toSummary(row: util.Map[String, AnyRef], collections: util.Map[String, util.Map[String, AnyRef]],
-                        assess: Map[(String, String), util.Map[String, AnyRef]], ctx: RequestContext): util.Map[String, AnyRef] = {
+                        assess: Map[(String, String), util.Map[String, AnyRef]], ctx: RequestContext,
+                        contentMode: Boolean = false, courseLeaves: Map[String, List[String]] = Map.empty,
+                        completions: Map[String, Int] = Map.empty): util.Map[String, AnyRef] = {
     val userId = str(row.get("userId"))
     val collectionId = str(firstNonNull(row.get("courseId"), row.get("courseid")))
     val contextId = str(firstNonNull(row.get("batchId"), row.get("batchid")))
@@ -110,14 +119,60 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
     s.put("contextId", contextId)
     s.put("enrolledDate", firstNonNull(row.get("enrolledDate"), row.get("enrolleddate"), row.get("oldEnrolledDate")))
     s.put("active", row.getOrDefault("active", java.lang.Boolean.TRUE))
-    s.put("contentStatus", firstNonNull(row.get("contentStatus"), row.get("contentstatus")))
-    s.put("assessmentStatus", assess.getOrElse((collectionId, contextId), new util.HashMap[String, AnyRef]()))
+    // NoContext Content is resolve-on-read: the stored contentstatus column is empty, so build it per-leaf; other modes read the stored map
+    val complete = num(row.getOrDefault("status", Integer.valueOf(0))).toInt == 2
+    s.put("contentStatus",
+      if (contentMode) resolveContentStatus(complete, courseLeaves.getOrElse(collectionId, Nil), completions)
+      else firstNonNull(row.get("contentStatus"), row.get("contentstatus")))
+    s.put("assessmentStatus",
+      if (contentMode) resolveLeafAssessments(courseLeaves.getOrElse(collectionId, Nil), assess)
+      else assess.getOrElse((collectionId, contextId), new util.HashMap[String, AnyRef]()))
     s.put("collection", collectionBlock(collections.get(collectionId), collectionId))
     s.put("issuedCertificates", firstNonNull(row.get("issuedCertificates"), row.get("issued_certificates"), new util.ArrayList[AnyRef]()))
     s.put("completedOn", firstNonNull(row.get("completedOn"), row.get("completedon")))
     s.put("progress", row.getOrDefault("progress", Integer.valueOf(0)))
     s.put("status", row.getOrDefault("status", Integer.valueOf(0)))
     s
+  }
+
+  private def isNoContextContent: Boolean = ViewerMode.mode() == "noContext" && ViewerMode.scope() == "content"
+
+  // Per-request enrichment for NoContext Content: (contentMode, courseId -> leaves, contentId -> status, collectionIds to query assessments for).
+  // Non-content modes read the stored column, so this is a no-op returning the enrolments' collectionIds unchanged.
+  private def contentEnrichment(userId: String, enrolments: util.List[util.Map[String, AnyRef]], ctx: RequestContext)
+      : (Boolean, Map[String, List[String]], Map[String, Int], util.List[String]) = {
+    if (!isNoContextContent) return (false, Map.empty, Map.empty, collectionIdsOf(enrolments))
+    val courseIds = collectionIdsOf(enrolments).asScala.toList.distinct
+    val courseLeaves = courseIds.map(c => c -> (try hierarchyRelationsUtil.getLeafNodes(c, c, ctx) catch { case _: Throwable => Nil })).toMap
+    val completions = contentLevelCompletions(userId, ctx)
+    // NoContext Content assessments live at (leaf, leaf) -> also query the leaves
+    val assessIds = new util.ArrayList[String](); (courseIds ++ courseLeaves.values.flatten).distinct.foreach(assessIds.add)
+    (true, courseLeaves, completions, assessIds)
+  }
+
+  // NoContext Content stores each completion at (leaf, leaf, leaf); read the user's ucc partition once -> { contentId -> status }
+  private def contentLevelCompletions(userId: String, ctx: RequestContext): Map[String, Int] = {
+    val rows = getRecords(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE, new util.HashMap[String, AnyRef]() {{ put("userid", userId) }}, ctx)
+    rows.asScala.flatMap { r =>
+      val coll = str(firstNonNull(r.get("collectionid"), r.get("collectionId")))
+      val cxt = str(firstNonNull(r.get("contextid"), r.get("contextId")))
+      val cont = str(firstNonNull(r.get("contentid"), r.get("contentId")))
+      if (cont != null && cont == coll && cont == cxt) Some(cont -> num(r.get("status")).toInt) else None
+    }.toMap
+  }
+
+  // resolve-on-read: an already-complete enrolment is all-done (skip the per-leaf lookup); else map each leaf to its content-level status
+  private def resolveContentStatus(complete: Boolean, leaves: List[String], completions: Map[String, Int]): util.Map[String, AnyRef] = {
+    val m = new util.HashMap[String, AnyRef]()
+    leaves.foreach(l => m.put(l, Integer.valueOf(if (complete) 2 else completions.getOrElse(l, 0))))
+    m
+  }
+
+  // NoContext Content assessments live at (leaf, leaf); merge each leaf's entry from the batched assess map
+  private def resolveLeafAssessments(leaves: List[String], assess: Map[(String, String), util.Map[String, AnyRef]]): util.Map[String, AnyRef] = {
+    val m = new util.HashMap[String, AnyRef]()
+    leaves.foreach(l => assess.get((l, l)).foreach(pc => pc.asScala.foreach { case (cid, v) => m.put(cid, v) }))
+    m
   }
 
   private def collectionIdsOf(enrolments: util.List[util.Map[String, AnyRef]]): util.List[String] = {
@@ -245,15 +300,43 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
     sender().tell(response, self)
   }
 
-  // delete the (user, collection, context) footprint across all four tables; each delete is fail-safe so one failure doesn't strand the rest
+  // ownership-based purge: always drop what the enrolment OWNS (its user_enrolments row + user_activity_agg); the low-level
+  // ucc/assessment rows are dropped only when this enrolment is their last referencer (mode-dependent). Each delete is fail-safe.
   private def purge(userId: String, collectionId: String, contextId: String, ctx: RequestContext): Unit = {
     deleteBy(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, key("userid" -> userId, "courseid" -> collectionId, "batchid" -> contextId), ctx)
-    deleteBy(consumptionDBInfo.getKeySpace, consumptionDBInfo.getTableName, key("userid" -> userId, "collectionid" -> collectionId, "contextid" -> contextId), ctx)
-    deleteBy(assessmentDBInfo.getKeySpace, assessmentDBInfo.getTableName, key("user_id" -> userId, "collection_id" -> collectionId, "context_id" -> contextId), ctx)
-    // user_activity_agg keys context_id as "cb:"+batchId for a course batch; skip only the nested-module aggregate rows, which self-heal on the next rollup
+    // user_activity_agg keys context_id as "cb:"+batchId for a course batch; nested-module aggregate rows self-heal on the next rollup
     if (StringUtils.isNotBlank(contextId))
       deleteBy(activityAggDBInfo.getKeySpace, activityAggDBInfo.getTableName,
         key("activity_type" -> "Course", "activity_id" -> collectionId, "user_id" -> userId, "context_id" -> ("cb:" + contextId)), ctx)
+    purgeLowLevel(userId, collectionId, contextId, ctx)
+  }
+
+  // low-level ucc/assessment rows: delete only what this enrolment owns, resolving the key per mode.
+  private def purgeLowLevel(userId: String, collectionId: String, contextId: String, ctx: RequestContext): Unit =
+    (ViewerMode.mode(), ViewerMode.scope()) match {
+      // NoContext Content: rows at (leaf,leaf,leaf) are user-owned facts shared across every course -> never dropped on un-enrol
+      case ("noContext", "content") =>
+      // NoContext Collection: rows at (collection,collection) are shared across the user's batches of C -> drop only when this is the last active batch
+      case ("noContext", "collection") =>
+        if (!hasOtherActiveBatch(userId, collectionId, contextId, ctx)) {
+          deleteBy(consumptionDBInfo.getKeySpace, consumptionDBInfo.getTableName, key("userid" -> userId, "collectionid" -> collectionId, "contextid" -> collectionId), ctx)
+          deleteBy(assessmentDBInfo.getKeySpace, assessmentDBInfo.getTableName, key("user_id" -> userId, "collection_id" -> collectionId, "context_id" -> collectionId), ctx)
+        }
+      // strict / copy: rows unique to (collection, batch). Copy's copied rows live here; the source lives at a different key, so it is untouched by construction.
+      case _ =>
+        deleteBy(consumptionDBInfo.getKeySpace, consumptionDBInfo.getTableName, key("userid" -> userId, "collectionid" -> collectionId, "contextid" -> contextId), ctx)
+        deleteBy(assessmentDBInfo.getKeySpace, assessmentDBInfo.getTableName, key("user_id" -> userId, "collection_id" -> collectionId, "context_id" -> contextId), ctx)
+    }
+
+  // true if the user has another active top-level batch of this collection (so its shared low-level rows must survive)
+  private def hasOtherActiveBatch(userId: String, collectionId: String, excludeBatch: String, ctx: RequestContext): Boolean = {
+    val rows = getRecords(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName,
+      new util.HashMap[String, AnyRef]() {{ put("userid", userId); put("courseid", collectionId) }}, ctx)
+    rows.asScala.exists { r =>
+      val b = str(firstNonNull(r.get("batchId"), r.get("batchid")))
+      val active = Option(r.get("active")).forall(a => a.toString.toBoolean)
+      b != null && b != excludeBatch && active && !b.contains(":")
+    }
   }
 
   private def deleteBy(keyspace: String, table: String, k: util.Map[String, String], ctx: RequestContext): Unit =
@@ -288,5 +371,9 @@ class ViewerSummaryActor extends BaseEnrolmentActor {
   def setCassandraOperation(ops: org.sunbird.cassandra.CassandraOperation): ViewerSummaryActor = {
     cassandraOperation = ops
     this
+  }
+
+  def configure(ops: CassandraOperation, hru: HierarchyRelationsUtil): ViewerSummaryActor = {
+    cassandraOperation = ops; hierarchyRelationsUtil = hru; this
   }
 }

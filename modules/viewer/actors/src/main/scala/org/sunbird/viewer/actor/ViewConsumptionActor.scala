@@ -142,9 +142,8 @@ class ViewConsumptionActor @Inject() (
     // assessments are per-attempt (not best-per-content), each tagged with its contentId
     val assessments = new util.ArrayList[util.Map[String, AnyRef]]()
     contentIds.foreach { cid =>
-      // same cascade viewAssess wrote with: collectionid <- courseId?:content, contextid <- batchId?:courseId?:content
-      val collectionId = courseIdOpt.getOrElse(cid)
-      val contextId = batchIdOpt.orElse(courseIdOpt).getOrElse(cid)
+      // same key viewAssess wrote with, via the mode resolver (strict = the old cascade)
+      val (collectionId, contextId) = ViewerMode.resolveKey(ViewerMode.mode(), ViewerMode.scope(), courseIdOpt, batchIdOpt, cid)
       val stored = assessmentCassandra.getUserAssessments(userId, collectionId, contextId, cid, ctx)
       stored.foreach { a =>
         val m = new util.HashMap[String, AnyRef]()
@@ -181,17 +180,20 @@ class ViewConsumptionActor @Inject() (
       ProjectCommonException.throwClientErrorException(ResponseCode.mandatoryParamsMissing, "contentId or collectionId is required")
     // individual content (no collection): PK collapses to the single contentId for collection+context (scenario 1)
     val singleContent = if (courseIdOpt.isEmpty && hasContent && contentIds.size == 1) contentIds.get(0) else null
-    val collectionId = courseIdOpt.getOrElse(singleContent)
-    val contextId = batchIdOpt.orElse(courseIdOpt).getOrElse(singleContent)
+    // (collectionid, contextid) via the mode resolver; strict reproduces the old cascade off singleContent
+    val (collectionId, contextId) = ViewerMode.resolveKey(ViewerMode.mode(), ViewerMode.scope(), courseIdOpt, batchIdOpt, singleContent)
     val filters = new util.HashMap[String, AnyRef]()
     filters.put("userid", userId)
     if (collectionId != null) filters.put("collectionid", collectionId)
     if (!allContexts && contextId != null) filters.put("contextid", contextId)
     if (hasContent) filters.put("contentid", contentIds)
-    val response = cassandraOperation.getRecords(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE,
-      filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)
-    val rows = response.getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]])
-      .asInstanceOf[util.List[util.Map[String, AnyRef]]]
+    // a whole-collection read the mode collapsed to no collection key (NoContext Content) owns no rows under a collection key -> serve empty, don't scan the userid partition
+    val rows: util.List[util.Map[String, AnyRef]] =
+      if (collectionId == null && !hasContent) new util.ArrayList[util.Map[String, AnyRef]]()
+      else cassandraOperation.getRecords(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE,
+          filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)
+        .getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]])
+        .asInstanceOf[util.List[util.Map[String, AnyRef]]]
     // per-item operational fields (viewCount/last*Time/completionPercentage) are retained so content/state can reconstruct its ucc row
     val contents = new util.ArrayList[util.Map[String, AnyRef]]()
     rows.asScala.foreach(r => contents.add(toContentItem(r)))
@@ -305,23 +307,24 @@ class ViewConsumptionActor @Inject() (
     aggRequest.put(JsonKey.USER_ID, key.get("userid"))
     aggRequest.put("courseId", key.get("collectionid"))
     aggRequest.put("batchId", key.get("contextid"))
+    aggRequest.put("contentId", key.get("contentid")) // the leaf; NoContext fan-out needs it (keys are collapsed)
     logger.info(ctx, s"view: rollup triggered | user=${key.get("userid")} course=${key.get("collectionid")} batch=${key.get("contextid")}")
     viewerAggregatorActor.tell(aggRequest, ActorRef.noSender)
   }
 
-  // ucc primary key; missing keys cascade: courseid <- contentId, batchid <- courseId <- contentId (design scenarios 1-3)
+  // ucc primary key; (collectionid, contextid) come from the mode resolver (strict = the old cascade). contentid is always the content.
   private def viewKey(request: Request): util.HashMap[String, AnyRef] = {
     // explicit userId (internal delegation) else requestedFor/requestedBy (from token on direct API calls)
     val userId = Option(request.get(JsonKey.USER_ID).asInstanceOf[String]).filter(StringUtils.isNotBlank)
       .orElse(Option(request.get(JsonKey.REQUESTED_FOR).asInstanceOf[String]).filter(StringUtils.isNotBlank))
       .getOrElse(request.get(JsonKey.REQUESTED_BY).asInstanceOf[String])
     val contentId = ViewerRequestKeys.contentId(request)
-    val courseId = ViewerRequestKeys.courseId(request).getOrElse(contentId)
-    val batchId = ViewerRequestKeys.batchId(request).orElse(ViewerRequestKeys.courseId(request)).getOrElse(contentId)
+    val (collectionId, contextId) = ViewerMode.resolveKey(ViewerMode.mode(), ViewerMode.scope(),
+      ViewerRequestKeys.courseId(request), ViewerRequestKeys.batchId(request), contentId)
     val key = new util.HashMap[String, AnyRef]()
     key.put("userid", userId)
-    key.put("collectionid", courseId)
-    key.put("contextid", batchId)
+    key.put("collectionid", collectionId)
+    key.put("contextid", contextId)
     key.put("contentid", contentId)
     key
   }
