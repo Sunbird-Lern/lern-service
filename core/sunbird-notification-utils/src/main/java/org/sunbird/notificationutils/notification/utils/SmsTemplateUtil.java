@@ -1,4 +1,4 @@
-package org.sunbird.notification.utils;
+package org.sunbird.notificationutils.notification.utils;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Collections;

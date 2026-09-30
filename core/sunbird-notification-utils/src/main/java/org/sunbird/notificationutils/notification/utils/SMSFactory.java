@@ -1,11 +1,11 @@
-package org.sunbird.notification.utils;
+package org.sunbird.notificationutils.notification.utils;
 
 import org.sunbird.common.ProjectUtil;
 import org.sunbird.keys.JsonKey;
-import org.sunbird.notification.sms.provider.ISmsProvider;
-import org.sunbird.notification.sms.provider.ISmsProviderFactory;
-import org.sunbird.notification.sms.providerimpl.Msg91SmsProviderFactory;
-import org.sunbird.notification.sms.providerimpl.NICGatewaySmsProviderFactory;
+import org.sunbird.notificationutils.notification.sms.provider.ISmsProvider;
+import org.sunbird.notificationutils.notification.sms.provider.ISmsProviderFactory;
+import org.sunbird.notificationutils.notification.sms.providerimpl.Msg91SmsProviderFactory;
+import org.sunbird.notificationutils.notification.sms.providerimpl.NICGatewaySmsProviderFactory;
 
 /**
  * Utility factory class that provides the appropriate {@link ISmsProvider} instance based on system

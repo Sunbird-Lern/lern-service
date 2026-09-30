@@ -1,11 +1,11 @@
-package org.sunbird.notification.sms.providerimpl;
+package org.sunbird.notificationutils.notification.sms.providerimpl;
 
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.Assert;
 import org.junit.Test;
-import org.sunbird.notification.sms.provider.ISmsProvider;
-import org.sunbird.notification.utils.SMSFactory;
+import org.sunbird.notificationutils.notification.sms.provider.ISmsProvider;
+import org.sunbird.notificationutils.notification.utils.SMSFactory;
 import org.sunbird.request.RequestContext;
 
 /** General tests for Msg91SmsProvider targeting basic configuration and sending logic. */
