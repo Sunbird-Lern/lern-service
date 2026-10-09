@@ -1,4 +1,4 @@
-package org.sunbird.notification.utils;
+package org.sunbird.notificationutils.notification.utils;
 
 import static org.powermock.api.mockito.PowerMockito.mock;
 import static org.powermock.api.mockito.PowerMockito.when;

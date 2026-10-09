@@ -1,4 +1,4 @@
-package org.sunbird.notification.sms.providerimpl;
+package org.sunbird.notificationutils.notification.sms.providerimpl;
 
 import java.net.URLEncoder;
 import java.util.HashMap;
@@ -8,9 +8,9 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.http.Consts;
 import org.sunbird.http.HttpClientUtil;
 import org.sunbird.logging.LoggerUtil;
-import org.sunbird.notification.sms.provider.ISmsProvider;
-import org.sunbird.notification.utils.JsonUtil;
-import org.sunbird.notification.utils.PropertiesCache;
+import org.sunbird.notificationutils.notification.sms.provider.ISmsProvider;
+import org.sunbird.notificationutils.notification.utils.JsonUtil;
+import org.sunbird.notificationutils.notification.utils.PropertiesCache;
 import org.sunbird.request.RequestContext;
 
 /**
