@@ -10,8 +10,8 @@ import javax.inject.Named;
 import org.apache.commons.lang3.StringUtils;
 import org.sunbird.actor.core.BaseActor;
 import org.sunbird.keys.JsonKey;
-import org.sunbird.notification.sms.provider.ISmsProvider;
-import org.sunbird.notification.utils.SMSFactory;
+import org.sunbird.notificationutils.notification.sms.provider.ISmsProvider;
+import org.sunbird.notificationutils.notification.utils.SMSFactory;
 import org.sunbird.operations.userorg.ActorOperations;
 import org.sunbird.request.Request;
 import org.sunbird.request.RequestContext;
@@ -151,11 +151,22 @@ public class UserOnboardingNotificationActor extends BaseActor {
       } else {
         countryCode = (String) userMap.get(JsonKey.COUNTRY_CODE);
       }
-      ISmsProvider smsProvider = SMSFactory.getInstance();
-      logger.debug(context, "SMS text : " + sms + " with phone " + userMap.get(JsonKey.PHONE));
-      boolean response =
-          smsProvider.send((String) userMap.get(JsonKey.PHONE), countryCode, sms, context);
-      logger.info(context, "Response from smsProvider : " + response);
+      // See OTPUtil.sendOTPViaSMS. Error only: Exception is already handled upstream by
+      // BaseActor.onReceiveException, but a LinkageError would reach the Pekko dispatcher
+      // and tear down the ActorSystem. A welcome SMS must never be able to do that.
+      try {
+        ISmsProvider smsProvider = SMSFactory.getInstance();
+        logger.debug(context, "SMS text : " + sms + " with phone " + userMap.get(JsonKey.PHONE));
+        boolean response =
+            smsProvider.send((String) userMap.get(JsonKey.PHONE), countryCode, sms, context);
+        logger.info(context, "Response from smsProvider : " + response);
+      } catch (Error e) {
+        logger.error(
+            context,
+            "UserOnboardingNotificationActor: welcome SMS failed for phone = "
+                + userMap.get(JsonKey.PHONE),
+            e);
+      }
     }
   }
 
