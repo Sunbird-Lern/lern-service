@@ -21,6 +21,8 @@ import java.util.List;
  *   <li>sunbird_postgres_username - Username (required)</li>
  *   <li>sunbird_postgres_password - Password (required)</li>
  *   <li>sunbird_postgres_pool_size - Max pool size (default: 10)</li>
+ *   <li>sunbird_postgres_sslmode  - TLS mode, e.g. require / verify-full (default: unset = no TLS)</li>
+ *   <li>sunbird_postgres_sslrootcert - Path to the PEM CA certificate, used with verify-ca/verify-full</li>
  * </ul>
  *
  * <p>Usage:
@@ -69,7 +71,9 @@ public class PostgreSQLConnectionManager {
         }
 
         HikariConfig config = new HikariConfig();
-        config.setJdbcUrl("jdbc:postgresql://" + host + ":" + port + "/" + db);
+        config.setJdbcUrl(buildJdbcUrl(host, port, db,
+                ProjectUtil.getConfigValue("sunbird_postgres_sslmode"),
+                ProjectUtil.getConfigValue("sunbird_postgres_sslrootcert")));
         config.setUsername(user);
         config.setPassword(password);
         config.setDriverClassName("org.postgresql.Driver");
@@ -84,6 +88,21 @@ public class PostgreSQLConnectionManager {
         this.dataSource = new HikariDataSource(config);
         logger.info("PostgreSQLConnectionManager: Connection pool initialized - host=" + host
                 + ", port=" + port + ", db=" + db + ", poolSize=" + poolSize);
+    }
+
+    /**
+     * Builds the JDBC URL, appending {@code sslmode}/{@code sslrootcert} only when configured so
+     * existing deployments keep the plain URL.
+     */
+    static String buildJdbcUrl(String host, String port, String db, String sslMode, String sslRootCert) {
+        StringBuilder url = new StringBuilder("jdbc:postgresql://" + host + ":" + port + "/" + db);
+        if (sslMode != null && !sslMode.isEmpty()) {
+            url.append("?sslmode=").append(sslMode);
+            if (sslRootCert != null && !sslRootCert.isEmpty()) {
+                url.append("&sslrootcert=").append(sslRootCert);
+            }
+        }
+        return url.toString();
     }
 
     public static PostgreSQLConnectionManager getInstance() {

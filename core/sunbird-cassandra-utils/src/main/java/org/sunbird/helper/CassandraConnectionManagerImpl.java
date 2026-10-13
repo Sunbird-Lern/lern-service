@@ -8,18 +8,26 @@ import com.datastax.driver.core.HostDistance;
 import com.datastax.driver.core.Metadata;
 import com.datastax.driver.core.PoolingOptions;
 import com.datastax.driver.core.QueryOptions;
+import com.datastax.driver.core.RemoteEndpointAwareJdkSSLOptions;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.TableMetadata;
 import com.datastax.driver.core.policies.ExponentialReconnectionPolicy;
 import com.datastax.driver.core.policies.DCAwareRoundRobinPolicy;
 import com.datastax.driver.core.policies.DefaultRetryPolicy;
 import com.datastax.driver.core.SocketOptions;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.security.KeyStore;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateFactory;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManagerFactory;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -226,6 +234,13 @@ public class CassandraConnectionManagerImpl implements CassandraConnectionManage
                     .withSocketOptions(new SocketOptions().setKeepAlive(true))
                     .withPoolingOptions(poolingOptions);
 
+    applySecurity(
+        builder,
+        ProjectUtil.getConfigValue(JsonKey.SUNBIRD_CASSANDRA_USER_NAME),
+        ProjectUtil.getConfigValue(JsonKey.SUNBIRD_CASSANDRA_PASSWORD),
+        Boolean.parseBoolean(ProjectUtil.getConfigValue(Constants.SUNBIRD_CASSANDRA_SSL_ENABLED)),
+        ProjectUtil.getConfigValue(Constants.SUNBIRD_CASSANDRA_SSL_ROOT_CERT));
+
     ConsistencyLevel consistencyLevel = getConsistencyLevel();
     logger.info("CassandraConnectionManagerImpl:createCluster: Consistency level = {}", consistencyLevel);
 
@@ -239,6 +254,75 @@ public class CassandraConnectionManagerImpl implements CassandraConnectionManage
     }
 
     return builder.build();
+  }
+
+  /**
+   * Adds credentials and TLS to the builder when configured. Both are off by default, so existing
+   * deployments (in-cluster Cassandra/YugabyteDB without auth) are unaffected.
+   *
+   * <p>TLS trusts only the CA(s) in {@code rootCertPath} (PEM, may hold several certificates).
+   * ponytail: certificate chain and dates are verified, hostname is not (driver 3.x default). Add
+   * endpoint identification if a hostname-pinned check is required.
+   *
+   * @param builder cluster builder to modify
+   * @param user Cassandra/YCQL username; credentials are added only when non-blank
+   * @param password Cassandra/YCQL password
+   * @param sslEnabled whether to enable TLS
+   * @param rootCertPath path to the PEM CA certificate; required when TLS is enabled
+   */
+  static void applySecurity(
+      Cluster.Builder builder,
+      String user,
+      String password,
+      boolean sslEnabled,
+      String rootCertPath) {
+    if (StringUtils.isNotBlank(user)) {
+      builder.withCredentials(user, password == null ? "" : password);
+    }
+    if (sslEnabled) {
+      builder.withSSL(
+          RemoteEndpointAwareJdkSSLOptions.builder()
+              .withSSLContext(buildSslContext(rootCertPath))
+              .build());
+    }
+  }
+
+  /**
+   * Builds an {@link SSLContext} that trusts exactly the certificates in the given PEM file.
+   *
+   * @param rootCertPath path to a PEM file containing one or more CA certificates
+   * @return SSL context using those certificates as the only trust anchors
+   * @throws IllegalStateException if the path is blank, unreadable or holds no certificate
+   */
+  static SSLContext buildSslContext(String rootCertPath) {
+    if (StringUtils.isBlank(rootCertPath)) {
+      throw new IllegalStateException(
+          Constants.SUNBIRD_CASSANDRA_SSL_ROOT_CERT + " must be set when Cassandra SSL is enabled");
+    }
+    try (InputStream in = new FileInputStream(rootCertPath)) {
+      Collection<? extends Certificate> certs =
+          CertificateFactory.getInstance("X.509").generateCertificates(in);
+      if (certs.isEmpty()) {
+        throw new IllegalStateException("No certificate found in " + rootCertPath);
+      }
+      KeyStore trustStore = KeyStore.getInstance(KeyStore.getDefaultType());
+      trustStore.load(null, null);
+      int i = 0;
+      for (Certificate cert : certs) {
+        trustStore.setCertificateEntry("cassandra-ca-" + i++, cert);
+      }
+      TrustManagerFactory tmf =
+          TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+      tmf.init(trustStore);
+      SSLContext context = SSLContext.getInstance("TLS");
+      context.init(null, tmf.getTrustManagers(), null);
+      return context;
+    } catch (IllegalStateException e) {
+      throw e;
+    } catch (Exception e) {
+      throw new IllegalStateException(
+          "Failed to build Cassandra SSL context from " + rootCertPath + ": " + e.getMessage(), e);
+    }
   }
 
   /**
