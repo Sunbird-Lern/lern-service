@@ -50,9 +50,9 @@ class CompetencyService(cassandra: CassandraOperation, keyspace: String,
                       isRoot: Boolean, completedOn: Long, ctx: RequestContext): Unit = {
     val m = meta(frameworkId, ctx)
     if (m.isEmpty) return
-    projector.recording(userId, ctx) {
-      if (isRoot) ledger.creditCollection(userId, m, nodeId, batchId, completedOn, ctx)
-      else ledger.creditCourse(userId, m, nodeId, batchId, completedOn, ctx)
+    projector.recording(userId, ctx) { snap =>
+      if (isRoot) ledger.creditCollection(snap, m, nodeId, batchId, completedOn, ctx)
+      else ledger.creditCourse(snap, m, nodeId, batchId, completedOn, ctx)
     }
   }
 
@@ -61,8 +61,8 @@ class CompetencyService(cassandra: CassandraOperation, keyspace: String,
                  questionSetIds: List[String], ctx: RequestContext): Unit = {
     val m = meta(frameworkId, ctx)
     if (m.isEmpty || questionSetIds.isEmpty) return
-    projector.recording(userId, ctx) {
-      ledger.creditAssessments(userId, m, collectionId, batchId, questionSetIds, ctx)
+    projector.recording(userId, ctx) { snap =>
+      ledger.creditAssessments(snap, m, collectionId, batchId, questionSetIds, ctx)
     }
   }
 
@@ -71,15 +71,15 @@ class CompetencyService(cassandra: CassandraOperation, keyspace: String,
                      ctx: RequestContext): Boolean = {
     val m = meta(frameworkId, ctx)
     if (m.isEmpty) return false
-    projector.recording(userId, ctx) {
-      ledger.importExternal(userId, m, skillId, sourceId, issuerId, note, occurredOn, ctx).toSet
-    }.nonEmpty
+    projector.recording(userId, ctx) { snap =>
+      ledger.importExternal(snap, m, skillId, sourceId, issuerId, note, occurredOn, ctx).toSet
+    }.touched.nonEmpty
   }
 
   def revokeEvidence(userId: String, skillId: String, evidenceId: String, reason: String,
                      ctx: RequestContext): Unit = {
-    projector.recording(userId, ctx) {
-      ledger.revoke(userId, skillId, evidenceId, reason, ctx)
+    projector.recording(userId, ctx) { snap =>
+      ledger.revoke(snap, skillId, evidenceId, reason, ctx)
       Set(skillId)
     }
   }

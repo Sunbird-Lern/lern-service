@@ -178,35 +178,45 @@ class AttainmentRulesSpec extends AnyFlatSpec with Matchers {
     early < late shouldBe true
   }
 
-  "AttainmentRules.isDuplicateCompletion" should "spot the same course credited again" in {
+  "AttainmentRules.isDuplicate" should "spot the same course credited again" in {
     val existing = Seq(("COURSE", "do_course1", "b1", false))
-    AttainmentRules.isDuplicateCompletion(existing, "COURSE", "do_course1", "b1") shouldBe true
+    AttainmentRules.isDuplicate(existing, "COURSE", "do_course1", "b1") shouldBe true
   }
 
   it should "allow a different course, batch or type through" in {
     val existing = Seq(("COURSE", "do_course1", "b1", false))
-    AttainmentRules.isDuplicateCompletion(existing, "COURSE", "do_course2", "b1") shouldBe false
-    AttainmentRules.isDuplicateCompletion(existing, "COURSE", "do_course1", "b2") shouldBe false
-    AttainmentRules.isDuplicateCompletion(existing, "LEARNING_PATH", "do_course1", "b1") shouldBe false
+    AttainmentRules.isDuplicate(existing, "COURSE", "do_course2", "b1") shouldBe false
+    AttainmentRules.isDuplicate(existing, "COURSE", "do_course1", "b2") shouldBe false
+    AttainmentRules.isDuplicate(existing, "LEARNING_PATH", "do_course1", "b1") shouldBe false
   }
 
   // A revoked row is not evidence any more; re-earning the course must be able to record it again.
   it should "ignore a revoked row" in {
-    AttainmentRules.isDuplicateCompletion(Seq(("COURSE", "do_c", "b1", true)), "COURSE", "do_c", "b1") shouldBe false
+    AttainmentRules.isDuplicate(Seq(("COURSE", "do_c", "b1", true)), "COURSE", "do_c", "b1") shouldBe false
   }
 
-  // Each attempt is its own event, and creditAssessments unions across them.
-  it should "never dedupe an assessment" in {
+  // Held needs one live row; a second passing attempt of the same question set adds nothing.
+  it should "dedupe a repeat pass of the same question set" in {
     val existing = Seq(("ASSESSMENT", "do_qs1", "b1", false))
-    AttainmentRules.isDuplicateCompletion(existing, "ASSESSMENT", "do_qs1", "b1") shouldBe false
+    AttainmentRules.isDuplicate(existing, "ASSESSMENT", "do_qs1", "b1") shouldBe true
+    AttainmentRules.isDuplicate(existing, "ASSESSMENT", "do_qs2", "b1") shouldBe false
+  }
+
+  it should "let an assessment through again once its row is revoked" in {
+    AttainmentRules.isDuplicate(Seq(("ASSESSMENT", "do_qs1", "b1", true)), "ASSESSMENT", "do_qs1", "b1") shouldBe false
+  }
+
+  // sourceId defaults to "external", so two different credentials would otherwise collide.
+  it should "never dedupe an external import" in {
+    AttainmentRules.isDuplicate(Seq(("EXTERNAL", "external", "", false)), "EXTERNAL", "external", "") shouldBe false
   }
 
   it should "be false when nothing has been recorded" in {
-    AttainmentRules.isDuplicateCompletion(Nil, "COURSE", "do_c", "b1") shouldBe false
+    AttainmentRules.isDuplicate(Nil, "COURSE", "do_c", "b1") shouldBe false
   }
 
   it should "dedupe a Learning Path completion too" in {
-    AttainmentRules.isDuplicateCompletion(Seq(("LEARNING_PATH", "do_lp", "b", false)),
+    AttainmentRules.isDuplicate(Seq(("LEARNING_PATH", "do_lp", "b", false)),
       "LEARNING_PATH", "do_lp", "b") shouldBe true
   }
 }

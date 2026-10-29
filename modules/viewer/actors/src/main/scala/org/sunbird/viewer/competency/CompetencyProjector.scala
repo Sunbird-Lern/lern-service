@@ -21,19 +21,20 @@ class CompetencyProjector(dao: CompetencyDao,
     AttainmentRules.profile(dao.evidenceOfUser(userId, ctx))
 
   /**
-   * Runs a ledger write and issues or revokes badges for what it changed. Returns the skill ids the
-   * write touched.
+   * Runs a ledger write and issues or revokes badges for what it changed.
    *
-   * The profile is read before and after the write, so a badge is issued on the transition into
-   * held, not on every event that re-credits an already-held skill. A replay therefore issues
-   * nothing. When the write touches no skill, nothing is re-read.
+   * The write gets a lazy `LedgerSnapshot` of the learner's evidence, which it checks and updates.
+   * The profile before and after is computed from that snapshot, so a badge is issued on the
+   * transition into held, not on every event that re-credits an already-held skill, and a replay
+   * issues nothing. A write that touches no skill never loads the snapshot, so it reads nothing.
    */
-  def recording(userId: String, ctx: RequestContext)(write: => Set[String]): Set[String] = {
-    val before = held(userId, ctx)
-    val touched = write.filter(s => s != null && s.nonEmpty)
-    if (touched.isEmpty) return touched
+  def recording(userId: String, ctx: RequestContext)(write: LedgerSnapshot => Set[String]): Recorded = {
+    val snap = new LedgerSnapshot(userId, dao.evidenceOfUser(userId, ctx))
+    val touched = write(snap).filter(s => s != null && s.nonEmpty)
+    if (touched.isEmpty) return Recorded(touched, snap)
 
-    val after = held(userId, ctx)
+    val before = AttainmentRules.profile(snap.before)
+    val after = AttainmentRules.profile(snap.current)
     val (attained, lost) = AttainmentRules.transitions(before.keySet, after.keySet)
     attained.foreach(sid => badges.issue(userId, after(sid), ctx))
     lost.foreach(sid => badges.revoke(userId, sid, before(sid).frameworkId, ctx))
@@ -41,24 +42,25 @@ class CompetencyProjector(dao: CompetencyDao,
     if (attained.nonEmpty || lost.nonEmpty)
       logger.info(ctx, s"competency.projector: user=$userId held=${after.size} " +
         s"attained=[${attained.toList.sorted.mkString(",")}] lost=[${lost.toList.sorted.mkString(",")}]")
-    touched
+    Recorded(touched, snap)
   }
 
   /**
    * Re-derives evidence from what the learner actually did, so a skill added to the framework after
    * the fact picks up credit from completions and attempts that predate it. Badges follow from the
-   * resulting change. Safe to re-run: completions are deduped on their source. Returns how many
-   * skills are held afterwards.
+   * resulting change. Safe to re-run: every source but EXTERNAL is deduped. Returns how many skills
+   * are held afterwards.
    */
   def reproject(userId: String, ctx: RequestContext): Int = {
-    val rederived = recording(userId, ctx)(rederive(userId, ctx))
-    val heldAfter = held(userId, ctx).size
-    logger.info(ctx, s"competency.projector: reproject | user=$userId rederived=${rederived.size} held=$heldAfter")
+    val r = recording(userId, ctx)(rederive(_, ctx))
+    val heldAfter = AttainmentRules.profile(r.snapshot.current).size
+    logger.info(ctx, s"competency.projector: reproject | user=$userId rederived=${r.touched.size} held=$heldAfter")
     heldAfter
   }
 
   /** Walks the learner's enrolments and re-appends the evidence each one implies. */
-  private def rederive(userId: String, ctx: RequestContext): Set[String] = {
+  private def rederive(snap: LedgerSnapshot, ctx: RequestContext): Set[String] = {
+    val userId = snap.userId
     val frameworkOfCollection = scala.collection.mutable.Map[String, Option[String]]()
     dao.enrolmentsOf(userId, ctx).flatMap { enrol =>
       val fwId = frameworkOfCollection.getOrElseUpdate(enrol.courseId,
@@ -66,13 +68,16 @@ class CompetencyProjector(dao: CompetencyDao,
       fwId.map(frameworkUtil.meta(_, ctx)).filterNot(_.isEmpty).toList.flatMap { meta =>
         val completedOn = if (enrol.completedOn > 0) enrol.completedOn else System.currentTimeMillis()
         val fromCompletion =
-          if (enrol.status == 2) ledger.creditCourse(userId, meta, enrol.courseId, enrol.batchId, completedOn, ctx)
+          if (enrol.status == 2) ledger.creditCourse(snap, meta, enrol.courseId, enrol.batchId, completedOn, ctx)
           else Set.empty[String]
         val questionSets = dao.assessedContentIds(userId, enrol.courseId, enrol.batchId, ctx)
         val fromAssessment =
-          ledger.creditAssessments(userId, meta, enrol.courseId, enrol.batchId, questionSets, ctx)
+          ledger.creditAssessments(snap, meta, enrol.courseId, enrol.batchId, questionSets, ctx)
         fromCompletion ++ fromAssessment
       }
     }.toSet
   }
 }
+
+/** What a ledger write did: the skills it touched, and the snapshot as the write left it. */
+case class Recorded(touched: Set[String], snapshot: LedgerSnapshot)

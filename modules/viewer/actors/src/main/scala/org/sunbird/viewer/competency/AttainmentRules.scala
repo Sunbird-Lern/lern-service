@@ -88,7 +88,7 @@ object AttainmentRules {
 
   /**
    * Ledger id: time-ordered within a skill. Not idempotent on its own, since `occurredOn` is the
-   * moment of crediting for live completions; `isDuplicateCompletion` is what stops a replay.
+   * moment of crediting for live completions; `isDuplicate` is what stops a replay.
    */
   def evidenceId(occurredOn: Long, sourceType: String, sourceId: String, batchId: String): String = {
     val digest = math.abs(s"$sourceType|$sourceId|$batchId".hashCode).toString
@@ -96,21 +96,23 @@ object AttainmentRules {
   }
 
   /**
-   * Whether this completion has already been recorded.
+   * Whether this source has already evidenced the skill. `existing` is that one skill's rows.
    *
-   * `evidenceId` embeds the moment of crediting, so the same course credited twice yields two ids
-   * and two rows: the ledger grows on every rollup re-run and a learner sees "3 evidence" for one
-   * course they finished once. A completion is a fact about a node, not about when it was noticed,
-   * so the source triple is its real identity.
+   * `evidenceId` embeds a moment - the crediting time for a completion, the attempt time for an
+   * assessment - so the same source credited twice yields two ids and two rows: the ledger grows on
+   * every rollup re-run, and with every further passing attempt. Held needs one live row, and the
+   * profile reads the earliest, so the source triple is the real identity.
    *
-   * ASSESSMENT is excluded on purpose. Each attempt is a distinct event, and `creditAssessments`
-   * unions across attempts - deduping would discard the history the projector reads.
+   * Assessments are deduped per question set, not per attempt. Crediting across attempts is
+   * unaffected: the check is per skill, so a skill first earned in a later attempt still has no row
+   * and is recorded.
+   *
+   * EXTERNAL is excluded: its sourceId defaults to "external", so two different credentials for one
+   * skill would collide.
    */
-  def isDuplicateCompletion(existing: Seq[(String, String, String, Boolean)],
-                            sourceType: String, sourceId: String, batchId: String): Boolean = {
-    val dedupable = sourceType == SourceType.COURSE || sourceType == SourceType.LEARNING_PATH
-    dedupable && existing.exists { case (t, id, b, revoked) =>
+  def isDuplicate(existing: Seq[(String, String, String, Boolean)],
+                  sourceType: String, sourceId: String, batchId: String): Boolean =
+    sourceType != SourceType.EXTERNAL && existing.exists { case (t, id, b, revoked) =>
       !revoked && t == sourceType && id == sourceId && b == batchId
     }
-  }
 }

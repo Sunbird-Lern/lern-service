@@ -283,7 +283,7 @@ Editable source: [`competency-consumption-v2.excalidraw`](images/competency-cons
 | Held is set membership | Held if at least one non-revoked evidence row exists for that learner and skill |
 | Nothing decrements | Revocation is the only way a skill leaves the profile |
 | Derived, never stored | The profile is a function of the evidence rows, computed on every read. There is no second table to drift from the ledger |
-| Idempotent | A completion (`COURSE`, `LEARNING_PATH`) is skipped when a live row with the same `sourceType`, `sourceId` and `batchid` already exists. Each assessment attempt is its own row |
+| Idempotent | Evidence is skipped when the skill already has a live row with the same `sourceType`, `sourceId` and `batchid`. For an assessment that keeps the first passing attempt of each question set. `EXTERNAL` imports are not deduped |
 | Audit | "Why does this nurse hold `iv-administration`?" resolves to a course, a batch and a date |
 
 ### Gap and readiness

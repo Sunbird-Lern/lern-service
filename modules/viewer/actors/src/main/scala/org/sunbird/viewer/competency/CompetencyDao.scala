@@ -46,9 +46,6 @@ class CompetencyDao(cassandra: CassandraOperation, keyspace: String) {
     cassandra.insertRecord(keyspace, EVIDENCE_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
   }
 
-  def evidenceOf(userId: String, skillId: String, ctx: RequestContext): List[Evidence] =
-    read(EVIDENCE_TABLE, Map("userid" -> userId, "skillid" -> skillId), ctx).map(toEvidence)
-
   /** Every evidence row a learner has, revoked included. One partition read. */
   def evidenceOfUser(userId: String, ctx: RequestContext): List[Evidence] =
     read(EVIDENCE_TABLE, Map("userid" -> userId), ctx).map(toEvidence)
