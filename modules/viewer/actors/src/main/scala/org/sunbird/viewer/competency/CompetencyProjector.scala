@@ -4,10 +4,10 @@ import org.sunbird.logging.LoggerUtil
 import org.sunbird.request.RequestContext
 
 /**
- * Derives the skill profile from the ledger. The only writer of user_skill.
+ * Derives the skill profile from the ledger, and turns changes in it into badge events.
  *
- * Nothing here accumulates: each run recomputes an entry as a function of that skill's evidence
- * rows, so the profile can be dropped and rebuilt, and a repeated event is harmless.
+ * Nothing here is stored: the profile is recomputed from the learner's evidence partition on every
+ * read, so it cannot drift from the ledger and there is nothing to rebuild.
  */
 class CompetencyProjector(dao: CompetencyDao,
                           ledger: CompetencyLedger,
@@ -16,54 +16,45 @@ class CompetencyProjector(dao: CompetencyDao,
 
   private val logger = new LoggerUtil(classOf[CompetencyProjector])
 
+  /** Every skill the learner holds, keyed by skill id. One partition read. */
+  def held(userId: String, ctx: RequestContext): Map[String, SkillEntry] =
+    AttainmentRules.profile(dao.evidenceOfUser(userId, ctx))
+
   /**
-   * Recomputes the given skills for one learner. Returns how many are held afterwards.
+   * Runs a ledger write and issues or revokes badges for what it changed. Returns the skill ids the
+   * write touched.
    *
-   * Reads the profile once up front so a badge is issued on the transition into held, not on every
-   * event that re-credits an already-held skill. A replay therefore issues nothing.
+   * The profile is read before and after the write, so a badge is issued on the transition into
+   * held, not on every event that re-credits an already-held skill. A replay therefore issues
+   * nothing. When the write touches no skill, nothing is re-read.
    */
-  def project(userId: String, skillIds: Set[String], ctx: RequestContext): Int = {
-    val wanted = skillIds.filter(s => s != null && s.nonEmpty)
-    if (wanted.isEmpty) return 0
+  def recording(userId: String, ctx: RequestContext)(write: => Set[String]): Set[String] = {
+    val before = held(userId, ctx)
+    val touched = write.filter(s => s != null && s.nonEmpty)
+    if (touched.isEmpty) return touched
 
-    val beforeRows = dao.profileOf(userId, ctx)
-    val before = beforeRows.map(_.skillId).toSet
-    val beforeById = beforeRows.map(e => e.skillId -> e).toMap
-
-    val held = wanted.toList.flatMap { sid =>
-      AttainmentRules.project(dao.evidenceOf(userId, sid, ctx)).map(sid -> _)
-    }.toMap
-
-    held.foreach { case (_, entry) => dao.upsertSkill(userId, entry, ctx) }
-    // every supporting row revoked: the skill is no longer held, so the row goes. The evidence
-    // stays, so a later un-revocation reprojects it back.
-    wanted.diff(held.keySet).foreach(sid => dao.deleteSkill(userId, sid, ctx))
-
-    val after = before.diff(wanted) ++ held.keySet
-    val (attained, lost) = AttainmentRules.transitions(before, after)
-    attained.foreach(sid => badges.issue(userId, held(sid), ctx))
-    lost.foreach(sid => badges.revoke(userId, sid, beforeById.get(sid).map(_.frameworkId).getOrElse(""), ctx))
+    val after = held(userId, ctx)
+    val (attained, lost) = AttainmentRules.transitions(before.keySet, after.keySet)
+    attained.foreach(sid => badges.issue(userId, after(sid), ctx))
+    lost.foreach(sid => badges.revoke(userId, sid, before(sid).frameworkId, ctx))
 
     if (attained.nonEmpty || lost.nonEmpty)
-      logger.info(ctx, s"competency.projector: user=$userId held=${held.size} " +
+      logger.info(ctx, s"competency.projector: user=$userId held=${after.size} " +
         s"attained=[${attained.toList.sorted.mkString(",")}] lost=[${lost.toList.sorted.mkString(",")}]")
-    held.size
+    touched
   }
 
   /**
-   * Rebuilds a learner's whole profile.
-   *
-   * Re-derives evidence from what the learner actually did before projecting, so a skill added to
-   * the framework after the fact picks up credit from attempts that predate it. Safe to re-run:
-   * ledger writes are idempotent.
+   * Re-derives evidence from what the learner actually did, so a skill added to the framework after
+   * the fact picks up credit from completions and attempts that predate it. Badges follow from the
+   * resulting change. Safe to re-run: completions are deduped on their source. Returns how many
+   * skills are held afterwards.
    */
   def reproject(userId: String, ctx: RequestContext): Int = {
-    val rederived = rederive(userId, ctx)
-    val existing = dao.profileOf(userId, ctx).map(_.skillId).toSet
-    val touched = rederived ++ existing
-    logger.info(ctx, s"competency.projector: reproject | user=$userId " +
-      s"rederived=${rederived.size} total=${touched.size}")
-    project(userId, touched, ctx)
+    val rederived = recording(userId, ctx)(rederive(userId, ctx))
+    val heldAfter = held(userId, ctx).size
+    logger.info(ctx, s"competency.projector: reproject | user=$userId rederived=${rederived.size} held=$heldAfter")
+    heldAfter
   }
 
   /** Walks the learner's enrolments and re-appends the evidence each one implies. */

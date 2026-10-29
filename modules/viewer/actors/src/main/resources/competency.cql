@@ -16,14 +16,19 @@ ALTER TABLE sunbird_courses.user_enrolments ADD optional_nodes set<text>;
 // waived" from "not yet computed", which an empty set cannot do.
 ALTER TABLE sunbird_courses.user_enrolments ADD optionality_computed boolean;
 
-// --- Evidence ledger and skill profile --------------------------------------------------------
+// --- Evidence ledger ---------------------------------------------------------------------------
 
-// Append-only. The source of truth. Only `revoked` is ever updated.
-// evidenceid is "<zero-padded occurred_on millis>:<digest of the source>", which gives both time
-// ordering and idempotency: replaying the same completion rewrites the same row.
+// Append-only. The only learner skill table: there is no separate profile table. A skill is held
+// while at least one non-revoked row exists for it, and the profile entry (framework, source,
+// attained date) is read off the earliest such row. Only `revoked` is ever updated.
+// evidenceid is "<zero-padded occurred_on millis>:<digest of the source>", which orders a skill's
+// rows by time. Completions are deduped on (source_type, source_id, batchid) before insert.
+//
+// Partitioned on userid alone so a learner's whole profile is one partition read; skillid leads
+// the clustering key so one skill's rows are still a single slice.
 //
 // A row exists only for a skill the learner actually earned. Nothing is written for an attempted
-// but unearned skill, because the profile reads "held" as "a live row exists".
+// but unearned skill, because "held" is "a live row exists".
 CREATE TABLE IF NOT EXISTS sunbird_courses.user_skill_evidence (
     userid          text,
     skillid         text,
@@ -39,22 +44,8 @@ CREATE TABLE IF NOT EXISTS sunbird_courses.user_skill_evidence (
     occurred_on     timestamp,
     revoked         boolean,
     revoked_reason  text,
-    PRIMARY KEY ((userid, skillid), evidenceid)
-) WITH CLUSTERING ORDER BY (evidenceid DESC);
-
-// Derived projection. Droppable and rebuildable from the ledger at any time.
-// One row per skill the learner holds. There is no status column, because held is the only state;
-// not held is the absence of a row.
-CREATE TABLE IF NOT EXISTS sunbird_courses.user_skill (
-    userid                text,
-    skillid               text,
-    framework_id          text,
-    source_type           text,
-    governing_evidence_id text,
-    attained_on           timestamp,
-    updated_on            timestamp,
-    PRIMARY KEY (userid, skillid)
-);
+    PRIMARY KEY ((userid), skillid, evidenceid)
+) WITH CLUSTERING ORDER BY (skillid ASC, evidenceid DESC);
 
 // --- Roles -------------------------------------------------------------------------------------
 

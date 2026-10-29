@@ -74,9 +74,10 @@ object SourceType {
 }
 
 /**
- * Derived row in the skill profile. Written by the projector and nothing else.
+ * One held skill, computed from the ledger by `AttainmentRules.project` and never stored. Every
+ * field is read off the governing row - the earliest live evidence row for the skill.
  *
- * There is no status field: held is the only state, and not held is the absence of a row.
+ * There is no status field: held is the only state, and not held is the absence of an entry.
  */
 case class SkillEntry(skillId: String,
                       frameworkId: String,

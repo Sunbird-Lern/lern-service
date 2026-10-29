@@ -49,7 +49,7 @@ for (`target_roles`, through `/v1/skill/role/update`). Earning a skill never tou
 is recorded per skill.
 
 Readiness is computed on each request. For every role in `user_role`, the skills in `role_skill` are
-compared with the skills in `user_skill`. A required skill is held or not held; there are no
+compared with the skills the learner holds in `user_skill_evidence`. A required skill is held or not held; there are no
 proficiency levels. An app can also pass `role` to ask about any other role.
 
 Example: Asha is assigned `staff-nurse-icu`, which requires 8 skills, and targets
@@ -114,14 +114,13 @@ All tables are in the `sunbird_courses` keyspace. The schema is in
 
 | Table | Change | Holds | Key |
 |---|---|---|---|
-| `user_skill_evidence` | New | Every reason a learner holds a skill: source, batch, score, date, revoked flag | `(userid, skillid)`, `evidenceid` |
-| `user_skill` | New | One row per skill held, derived from the evidence | `userid`, `skillid` |
+| `user_skill_evidence` | New | Every reason a learner holds a skill: source, batch, score, date, revoked flag. The skill profile is computed from it | `userid`, `skillid`, `evidenceid` |
 | `role_skill` | New | What each role requires: one row per role and leaf skill, with name, status and version | `framework_id`, `roleid`, `skillid` |
 | `user_role` | New | A learner's framework, `assigned_role` and `target_roles` | `userid` |
 | `user_enrolments` | Two columns added | `optional_nodes`, `optionality_computed`: which courses were waived | - |
 
-Evidence rows are never deleted; revoking one sets a flag. `user_skill` can be dropped and rebuilt
-from the evidence at any time. Roles are only read when readiness is computed.
+Evidence rows are never deleted; revoking one sets a flag. A skill is held while it has at least
+one row that is not revoked. There is no separate profile table. Roles are only read when readiness is computed.
 
 The schema is applied locally by `scripts/init-yugabyte.sh` and must be added to the deployment
 migrations before release.

@@ -7,9 +7,9 @@ import org.sunbird.request.RequestContext
 /**
  * Appends facts. Never decides what is held — that is the projector's job.
  *
- * Every write is idempotent: the evidence id is derived from (occurredOn, sourceType, sourceId,
- * batchId), so replaying a completion or an aggregate rewrites the same row rather than appending
- * a duplicate. Each method returns the skill ids it touched, for the caller to project.
+ * Completions are idempotent per source: `append` skips a COURSE or LEARNING_PATH row whose
+ * (sourceType, sourceId, batchId) is already recorded. Each method returns the skill ids it
+ * touched, so the caller can settle badges.
  *
  * A row is appended only for a skill the learner earned. Nothing is written for a skill that was
  * attempted and missed, because the profile reads held as "a live row exists".
@@ -114,9 +114,6 @@ class CompetencyLedger(dao: CompetencyDao,
     dao.revokeEvidence(userId, skillId, evidenceId, reason, ctx)
     logger.info(ctx, s"competency.ledger: revoked | user=$userId skill=$skillId evidence=$evidenceId")
   }
-
-  def evidenceOf(userId: String, skillId: String, ctx: RequestContext): List[Evidence] =
-    dao.evidenceOf(userId, skillId, ctx)
 
   /**
    * Appends evidence, unless this exact source already produced some.

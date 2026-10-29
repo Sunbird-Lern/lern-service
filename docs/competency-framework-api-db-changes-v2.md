@@ -34,7 +34,7 @@ Not needed for the creation or learner flow. Used only for the cases below.
 | POST | `/private/v1/skill/role/update` | Set any learner's assigned/target roles | An HR system feeds role assignments |
 | POST | `/private/v1/skill/evidence/import` | Import external evidence | Skills earned outside the platform are credited |
 | POST | `/private/v1/skill/evidence/revoke` | Revoke an evidence row | A recorded skill must be withdrawn |
-| POST | `/private/v1/skill/reproject` | Rebuild `user_skill` from the ledger | Data repair |
+| POST | `/private/v1/skill/reproject` | Re-derive a learner's evidence from their enrolments and attempts | A course was retagged with skills after learners completed it |
 | POST | `/private/v1/competency/cache/invalidate` | Drop cached framework metadata | A framework republish must show before the 1-hour cache expires |
 
 Learner and role-authoring routes are declared in both `modules/viewer/service/conf/routes` and `modules/lern/service/conf/routes`.
@@ -47,8 +47,7 @@ Keyspace: `sunbird_courses`. Schema file: `modules/viewer/actors/src/main/resour
 
 | Table | Primary key | Holds |
 |---|---|---|
-| `user_skill_evidence` | `((userid, skillid), evidenceid)` | Append-only evidence ledger (course, assessment, learning path, external). Only `revoked` is updated |
-| `user_skill` | `(userid, skillid)` | Skills a learner holds; derived from the ledger, rebuildable |
+| `user_skill_evidence` | `((userid), skillid, evidenceid)` | Append-only evidence ledger (course, assessment, learning path, external). Only `revoked` is updated. A skill is held while it has a non-revoked row; the profile is computed from this table on read |
 | `role_skill` | `(framework_id, roleid, skillid)` | Role → required leaf skills (source of truth); `role_name`, `status`, `version` |
 | `user_role` | `(userid)` | Learner's `assigned_role` and `target_roles` per framework |
 

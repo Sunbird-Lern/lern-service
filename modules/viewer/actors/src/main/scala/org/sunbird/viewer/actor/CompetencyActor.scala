@@ -65,13 +65,16 @@ class CompetencyActor extends BaseEnrolmentActor {
     val ctx = request.getRequestContext
     val uid = userId(request)
     val withEvidence = Option(request.get("evidence")).exists(v => "true".equalsIgnoreCase(v.toString))
-    val entries = service.profile(uid, ctx).map { e =>
+    val held =
+      if (withEvidence) service.profileWithEvidence(uid, ctx)
+      else service.profile(uid, ctx).map(_ -> Nil)
+    val entries = held.map { case (e, evidence) =>
       val m = new util.HashMap[String, AnyRef]()
       m.put("skillId", e.skillId)
       m.put("frameworkId", e.frameworkId)
       m.put("sourceType", e.sourceType)
       m.put("attainedOn", new util.Date(e.attainedOn))
-      if (withEvidence) m.put("evidence", service.evidenceOf(uid, e.skillId, ctx).map { ev =>
+      if (withEvidence) m.put("evidence", evidence.map { ev =>
         val em = new util.HashMap[String, AnyRef]()
         em.put("evidenceId", ev.evidenceId)
         em.put("sourceType", ev.sourceType)
@@ -410,7 +413,7 @@ class CompetencyActor extends BaseEnrolmentActor {
       "changed" -> Integer.valueOf(diffs.count(_.changed)))
   }
 
-  /** Rebuilds a learner's profile from the ledger, re-deriving evidence first. */
+  /** Re-derives a learner's evidence from their enrolments and attempts; badges follow. */
   private def reproject(request: Request): Unit = {
     val ctx = request.getRequestContext
     val uid = require(request, "reprojectUserId")

@@ -49,39 +49,15 @@ class CompetencyDao(cassandra: CassandraOperation, keyspace: String) {
   def evidenceOf(userId: String, skillId: String, ctx: RequestContext): List[Evidence] =
     read(EVIDENCE_TABLE, Map("userid" -> userId, "skillid" -> skillId), ctx).map(toEvidence)
 
+  /** Every evidence row a learner has, revoked included. One partition read. */
+  def evidenceOfUser(userId: String, ctx: RequestContext): List[Evidence] =
+    read(EVIDENCE_TABLE, Map("userid" -> userId), ctx).map(toEvidence)
+
   def revokeEvidence(userId: String, skillId: String, evidenceId: String,
                      reason: String, ctx: RequestContext): Unit = {
     val select = mapOf("userid" -> userId, "skillid" -> skillId, "evidenceid" -> evidenceId)
     val update = mapOf("revoked" -> java.lang.Boolean.TRUE, "revoked_reason" -> reason)
     cassandra.updateRecordV2(keyspace, EVIDENCE_TABLE, select, update, true, ctx)
-  }
-
-  // ---- skill profile --------------------------------------------------------------------------
-
-  def upsertSkill(userId: String, e: SkillEntry, ctx: RequestContext): Unit = {
-    val row = new util.HashMap[String, AnyRef]()
-    row.put("userid", userId)
-    row.put("skillid", e.skillId)
-    row.put("framework_id", e.frameworkId)
-    row.put("source_type", e.sourceType)
-    row.put("governing_evidence_id", e.governingEvidenceId)
-    row.put("attained_on", new util.Date(e.attainedOn))
-    row.put("updated_on", new util.Date())
-    cassandra.insertRecord(keyspace, PROFILE_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
-  }
-
-  def profileOf(userId: String, ctx: RequestContext): List[SkillEntry] =
-    read(PROFILE_TABLE, Map("userid" -> userId), ctx).flatMap(toSkill)
-
-  /**
-   * Removes a skill from the profile. Called only when every supporting evidence row has been
-   * revoked; the evidence itself is never deleted.
-   */
-  def deleteSkill(userId: String, skillId: String, ctx: RequestContext): Unit = {
-    val key = new util.HashMap[String, String]()
-    key.put("userid", userId)
-    key.put("skillid", skillId)
-    cassandra.deleteRecord(keyspace, PROFILE_TABLE, key, ctx)
   }
 
   // ---- role assignment ------------------------------------------------------------------------
@@ -213,7 +189,6 @@ case class EnrolmentRow(courseId: String, batchId: String, status: Int, complete
 
 object CompetencyDao {
   val EVIDENCE_TABLE = "user_skill_evidence"
-  val PROFILE_TABLE = "user_skill"
   val ROLE_TABLE = "user_role"
   val ROLE_SKILL_TABLE = "role_skill"
   val ENROLMENT_TABLE = "user_enrolments"
@@ -264,14 +239,4 @@ object CompetencyDao {
     occurredOn = dateOf(r, "occurred_on").getOrElse(0L),
     revoked = bool(r, "revoked"),
     revokedReason = get(r, "revoked_reason"))
-
-  private[competency] def toSkill(r: util.Map[String, AnyRef]): Option[SkillEntry] =
-    get(r, "skillid").map { sid =>
-      SkillEntry(
-        skillId = sid,
-        frameworkId = get(r, "framework_id").getOrElse(""),
-        sourceType = get(r, "source_type").getOrElse(""),
-        governingEvidenceId = get(r, "governing_evidence_id").getOrElse(""),
-        attainedOn = dateOf(r, "attained_on").getOrElse(0L))
-    }
 }

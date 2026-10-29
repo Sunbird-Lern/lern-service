@@ -9,10 +9,17 @@ package org.sunbird.viewer.competency
 object AttainmentRules {
 
   /**
+   * A learner's profile: one entry per skill with at least one live row, keyed by skill.
+   * Nothing stores this; it is recomputed from the ledger on every read.
+   */
+  def profile(evidence: List[Evidence]): Map[String, SkillEntry] =
+    evidence.groupBy(_.skillId).flatMap { case (sid, rows) => project(rows).map(sid -> _) }
+
+  /**
    * The profile entry implied by one skill's evidence.
    *
-   * Held is set membership: one live row is enough. None means no claim at all, which after a
-   * revocation is the projector's signal to delete the row rather than downgrade it.
+   * Held is set membership: one live row is enough. None means not held - every row is revoked,
+   * or there are none.
    */
   def project(evidence: List[Evidence]): Option[SkillEntry] =
     live(evidence) match {
@@ -80,8 +87,8 @@ object AttainmentRules {
     (after.diff(before), before.diff(after))
 
   /**
-   * Deterministic ledger id: time-ordered and idempotent. Replaying the same completion rewrites
-   * the same row instead of appending a duplicate.
+   * Ledger id: time-ordered within a skill. Not idempotent on its own, since `occurredOn` is the
+   * moment of crediting for live completions; `isDuplicateCompletion` is what stops a replay.
    */
   def evidenceId(occurredOn: Long, sourceType: String, sourceId: String, batchId: String): String = {
     val digest = math.abs(s"$sourceType|$sourceId|$batchId".hashCode).toString

@@ -16,7 +16,7 @@ needs, drives the next path.
 | Tagging point | Leaf terms only. Courses, questions and roles all link the same leaves |
 | Proficiency levels | None. A skill is held or not held |
 | Attainment | Course completion, full marks on the skill's tagged questions, or an external import |
-| Learner record | `user_skill_evidence` append-only, `user_skill` derived and rebuildable |
+| Learner record | `user_skill_evidence` append-only; the profile is computed from it on read |
 | Expiry | None. An attained skill is permanent |
 | Knowlg change | One enum value — `type = "Competency"` on the framework schema |
 | Learner-created paths | A private LP, owned by the learner, seeded from the recommendation |
@@ -282,8 +282,8 @@ Editable source: [`competency-consumption-v2.excalidraw`](images/competency-cons
 |---|---|
 | Held is set membership | Held if at least one non-revoked evidence row exists for that learner and skill |
 | Nothing decrements | Revocation is the only way a skill leaves the profile |
-| Derived, never accumulated | `user_skill` is a function of the evidence rows. Drop it and rebuild at any time |
-| Idempotent | The evidence id is derived from `occurredOn`, `sourceType`, `sourceId` and `batchid`, so a replayed event rewrites the same row instead of adding one |
+| Derived, never stored | The profile is a function of the evidence rows, computed on every read. There is no second table to drift from the ledger |
+| Idempotent | A completion (`COURSE`, `LEARNING_PATH`) is skipped when a live row with the same `sourceType`, `sourceId` and `batchid` already exists. Each assessment attempt is its own row |
 | Audit | "Why does this nurse hold `iv-administration`?" resolves to a course, a batch and a date |
 
 ### Gap and readiness
@@ -404,7 +404,7 @@ already holds a session.
 CREATE TABLE IF NOT EXISTS sunbird_courses.user_skill_evidence (
   userid       text,
   skillid      text,
-  evidenceid   text,          -- "<zero-padded occurred_on>:<digest>"; sorts and dedupes
+  evidenceid   text,          -- "<zero-padded occurred_on>:<digest>"; sorts a skill's rows by time
   framework_id text,
   source_type  text,          -- COURSE | ASSESSMENT | LEARNING_PATH | EXTERNAL
   source_id    text,
@@ -416,20 +416,8 @@ CREATE TABLE IF NOT EXISTS sunbird_courses.user_skill_evidence (
   occurred_on  timestamp,
   revoked      boolean,
   revoked_reason text,
-  PRIMARY KEY ((userid, skillid), evidenceid)
-) WITH CLUSTERING ORDER BY (evidenceid DESC);
-
--- Derived projection. Droppable and rebuildable from the ledger at any time.
-CREATE TABLE IF NOT EXISTS sunbird_courses.user_skill (
-  userid                text,
-  skillid               text,
-  framework_id          text,
-  source_type           text,
-  governing_evidence_id text,
-  attained_on           timestamp,
-  updated_on            timestamp,
-  PRIMARY KEY (userid, skillid)
-);
+  PRIMARY KEY ((userid), skillid, evidenceid)
+) WITH CLUSTERING ORDER BY (skillid ASC, evidenceid DESC);
 
 CREATE TABLE IF NOT EXISTS sunbird_courses.user_role (
   userid        text PRIMARY KEY,
@@ -443,12 +431,21 @@ CREATE TABLE IF NOT EXISTS sunbird_courses.user_role (
 
 | Table | Partition choice |
 |---|---|
-| `user_skill_evidence` | `(userid, skillid)` — the projector's read is exactly one partition |
-| `user_skill` | `userid` — a whole profile is one partition read, the hottest query in the design |
+| `user_skill_evidence` | `userid` — a whole profile is one partition read, the hottest query in the design. `skillid` leads the clustering key, so one skill's rows are a single slice |
 | `user_role` | `userid` — read alongside the profile on every gap call |
 
-A row in `user_skill` is the held fact; there is no status column, because there is no state other
-than held. Not held is the absence of a row.
+There is no profile table. A skill is held while it has at least one non-revoked evidence row; not
+held is the absence of one. Each profile entry is read off the skill's governing row, the earliest
+live row by `(occurred_on, evidenceid)`:
+
+| Profile field | Comes from the governing row's |
+|---|---|
+| `frameworkId` | `framework_id` |
+| `sourceType` | `source_type` |
+| `attainedOn` | `occurred_on` |
+| governing evidence id | `evidenceid` (used for the skill badge, not returned by the API) |
+
+Badges are issued or revoked by comparing the held set read before and after each ledger write.
 
 The framework itself — the tree and each role's skill list — is an in-memory TTL cache keyed by
 framework id, invalidated explicitly on publish rather than stored.
@@ -478,7 +475,7 @@ standalone course, a private LP or an imported credential still gets something p
 | `alignment` | The skill term's identifier in the published framework |
 | `criteria` | The attainment rule that applied — completion, full marks, or an import |
 | `evidence` | The evidence rows that supported it: source, batch, score, date |
-| Revocation | The `revoked` flag. Revoking evidence reprojects the profile and revokes the badge |
+| Revocation | The `revoked` flag. When it removes the skill's last live row, the badge is revoked |
 
 Signing verifiable credentials stays with the certificate service. This design's obligation is to
 hand it a complete achievement object instead of a name and a course title.
@@ -494,12 +491,12 @@ hand it a complete achievement object instead of a name and a course title.
 | GET | `/v1/competency/framework/read/:id` | Resolved framework: tree, tier labels, roles and their skills | Public read |
 | POST | `/private/v1/skill/role/update` | Set the current role | Privileged, HRMS feed |
 | POST | `/private/v1/skill/evidence/import` | Register an external credential against leaf skills | Privileged |
-| POST | `/private/v1/skill/evidence/revoke` | Flag evidence revoked and reproject | Privileged |
-| POST | `/private/v1/skill/reproject` | Rebuild the profile from the ledger, per learner or per framework | Admin |
+| POST | `/private/v1/skill/evidence/revoke` | Flag evidence revoked; revoke the badge if the skill is no longer held | Privileged |
+| POST | `/private/v1/skill/reproject` | Re-derive a learner's evidence from their enrolments and attempts | Admin |
 | POST | `/private/v1/competency/cache/invalidate` | Drop the framework cache after a publish | Admin |
 
-`reproject` applies a retagged course or a corrected mapping to history. It ships with the projector
-rather than after it.
+`reproject` applies a retagged course or a corrected mapping to history: it credits evidence that
+past completions and attempts now imply. There is no stored profile to rebuild.
 
 ## Impact on the shipped implementation
 
@@ -532,7 +529,7 @@ column.
 |---|---|---|---|
 | **1 · Vocabulary** | `Competency` framework type; the two master categories; `skills` and `competencyFramework` on the content schema; one framework authored and published | Tagging, and competency-based search, with no learner-side change | Knowlg: one enum value plus schema fields. lern-service: none |
 | **2 · Spec engine** | `validate`, `plan`, `apply` as a CLI against the public APIs; the workbook and YAML front-ends | Framework creation stops being a hand-written script | Small |
-| **3 · Ledger and profile** | The three tables, `AttainmentRules`, ledger, projector, `profile/read`, `reproject`; completion and assessment evidence wired into the progression engine | The skill profile exists | The bulk of the work |
+| **3 · Ledger and profile** | `user_skill_evidence` and `user_role`, `AttainmentRules`, ledger, projector, `profile/read`, `reproject`; completion and assessment evidence wired into the progression engine | The skill profile exists | The bulk of the work |
 | **4 · Skill-aware waiving** | The waiver predicate reads held skills | Adaptive paths honour evidence the platform did not produce | Small — one predicate |
 | **5 · Roles, gap, recommendation** | `role` terms, `GapCalculator`, `gap/read`, `recommend`, the coverage report at publish | Readiness, and a derived answer to "what next" | Medium |
 | **6 · Private LPs** | Learner-curated paths, seeded from the recommendation | The loop closes without an author in it | Medium |

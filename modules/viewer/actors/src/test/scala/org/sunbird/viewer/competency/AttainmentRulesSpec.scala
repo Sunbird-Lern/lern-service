@@ -117,6 +117,23 @@ class AttainmentRulesSpec extends AnyFlatSpec with Matchers {
     AttainmentRules.project(List(a, b)) shouldBe AttainmentRules.project(List(b, a))
   }
 
+  "profile" should "hold one entry per skill with a live row, read off its governing row" in {
+    val rows = List(
+      ev("hand-hygiene", SourceType.ASSESSMENT, 4000L),
+      ev("hand-hygiene", SourceType.COURSE, 2000L),
+      ev("ppe-use", SourceType.COURSE, 1000L, revoked = true),
+      ev("dosage-calculation", SourceType.EXTERNAL, 3000L))
+    val p = AttainmentRules.profile(rows)
+    p.keySet shouldBe Set("hand-hygiene", "dosage-calculation")
+    p("hand-hygiene").attainedOn shouldBe 2000L
+    p("hand-hygiene").sourceType shouldBe SourceType.COURSE
+    p("hand-hygiene").governingEvidenceId shouldBe rows(1).evidenceId
+  }
+
+  it should "be empty for a learner with no evidence" in {
+    AttainmentRules.profile(Nil) shouldBe Map.empty[String, SkillEntry]
+  }
+
   "isHeld" should "agree with project" in {
     AttainmentRules.isHeld(List(ev("s", SourceType.COURSE, 1L))) shouldBe true
     AttainmentRules.isHeld(List(ev("s", SourceType.COURSE, 1L, revoked = true))) shouldBe false

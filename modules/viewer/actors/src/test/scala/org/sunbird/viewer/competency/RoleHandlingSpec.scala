@@ -33,7 +33,7 @@ class RoleHandlingSpec extends AnyFlatSpec with Matchers {
   private val keys = Map(
     "role_skill" -> List("framework_id", "roleid", "skillid"),
     "user_role" -> List("userid"),
-    "user_skill" -> List("userid", "skillid"))
+    "user_skill_evidence" -> List("userid", "skillid", "evidenceid"))
 
   /**
    * Just enough of CassandraOperation for the role and profile tables.

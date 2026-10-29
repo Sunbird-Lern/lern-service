@@ -45,24 +45,25 @@ class CompetencyService(cassandra: CassandraOperation, keyspace: String,
 
   // ---- write path -----------------------------------------------------------------------------
 
-  /** A trackable node completed. Records the skills it teaches and projects. */
+  /** A trackable node completed. Records the skills it teaches; badges follow. */
   def onNodeCompleted(userId: String, frameworkId: String, nodeId: String, batchId: String,
                       isRoot: Boolean, completedOn: Long, ctx: RequestContext): Unit = {
     val m = meta(frameworkId, ctx)
     if (m.isEmpty) return
-    val touched =
+    projector.recording(userId, ctx) {
       if (isRoot) ledger.creditCollection(userId, m, nodeId, batchId, completedOn, ctx)
       else ledger.creditCourse(userId, m, nodeId, batchId, completedOn, ctx)
-    if (touched.nonEmpty) projector.project(userId, touched, ctx)
+    }
   }
 
-  /** An assessment was scored. Records every skill answered at full marks and projects. */
+  /** An assessment was scored. Records every skill answered at full marks; badges follow. */
   def onAssessed(userId: String, frameworkId: String, collectionId: String, batchId: String,
                  questionSetIds: List[String], ctx: RequestContext): Unit = {
     val m = meta(frameworkId, ctx)
     if (m.isEmpty || questionSetIds.isEmpty) return
-    val touched = ledger.creditAssessments(userId, m, collectionId, batchId, questionSetIds, ctx)
-    if (touched.nonEmpty) projector.project(userId, touched, ctx)
+    projector.recording(userId, ctx) {
+      ledger.creditAssessments(userId, m, collectionId, batchId, questionSetIds, ctx)
+    }
   }
 
   def importExternal(userId: String, frameworkId: String, skillId: String, sourceId: String,
@@ -70,27 +71,39 @@ class CompetencyService(cassandra: CassandraOperation, keyspace: String,
                      ctx: RequestContext): Boolean = {
     val m = meta(frameworkId, ctx)
     if (m.isEmpty) return false
-    ledger.importExternal(userId, m, skillId, sourceId, issuerId, note, occurredOn, ctx)
-      .exists { sid => projector.project(userId, Set(sid), ctx); true }
+    projector.recording(userId, ctx) {
+      ledger.importExternal(userId, m, skillId, sourceId, issuerId, note, occurredOn, ctx).toSet
+    }.nonEmpty
   }
 
   def revokeEvidence(userId: String, skillId: String, evidenceId: String, reason: String,
                      ctx: RequestContext): Unit = {
-    ledger.revoke(userId, skillId, evidenceId, reason, ctx)
-    projector.project(userId, Set(skillId), ctx)
+    projector.recording(userId, ctx) {
+      ledger.revoke(userId, skillId, evidenceId, reason, ctx)
+      Set(skillId)
+    }
   }
 
   // ---- read path ------------------------------------------------------------------------------
 
+  /** Held skills, sorted by skill id, computed from the ledger. */
   def profile(userId: String, ctx: RequestContext): List[SkillEntry] =
-    dao.profileOf(userId, ctx)
+    projector.held(userId, ctx).values.toList.sortBy(_.skillId)
 
-  def evidenceOf(userId: String, skillId: String, ctx: RequestContext): List[Evidence] =
-    ledger.evidenceOf(userId, skillId, ctx)
+  /**
+   * Held skills with every evidence row behind each, revoked included, newest first. One read of
+   * the learner's ledger partition serves both.
+   */
+  def profileWithEvidence(userId: String, ctx: RequestContext): List[(SkillEntry, List[Evidence])] = {
+    val bySkill = dao.evidenceOfUser(userId, ctx).groupBy(_.skillId)
+    bySkill.toList.flatMap { case (_, rows) =>
+      AttainmentRules.project(rows).map(_ -> rows.sortBy(_.evidenceId)(Ordering[String].reverse))
+    }.sortBy(_._1.skillId)
+  }
 
   /** Everything the learner currently holds. The waiver test and the gap both read this. */
   def heldSkills(userId: String, ctx: RequestContext): Set[String] =
-    profile(userId, ctx).map(_.skillId).toSet
+    projector.held(userId, ctx).keySet
 
   def role(userId: String, ctx: RequestContext): Option[RoleAssignment] =
     dao.roleOf(userId, ctx)
