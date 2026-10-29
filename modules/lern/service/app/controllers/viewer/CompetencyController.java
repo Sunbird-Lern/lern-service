@@ -152,9 +152,9 @@ public class CompetencyController extends BaseController {
         if (!isCompetencyAdmin(httpRequest)) {
             return CompletableFuture.completedFuture(createCommonExceptionResponse(
                 new org.sunbird.exception.ProjectCommonException(
-                    org.sunbird.message.ResponseCode.unAuthorized.getErrorCode(),
+                    org.sunbird.response.ResponseCode.unAuthorized,
                     "Competency role authoring requires an organisation administrator.",
-                    org.sunbird.message.ResponseCode.UNAUTHORIZED.getResponseCode()),
+                    org.sunbird.response.ResponseCode.UNAUTHORIZED.getResponseCode()),
                 httpRequest));
         }
         return body(operation, httpRequest);

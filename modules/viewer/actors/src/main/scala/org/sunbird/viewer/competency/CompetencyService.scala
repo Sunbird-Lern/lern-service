@@ -365,12 +365,11 @@ class CompetencyService(cassandra: CassandraOperation, keyspace: String,
 
     val diffs = roles.map(role => RoleAuthoring.diff(role.roleId, role.skills,
       existing.getOrElse(role.roleId, Nil).map(_.skillId).toSet, leaves))
+    // Checked across the whole matrix first, so one bad row writes nothing rather than half - and
+    // before the dry-run branch, so a dry run refuses exactly what the real run would.
+    requireSkills(frameworkId, diffs)
     if (dryRun) diffs
-    else {
-      // Checked across the whole matrix first, so one bad row writes nothing rather than half.
-      requireSkills(frameworkId, diffs)
-      roles.map(roleUpsert(frameworkId, _, ctx))
-    }
+    else roles.map(roleUpsert(frameworkId, _, ctx))
   }
 
   /**
