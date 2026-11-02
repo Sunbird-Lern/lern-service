@@ -92,6 +92,13 @@ public class LernServiceApplicationStart {
             logger.warn("Warning: Failed to initialize HTTP Client. Service may have limited functionality.", httpException);
         }
 
+        // Unirest connection pool (shared by every Unirest call in this JVM) - Non-critical
+        try {
+            org.sunbird.http.HttpUtil.configureUnirestConnectionPool();
+        } catch (Exception unirestException) {
+            logger.warn("Warning: Failed to configure Unirest connection pool. Using Unirest defaults.", unirestException);
+        }
+
         // Initialize Kafka Client (Eagerly) - Non-critical
         try {
             org.sunbird.kafka.KafkaClient.init();
