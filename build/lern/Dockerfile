@@ -30,6 +30,8 @@ ENV sunbird_cloud_storage_auth_type=OIDC
 
 USER nonroot
 COPY --from=builder --chown=nonroot:nonroot /app/lern-service-impl-1.0-SNAPSHOT /home/sunbird/lern-service-impl-1.0-SNAPSHOT
+# Default config; Kubernetes mounts the Secret over this folder to override it (-Dconfig.file below)
+COPY modules/lern/service/conf/application.conf /home/sunbird/lern-service-impl-1.0-SNAPSHOT/conf/application.conf
 COPY modules/lern/service/conf/logback.xml /home/sunbird/lern-service-impl-1.0-SNAPSHOT/conf/logback.xml
 WORKDIR /home/sunbird/
 
@@ -38,6 +40,7 @@ EXPOSE 9000
 CMD java -XX:+PrintFlagsFinal $JAVA_OPTIONS \
   -Dlog4j2.formatMsgNoLookups=true \
   -Dplay.server.http.idleTimeout=180s \
+  -Dconfig.file=/home/sunbird/lern-service-impl-1.0-SNAPSHOT/conf/application.conf \
   -Dlogback.configurationFile=/home/sunbird/lern-service-impl-1.0-SNAPSHOT/conf/logback.xml \
   -cp '/home/sunbird/lern-service-impl-1.0-SNAPSHOT/lib/lern-service-impl-1.0-SNAPSHOT.jar:/home/sunbird/lern-service-impl-1.0-SNAPSHOT/lib/*' \
   play.core.server.ProdServerStart /home/sunbird/lern-service-impl-1.0-SNAPSHOT
