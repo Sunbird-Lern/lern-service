@@ -6,7 +6,7 @@ import org.redisson.api.RMap;
 import org.redisson.api.RedissonClient;
 import org.sunbird.cache.interfaces.Cache;
 import org.sunbird.logging.LoggerUtil;
-import org.sunbird.notification.utils.JsonUtil;
+import org.sunbird.notificationutils.notification.utils.JsonUtil;
 
 /**
  * RedisCache implementation of the {@link Cache} interface using Redisson. This class handles cache

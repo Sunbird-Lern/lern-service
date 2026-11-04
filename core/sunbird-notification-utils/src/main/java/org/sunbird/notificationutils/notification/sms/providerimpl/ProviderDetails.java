@@ -1,8 +1,8 @@
-package org.sunbird.notification.sms.providerimpl;
+package org.sunbird.notificationutils.notification.sms.providerimpl;
 
 import java.io.Serializable;
 import java.util.List;
-import org.sunbird.notification.sms.Sms;
+import org.sunbird.notificationutils.notification.sms.Sms;
 
 /**
  * Data model representing the details required by the SMS provider (Msg91) to send messages.

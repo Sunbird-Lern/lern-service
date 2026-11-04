@@ -1,4 +1,4 @@
-package org.sunbird.notification.sms;
+package org.sunbird.notificationutils.notification.sms;
 
 import java.io.Serializable;
 import java.util.List;

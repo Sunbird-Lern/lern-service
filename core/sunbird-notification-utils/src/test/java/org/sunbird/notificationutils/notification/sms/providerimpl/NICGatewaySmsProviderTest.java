@@ -1,4 +1,4 @@
-package org.sunbird.notification.sms.providerimpl;
+package org.sunbird.notificationutils.notification.sms.providerimpl;
 
 import static org.powermock.api.mockito.PowerMockito.doReturn;
 import static org.powermock.api.mockito.PowerMockito.mock;
@@ -25,10 +25,10 @@ import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 import org.sunbird.common.ProjectUtil;
 import org.sunbird.keys.JsonKey;
-import org.sunbird.notification.sms.provider.ISmsProvider;
-import org.sunbird.notification.utils.PropertiesCache;
-import org.sunbird.notification.utils.SMSFactory;
-import org.sunbird.notification.utils.SmsTemplateUtil;
+import org.sunbird.notificationutils.notification.sms.provider.ISmsProvider;
+import org.sunbird.notificationutils.notification.utils.PropertiesCache;
+import org.sunbird.notificationutils.notification.utils.SMSFactory;
+import org.sunbird.notificationutils.notification.utils.SmsTemplateUtil;
 import org.sunbird.request.RequestContext;
 
 /** Tests for NICGatewaySmsProvider targeting the SMS sending functionality via NIC Gateway. */

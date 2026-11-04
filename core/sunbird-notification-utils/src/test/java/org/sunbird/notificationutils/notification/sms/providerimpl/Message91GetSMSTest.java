@@ -1,4 +1,4 @@
-package org.sunbird.notification.sms.providerimpl;
+package org.sunbird.notificationutils.notification.sms.providerimpl;
 
 import org.junit.Assert;
 import org.junit.Test;

@@ -12,8 +12,8 @@ import org.apache.commons.lang3.StringUtils;
 import org.sunbird.datasecurity.impl.LogMaskServiceImpl;
 import org.sunbird.keys.JsonKey;
 import org.sunbird.logging.LoggerUtil;
-import org.sunbird.notification.sms.provider.ISmsProvider;
-import org.sunbird.notification.utils.SMSFactory;
+import org.sunbird.notificationutils.notification.sms.provider.ISmsProvider;
+import org.sunbird.notificationutils.notification.utils.SMSFactory;
 import org.sunbird.operations.userorg.ActorOperations;
 import org.sunbird.request.Request;
 import org.sunbird.request.RequestContext;
@@ -103,17 +103,32 @@ public final class OTPUtil {
     } else {
       countryCode = (String) otpMap.get(JsonKey.COUNTRY_CODE);
     }
-    ISmsProvider smsProvider = SMSFactory.getInstance();
+    boolean response;
+    // Catch Error specifically. BaseActor.onReceive already handles Exception via
+    // onReceiveException, so those are deliberately left to propagate as before. What it
+    // does NOT catch is Error - and a mismatched sunbird-notification jar surfaces as
+    // NoSuchMethodError, a LinkageError. Uncaught, that reaches the Pekko dispatcher and
+    // Pekko shuts down the entire ActorSystem, so one undeliverable OTP took down login,
+    // profile, enrolment and progress with it. A failed send must cost one OTP, nothing
+    // more.
+    try {
+      ISmsProvider smsProvider = SMSFactory.getInstance();
 
-    logger.debug(
-        context,
-        "OTPUtil:sendOTPViaSMS: SMS OTP text = "
-            + sms
-            + " with phone = "
-            + otpMap.get(JsonKey.PHONE));
+      logger.debug(
+          context,
+          "OTPUtil:sendOTPViaSMS: SMS OTP text = "
+              + sms
+              + " with phone = "
+              + otpMap.get(JsonKey.PHONE));
 
-    boolean response =
-        smsProvider.send((String) otpMap.get(JsonKey.PHONE), countryCode, sms, context);
+      response = smsProvider.send((String) otpMap.get(JsonKey.PHONE), countryCode, sms, context);
+    } catch (Error e) {
+      logger.error(
+          context,
+          "OTPUtil:sendOTPViaSMS: SMS send failed for phone = " + otpMap.get(JsonKey.PHONE),
+          e);
+      return false;
+    }
 
     logger.info(
         context,

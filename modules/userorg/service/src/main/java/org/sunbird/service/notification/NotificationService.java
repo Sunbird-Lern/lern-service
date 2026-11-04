@@ -11,8 +11,8 @@ import org.sunbird.response.ResponseCode;
 import org.sunbird.keys.JsonKey;
 import org.sunbird.logging.LoggerUtil;
 import org.sunbird.model.user.User;
-import org.sunbird.notification.sms.provider.ISmsProvider;
-import org.sunbird.notification.utils.SMSFactory;
+import org.sunbird.notificationutils.notification.sms.provider.ISmsProvider;
+import org.sunbird.notificationutils.notification.utils.SMSFactory;
 import org.sunbird.request.RequestContext;
 import org.sunbird.service.organisation.OrgService;
 import org.sunbird.service.organisation.impl.OrgServiceImpl;
@@ -89,10 +89,12 @@ public class NotificationService {
   private boolean sendSMS(List<String> phones, String smsText, RequestContext context) {
     logger.info(
         context, "NotificationService:sendSMS: Sending sendSMS to = " + phones.size() + " phones");
+    // Throwable rather than Exception: NoSuchMethodError from a mismatched notification jar
+    // is a LinkageError, which an Exception catch lets through to the Pekko dispatcher.
     try {
       ISmsProvider smsProvider = SMSFactory.getInstance();
       return smsProvider.send(phones, smsText, context);
-    } catch (Exception e) {
+    } catch (Throwable e) {
       logger.error(
           context,
           "NotificationService:sendSMS: Exception occurred with message = " + e.getMessage(),
