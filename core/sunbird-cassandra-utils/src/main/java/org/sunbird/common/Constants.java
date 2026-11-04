@@ -20,6 +20,8 @@ public interface Constants {
   String PORT = "port";
   String QUERY_LOGGER_THRESHOLD = "queryLoggerConstantThreshold";
   String SUNBIRD_CASSANDRA_CONSISTENCY_LEVEL = "sunbird_cassandra_consistency_level";
+  String SUNBIRD_CASSANDRA_SSL_ENABLED = "sunbird_cassandra_ssl_enabled";
+  String SUNBIRD_CASSANDRA_SSL_ROOT_CERT = "sunbird_cassandra_sslrootcert";
   String IS_MULTI_DC_ENABLED = "isMultiDCEnabled";
   String STANDALONE_MODE = "standalone";
 
