@@ -110,12 +110,6 @@ class CompetencyDao(cassandra: CassandraOperation, keyspace: String) {
     RoleIndex(skills, retired)
   }
 
-  /** Display names, where authored. Denormalised onto every row of a role, so any row will do. */
-  def readRoleNames(frameworkId: String, ctx: RequestContext): Map[String, String] =
-    read(ROLE_SKILL_TABLE, Map("framework_id" -> frameworkId), ctx)
-      .flatMap(r => for { role <- get(r, "roleid"); name <- get(r, "role_name") } yield role -> name)
-      .toMap
-
   /** Raw rows, one per requirement, with status and version. The writer needs to see everything. */
   def roleRowsOf(frameworkId: String, ctx: RequestContext): List[RoleSkillRow] =
     read(ROLE_SKILL_TABLE, Map("framework_id" -> frameworkId), ctx).flatMap { r =>

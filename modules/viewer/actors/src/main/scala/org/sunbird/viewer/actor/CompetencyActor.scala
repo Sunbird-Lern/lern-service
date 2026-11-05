@@ -9,7 +9,7 @@ import org.sunbird.learner.util.Util
 import org.sunbird.request.{Request, RequestContext}
 import org.sunbird.response.{Response, ResponseCode}
 import org.sunbird.viewer.competency.{CompetencyService, CoverageRow, GapCalculator, GapRow,
-  RankedCandidate, RoleAssignment, RoleDefinition, RoleDiff, RoleSource}
+  RankedCandidate, RoleAssignment, RoleDefinition, RoleDiff, RoleSource, RoleStatus}
 
 import java.util
 import scala.collection.JavaConverters._
@@ -44,7 +44,7 @@ class CompetencyActor extends BaseEnrolmentActor {
       case "roleUpdate"      => roleUpdate(request)
       case "evidenceImport"  => evidenceImport(request)
       case "evidenceRevoke"  => evidenceRevoke(request)
-      case "frameworkRead"   => frameworkRead(request)
+      case "roleList"        => roleList(request)
       case "roleDefRead"     => roleDefRead(request)
       case "roleUpsert"      => roleUpsert(request)
       case "roleRetire"      => roleRetire(request)
@@ -273,26 +273,24 @@ class CompetencyActor extends BaseEnrolmentActor {
   }
 
   /** Resolved framework: tier labels, the leaf skills, and each role's required set. */
-  private def frameworkRead(request: Request): Unit = {
+  /** Live roles and all role names, from `role_skill` alone; no roles means 404. */
+  private def roleList(request: Request): Unit = {
     val ctx = request.getRequestContext
     val frameworkId = require(request, "frameworkId")
-    val m = service.metaWithRoles(frameworkId, ctx)
-    if (m.isEmpty) throw new ProjectCommonException(
+    val defs = service.roleRead(frameworkId, None, ctx)
+    if (defs.isEmpty) throw new ProjectCommonException(
       ResponseCode.resourceNotFound,
-      s"Competency framework did not resolve, or declares no leaf skills: $frameworkId",
+      s"No roles are defined for competency framework $frameworkId, or the framework does not exist.",
       ResponseCode.RESOURCE_NOT_FOUND.getResponseCode)
     val roles: util.Map[String, util.List[String]] =
-      m.liveRoleSkills.map { case (role, skills) => role -> skills.toList.sorted.asJava }.asJava
+      defs.filter(_.status == RoleStatus.LIVE)
+        .map(r => r.roleId -> r.skills.toList.sorted.asJava).toMap.asJava
     reply(
       "frameworkId" -> frameworkId,
-      "tierLabels" -> m.tierLabels.asJava,
-      "depth" -> Integer.valueOf(m.depth),
-      "leafSkills" -> m.leaves.toList.sorted.asJava,
-      "leafCount" -> Integer.valueOf(m.leaves.size),
       "roles" -> roles,
       // Codes are not display strings: without these the client de-slugs "staff-nurse-icu" into
       // "Staff nurse icu", losing the authored capitalisation and punctuation.
-      "roleNames" -> service.roleNames(frameworkId, ctx).asJava)
+      "roleNames" -> defs.map(r => r.roleId -> r.name).toMap.asJava)
   }
 
   // ---- role authoring -------------------------------------------------------------------------
@@ -364,7 +362,7 @@ class CompetencyActor extends BaseEnrolmentActor {
       "source" -> a.source)
   }
 
-  /** Roles as authored, RETIRED included - distinct from frameworkRead, which serves learners. */
+  /** Roles as authored, RETIRED included - distinct from roleList, which serves learners. */
   private def roleDefRead(request: Request): Unit = {
     val ctx = request.getRequestContext
     val frameworkId = require(request, "frameworkId")

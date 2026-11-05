@@ -70,9 +70,9 @@ public class CompetencyController extends BaseController {
         return body("coverageRead", httpRequest);
     }
 
-    public CompletionStage<Result> frameworkRead(String frameworkId, Http.Request httpRequest) {
+    public CompletionStage<Result> roleList(String frameworkId, Http.Request httpRequest) {
         try {
-            Request request = createAndInitRequest("frameworkRead", httpRequest);
+            Request request = createAndInitRequest("roleList", httpRequest);
             request.getRequest().put("frameworkId", frameworkId);
             return actorResponseHandler(competencyActor, request, timeout, null, httpRequest);
         } catch (Exception e) {
@@ -82,7 +82,7 @@ public class CompetencyController extends BaseController {
 
     // ---- role authoring -------------------------------------------------------------------------
 
-    /** Roles as authored, RETIRED included. Distinct from frameworkRead, which serves learners. */
+    /** Roles as authored, RETIRED included. Distinct from roleList, which serves learners. */
     public CompletionStage<Result> roleDefRead(Http.Request httpRequest) {
         return adminOnly("roleDefRead", httpRequest);
     }
