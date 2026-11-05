@@ -116,12 +116,17 @@ public class UserCoursesDaoImpl implements UserCoursesDao {
 
   @Override
   public List<String> getBatchParticipants(RequestContext requestContext, String batchId, boolean active) {
-    Map<String, Object> queryMap = new HashMap<>();
-    queryMap.put(JsonKey.BATCH_ID, batchId);
+    // Select only the two columns used below. Both are in the user_enrolments_by_batch index
+    // (batchid, userid, courseid) INCLUDE (active), so the query is an index-only scan; SELECT *
+    // made the database fetch every participant's full row from the main table.
     Response response =
-            cassandraOperation.getRecordsByIndexedProperty(KEYSPACE_NAME, USER_ENROLMENTS, "batchid", batchId, requestContext);
-        /*cassandraOperation.getRecords(
-                requestContext, KEYSPACE_NAME, USER_ENROLMENTS, queryMap, Arrays.asList(JsonKey.USER_ID, JsonKey.ACTIVE));*/
+        cassandraOperation.getRecordsByProperty(
+            KEYSPACE_NAME,
+            USER_ENROLMENTS,
+            "batchid",
+            batchId,
+            Arrays.asList("userid", "active"),
+            requestContext);
     List<Map<String, Object>> userCoursesList =
         (List<Map<String, Object>>) response.get(JsonKey.RESPONSE);
     if (CollectionUtils.isEmpty(userCoursesList)) {
