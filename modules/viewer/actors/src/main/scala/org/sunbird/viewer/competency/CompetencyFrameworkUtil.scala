@@ -276,8 +276,8 @@ class CompetencyFrameworkUtil(roleSource: (String, RequestContext) => RoleIndex)
   private def searchUrl: String = cfg("service_search_base_path", "http://localhost:9000") + "/v3/search"
 
   private def frameworkReadUrl(id: String): String =
-    cfg("sunbird_api_base_url", "http://localhost:5000") +
-      cfg("sunbird_framework_read_api", "/v1/framework/read") + "/" + id
+    cfg("content_service_base_url", "http://localhost:9000") +
+      cfg("sunbird_competency_framework_read_api", "/competency-framework/v3/read") + "/" + id
 
   private def post(url: String, body: String): String = {
     val headers = new util.HashMap[String, String]() {{ put("Content-Type", "application/json") }}
