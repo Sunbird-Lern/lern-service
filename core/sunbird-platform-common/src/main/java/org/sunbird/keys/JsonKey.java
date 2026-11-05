@@ -403,6 +403,8 @@ public final class JsonKey {
   public static final String SUNBIRD_API_MGR_BASE_URL = "sunbird_api_mgr_base_url";
   public static final String SUNBIRD_AUTHORIZATION = "sunbird_authorization";
   public static final String SUNBIRD_CS_SEARCH_PATH = "sunbird_cs_search_path";
+  public static final String UNIREST_MAX_TOTAL_CONNECTIONS = "unirest_max_total_connections";
+  public static final String UNIREST_MAX_CONNECTIONS_PER_ROUTE = "unirest_max_connections_per_route";
   public static final String DURATION = "duration";
   public static final String LOCATION_CODE = "locationCode";
   public static final String UPLOAD_FILE_MAX_SIZE = "file_upload_max_size";

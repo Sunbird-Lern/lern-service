@@ -43,6 +43,16 @@ public class PrintEntryExitLog {
   private static final ObjectMapper objectMapper = new ObjectMapper();
 
   /**
+   * Whether the exit log of a successful request carries the full response body (PII-masked).
+   * Off by default (config key {@code log_response_body}, env or properties): serialising and
+   * masking every response cost more CPU than the request itself on response-heavy APIs, and
+   * put whole responses (user data) into the central logs. The exit log always keeps the
+   * request context and the response params / response code.
+   */
+  private static final boolean LOG_RESPONSE_BODY =
+      Boolean.parseBoolean(StringUtils.trim(ProjectUtil.getConfigValue("log_response_body")));
+
+  /**
    * Logs entry information for a given request.
    * Clones the request map and applies masking to sensitive attributes (like OTP)
    * before writing to the log.
@@ -84,37 +94,47 @@ public class PrintEntryExitLog {
         return;
       }
       EntryExitLogEvent exitLogEvent = getLogEvent(request, "EXIT");
-      String url = (String) request.getContext().get(JsonKey.URL);
-      List<Map<String, Object>> params = new ArrayList<>();
-      if (null != response) {
-        if (MapUtils.isNotEmpty(response.getResult())) {
-          if (null != url && url.equalsIgnoreCase("/private/user/v1/lookup")) {
-            if (CollectionUtils.isNotEmpty(
-                (List<Map<String, Object>>) response.getResult().get(JsonKey.RESPONSE))) {
-              List<Map<String, Object>> resList =
-                  (List<Map<String, Object>>) response.getResult().get(JsonKey.RESPONSE);
-              params.add(resList.get(0));
-            }
-          } else {
-            Map<String, Object> resMap = response.getResult();
-            Map<String, Object> newRespMap = new HashMap<>();
-            newRespMap.putAll(resMap);
-            params.add(newRespMap);
-          }
-        }
-
-        if (null != response.getParams()) {
-          Map<String, Object> resParam = new HashMap<>();
-          resParam.putAll(objectMapper.convertValue(response.getParams(), Map.class));
-          resParam.put(JsonKey.RESPONSE_CODE, response.getResponseCode().getResponseCode());
-          params.add(resParam);
-        }
-      }
-      exitLogEvent.setEdataParams(params);
-      logger.info(request.getRequestContext(), maskPIIData(exitLogEvent.toString()));
+      exitLogEvent.setEdataParams(getExitLogParams(request, response, LOG_RESPONSE_BODY));
+      String exitLog = exitLogEvent.toString();
+      logger.info(request.getRequestContext(), LOG_RESPONSE_BODY ? maskPIIData(exitLog) : exitLog);
     } catch (Exception ex) {
       logger.error("Exception occurred while logging exit log", ex);
     }
+  }
+
+  /**
+   * Builds the edata params of the exit log: the response params and response code, plus the
+   * response result when {@code includeResponseBody} is true.
+   */
+  static List<Map<String, Object>> getExitLogParams(
+      org.sunbird.request.Request request, Response response, boolean includeResponseBody) {
+    String url = (String) request.getContext().get(JsonKey.URL);
+    List<Map<String, Object>> params = new ArrayList<>();
+    if (null != response) {
+      if (includeResponseBody && MapUtils.isNotEmpty(response.getResult())) {
+        if (null != url && url.equalsIgnoreCase("/private/user/v1/lookup")) {
+          if (CollectionUtils.isNotEmpty(
+              (List<Map<String, Object>>) response.getResult().get(JsonKey.RESPONSE))) {
+            List<Map<String, Object>> resList =
+                (List<Map<String, Object>>) response.getResult().get(JsonKey.RESPONSE);
+            params.add(resList.get(0));
+          }
+        } else {
+          Map<String, Object> resMap = response.getResult();
+          Map<String, Object> newRespMap = new HashMap<>();
+          newRespMap.putAll(resMap);
+          params.add(newRespMap);
+        }
+      }
+
+      if (null != response.getParams()) {
+        Map<String, Object> resParam = new HashMap<>();
+        resParam.putAll(objectMapper.convertValue(response.getParams(), Map.class));
+        resParam.put(JsonKey.RESPONSE_CODE, response.getResponseCode().getResponseCode());
+        params.add(resParam);
+      }
+    }
+    return params;
   }
 
   /**

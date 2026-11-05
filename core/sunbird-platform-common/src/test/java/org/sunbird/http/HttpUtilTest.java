@@ -22,6 +22,8 @@ import org.junit.Before;
 import org.junit.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
+import org.sunbird.common.ProjectUtil;
+import org.sunbird.keys.JsonKey;
 import org.sunbird.response.HttpUtilResponse;
 import org.sunbird.response.ResponseCode;
 
@@ -206,5 +208,43 @@ public class HttpUtilTest {
       Map<String, String> headers = HttpUtil.getHeader(null);
       assertTrue(headers.containsKey("Content-Type"));
       assertEquals(1, headers.size());
+  }
+
+  private void runConfigureUnirestConnectionPool(String maxTotal, String maxPerRoute) {
+    try (MockedStatic<ProjectUtil> projectUtil = Mockito.mockStatic(ProjectUtil.class)) {
+      projectUtil.when(() -> ProjectUtil.getConfigValue(JsonKey.UNIREST_MAX_TOTAL_CONNECTIONS)).thenReturn(maxTotal);
+      projectUtil.when(() -> ProjectUtil.getConfigValue(JsonKey.UNIREST_MAX_CONNECTIONS_PER_ROUTE)).thenReturn(maxPerRoute);
+      HttpUtil.configureUnirestConnectionPool();
+    }
+  }
+
+  @Test
+  public void testConfigureUnirestConnectionPoolApplied() {
+    runConfigureUnirestConnectionPool("300", " 64 ");
+    unirestMockedStatic.verify(() -> Unirest.setConcurrency(300, 64));
+  }
+
+  @Test
+  public void testConfigureUnirestConnectionPoolDefaultsWhenNotConfigured() {
+    runConfigureUnirestConnectionPool(null, "");
+    unirestMockedStatic.verify(() -> Unirest.setConcurrency(200, 40));
+  }
+
+  @Test
+  public void testConfigureUnirestConnectionPoolDefaultForMissingValue() {
+    runConfigureUnirestConnectionPool("300", null);
+    unirestMockedStatic.verify(() -> Unirest.setConcurrency(300, 40));
+  }
+
+  @Test
+  public void testConfigureUnirestConnectionPoolDefaultForInvalidValue() {
+    runConfigureUnirestConnectionPool("abc", "0");
+    unirestMockedStatic.verify(() -> Unirest.setConcurrency(200, 40));
+  }
+
+  @Test
+  public void testConfigureUnirestConnectionPoolPerRouteAboveTotal() {
+    runConfigureUnirestConnectionPool("50", "64");
+    unirestMockedStatic.verify(() -> Unirest.setConcurrency(200, 40));
   }
 }

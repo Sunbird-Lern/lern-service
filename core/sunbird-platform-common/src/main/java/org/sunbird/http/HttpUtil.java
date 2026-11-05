@@ -4,6 +4,10 @@ import com.mashape.unirest.http.HttpResponse;
 import com.mashape.unirest.http.Unirest;
 import com.mashape.unirest.http.exceptions.UnirestException;
 import org.apache.commons.collections4.MapUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.math.NumberUtils;
+import org.sunbird.common.ProjectUtil;
+import org.sunbird.keys.JsonKey;
 import org.sunbird.response.HttpUtilResponse;
 import org.sunbird.logging.LoggerUtil;
 import org.sunbird.response.ResponseCode;
@@ -19,7 +23,44 @@ import java.util.Map;
 public class HttpUtil {
 
   public static LoggerUtil logger = new LoggerUtil(HttpUtil.class);
+  // Per host: enough for the actors that call search at once (32 enrolment + 4 viewer-summary +
+  // 4 QR-code download). Unirest's own default is 20 per host, which queues enrolment list calls.
+  static final int DEFAULT_UNIREST_MAX_TOTAL_CONNECTIONS = 200;
+  static final int DEFAULT_UNIREST_MAX_CONNECTIONS_PER_ROUTE = 40;
+
   private HttpUtil() {}
+
+  /**
+   * Sets the Unirest connection pool size from config (unirest_max_total_connections,
+   * unirest_max_connections_per_route), falling back to 200 total / 40 per host for a missing or
+   * invalid value. Unirest has one client per JVM, so this applies to every Unirest call in the
+   * service; call it once at startup, before the first request.
+   */
+  public static void configureUnirestConnectionPool() {
+    int maxTotal = positiveConfigValue(JsonKey.UNIREST_MAX_TOTAL_CONNECTIONS, DEFAULT_UNIREST_MAX_TOTAL_CONNECTIONS);
+    int maxPerRoute = positiveConfigValue(JsonKey.UNIREST_MAX_CONNECTIONS_PER_ROUTE, DEFAULT_UNIREST_MAX_CONNECTIONS_PER_ROUTE);
+    if (maxPerRoute > maxTotal) {
+      logger.warn("HttpUtil:configureUnirestConnectionPool: per-host " + maxPerRoute + " exceeds total " + maxTotal
+          + ", using defaults");
+      maxTotal = DEFAULT_UNIREST_MAX_TOTAL_CONNECTIONS;
+      maxPerRoute = DEFAULT_UNIREST_MAX_CONNECTIONS_PER_ROUTE;
+    }
+    Unirest.setConcurrency(maxTotal, maxPerRoute);
+    logger.info("HttpUtil:configureUnirestConnectionPool: total=" + maxTotal + ", perRoute=" + maxPerRoute);
+  }
+
+  private static int positiveConfigValue(String key, int defaultValue) {
+    String value = ProjectUtil.getConfigValue(key);
+    if (StringUtils.isBlank(value)) {
+      return defaultValue;
+    }
+    int parsed = NumberUtils.toInt(value.trim(), 0);
+    if (parsed <= 0) {
+      logger.warn("HttpUtil:configureUnirestConnectionPool: invalid " + key + "=" + value + ", using " + defaultValue);
+      return defaultValue;
+    }
+    return parsed;
+  }
 
   /**
    * Makes an HTTP request using GET method to the specified URL.

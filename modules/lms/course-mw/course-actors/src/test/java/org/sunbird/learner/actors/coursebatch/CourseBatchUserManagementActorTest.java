@@ -51,8 +51,8 @@ public class CourseBatchUserManagementActorTest extends SunbirdApplicationActorT
     group = MockerBuilder.getFreshMockerGroup().withCassandraMock(new CassandraMocker());
     when(group
             .getCassandraMockerService()
-            .getRecordsByIndexedProperty(
-                    Mockito.anyString(), Mockito.anyString(), Mockito.anyString(), Mockito.anyString(), Mockito.any()))
+            .getRecordsByProperty(
+            Mockito.anyString(), Mockito.anyString(), Mockito.anyString(), Mockito.any(), Mockito.anyList(), Mockito.any()))
         .thenReturn(CustomObjectBuilder.getRandomUserCoursesList(5).asCassandraResponse());
     Request req = new Request();
     HashMap<String, Object> innerMap = new HashMap<>();
@@ -79,8 +79,8 @@ public class CourseBatchUserManagementActorTest extends SunbirdApplicationActorT
     group = MockerBuilder.getFreshMockerGroup().withCassandraMock(new CassandraMocker());
     when(group
             .getCassandraMockerService()
-            .getRecordsByIndexedProperty(
-                    Mockito.anyString(), Mockito.anyString(), Mockito.anyString(), Mockito.anyString(), Mockito.any()))
+            .getRecordsByProperty(
+            Mockito.anyString(), Mockito.anyString(), Mockito.anyString(), Mockito.any(), Mockito.anyList(), Mockito.any()))
         .thenReturn(CustomObjectBuilder.getUserCoursesBuilder().buildList().asCassandraResponse());
     Request req = new Request();
     HashMap<String, Object> innerMap = new HashMap<>();
