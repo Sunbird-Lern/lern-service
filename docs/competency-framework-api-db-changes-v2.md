@@ -13,7 +13,7 @@ Branch: `feat/competency-framework-design`. Controller: `CompetencyController` �
 | POST | `/v1/skill/recommend` | Content recommended to close the gap |
 | POST | `/v1/skill/role/update` | Learner sets own target roles |
 | POST | `/v1/skill/coverage/read` | Skill coverage of a programme (authoring check) |
-| GET | `/v1/competency/framework/read/:frameworkId` | Framework leaf skills, tier labels and role → skill map |
+| GET | `/v1/competency/role/list/:frameworkId` | Live roles → skill map and role names, from `role_skill` only (no Knowlg call); 404 when the framework has no roles |
 
 ### Role authoring (admin only — checked in controller against the user token)
 

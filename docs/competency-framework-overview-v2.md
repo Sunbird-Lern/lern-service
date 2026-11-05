@@ -14,7 +14,8 @@ cases](#other-use-cases) shows the same model for schools and software skills.
 
 ![One course tagged by a taxonomy framework and a competency framework](images/competency-overview-frameworks-v2.svg)
 
-Both are Knowlg frameworks, created with the same framework and term APIs.
+Both live in Knowlg. The competency framework is its own object, `CompetencyFramework`, with its own
+`/competency-framework/v3/*` APIs; its categories and terms use the existing category and term APIs.
 
 The taxonomy framework answers *where does this content belong?* Its categories, such as
 department, specialty, language and topic in the health example, drive the catalogue, search and
@@ -129,7 +130,7 @@ Knowlg needs these schema changes:
 
 | Schema | Change |
 |---|---|
-| Framework | `Competency` added to the `type` values; `tierLabels` property |
+| Competency framework | `CompetencyFramework` objectType; `tierLabels` property |
 | Content and collection | `competencyFramework`, `skill`; `targetRole` on Learning Paths |
 | Question | `skill` |
 

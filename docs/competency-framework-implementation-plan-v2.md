@@ -13,7 +13,7 @@ Phases 1, 2 and 6 are new work, and phase 1 lands outside this repository.
 | Already landed | The Learning Path prerequisites — persisted `optional_nodes` and `optionality_computed`, single-writer root enrolment row, `advance(completedNow)` |
 | Rewritten in place | `org.sunbird.viewer.competency` — 8 files, 1135 lines. No file added, none removed |
 | Naming rule | Files and service classes keep their `Competency*` names. Data classes, tables and routes take the design's skill vocabulary |
-| Critical path | Phase 1 (Knowlg enum) → phase 3 (ledger and profile) → phases 4 and 5 |
+| Critical path | Phase 1 (Knowlg `CompetencyFramework`) → phase 3 (ledger and profile) → phases 4 and 5 |
 | Largest single risk | `CompetencyFrameworkUtil.meta` returns `CompetencyMeta.empty` when a framework has no `proficiencylevel` terms, so the new frameworks silently no-op until phase 3 lands |
 | Most expensive work | Retagging the published catalogue with `skills` — not code |
 | Blocked on a decision | Phases 3 and 6. See below |
@@ -38,14 +38,14 @@ tested without it.
 
 | Task | Where | Change |
 |---|---|---|
-| Add the framework type | `schemas/framework/1.0/schema.json` | `type` enum gains `"Competency"`; today `["K-12", "TPD"]` |
+| Competency framework object | `schemas/competencyframework/1.0` | objectType `CompetencyFramework` with `/competency-framework/v3/*` APIs; no `type` field |
 | Master categories | Framework config | Two — `competency`, `role`. `competencyarea`, `proficiencylevel`, `position` and `competencyrequirement` are not created |
-| Custom framework property | `schemas/framework/1.0/config.json` | `tierLabels` |
+| Custom framework property | `schemas/competencyframework/1.0/config.json` | `tierLabels` |
 | Content and collection fields | Content schema | `skills: array<text>`; `targetRole: text` on the collection — nothing reads a collection-level target today. `competencyFramework` is already read by `CompetencyFrameworkUtil.frameworkOf` |
 | Question field | Question schema | `skills: array<text>` |
 | Author one framework | Data | `fw_health_competency`, three tiers, two roles, published |
 
-**Done when** `GET /v1/framework/read/fw_health_competency` returns a `competency` category whose
+**Done when** `GET /competency-framework/v3/read/fw_health_competency` returns a `competency` category whose
 terms nest by `children`, and a `role` category whose terms carry associations to leaf terms.
 
 **Verify first.** Whether custom term and framework properties survive create and publish is the
@@ -94,7 +94,7 @@ framework therefore resolves to empty and the layer does nothing, silently. Rede
 | `competency/CompetencyService.scala` | `heldLevels` becomes `heldSkills(userId): Set[String]`. `claimIndexes` becomes `claimsOf(nodeIds): Map[String, List[String]]`. Delete `sweep` and `refreshRequirements`. `gap` returns `(List[GapRow], Int)` over set difference |
 | `competency/GapCalculator.scala` | `rows` becomes `required.toList.map(s => GapRow(s, if held MET else MISSING))`. `readiness` counts MET over required. Delete `isMandatory` |
 | `resources/competency.cql` | Replace `user_competency_evidence`, `user_competency` and `user_competency_position` with `user_skill_evidence`, `user_skill` and `user_role` per the design. Delete `competency_expiry_index` and `competency_requirement`. Keep both `user_enrolments` ALTERs — they are already applied |
-| `actor/CompetencyActor.scala` | Delete the `expirySweep` case and handler. Rename `passbookRead` to `profileRead`. `gapRow` emits `skillId` and `status` only. `frameworkRead` returns the tree, tier labels and role skill sets in place of the scale and requirements |
+| `actor/CompetencyActor.scala` | Delete the `expirySweep` case and handler. Rename `passbookRead` to `profileRead`. `gapRow` emits `skillId` and `status` only. `frameworkRead` becomes `roleList` (`GET /v1/competency/role/list/:frameworkId`): live roles, their skills and role names, from `role_skill` only |
 | `../service/app/controllers/viewer/CompetencyController.java` | Delete `expirySweep`. Rename `passbookRead` to `profileRead`, `positionUpdate` to `roleUpdate` |
 | `../service/conf/routes` | Replace the two route blocks with the design's ten routes. `/private/v1/competency/expiry/sweep` goes |
 
@@ -191,7 +191,7 @@ Phases 3 and 6 are the two that need a full sprint each. Phases 4 and 7 are days
 | Level | What |
 |---|---|
 | Unit | `AttainmentRules`, `GapCalculator` and `ProgressionPolicy` stay pure and cover every rule that could be argued about — full marks, union across attempts, set difference, set-subset waiving |
-| Parse | `CompetencyFrameworkUtilParseSpec` against real `/v1/framework/read` and `/v3/search` payloads, including a four-tier tree and an uneven branch |
+| Parse | `CompetencyFrameworkUtilParseSpec` against real `/competency-framework/v3/read` and `/v3/search` payloads, including a four-tier tree and an uneven branch |
 | Integration | One learner through the ICU induction path in the design: 8 required skills, 1 imported, 2 courses waived, 1 not waived, readiness 13% → 100% |
 | Idempotency | Replay the same completion and the same aggregate event; the row count must not move |
 | Rebuild | Truncate `user_skill`, run `reproject`, and diff against the pre-truncation state |

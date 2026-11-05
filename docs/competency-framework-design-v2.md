@@ -18,7 +18,7 @@ needs, drives the next path.
 | Attainment | Course completion, full marks on the skill's tagged questions, or an external import |
 | Learner record | `user_skill_evidence` append-only; the profile is computed from it on read |
 | Expiry | None. An attained skill is permanent |
-| Knowlg change | One enum value — `type = "Competency"` on the framework schema |
+| Knowlg object | `CompetencyFramework` — its own objectType and `/competency-framework/v3/*` APIs; no `type` field |
 | Learner-created paths | A private LP, owned by the learner, seeded from the recommendation |
 
 ## Design decisions
@@ -79,12 +79,13 @@ never held by a learner, so no rollup rule is needed to make them attainable.
 | Learning Path | `targetRole` | `text` | The role the programme is built for. Drives the coverage report and the gap |
 | Course, Question, LP | `competencyFramework` | `text` | Which framework the codes belong to. Distinct from `framework`, which is the taxonomy |
 
-### The one Knowlg change
+### The Knowlg object
 
-`schemas/framework/1.0/schema.json` constrains `type` to `["K-12", "TPD"]`. Add `"Competency"`, so a
-competency framework is distinguishable from a taxonomy framework. Everything else — the two master
-categories, their terms, the associations — is data created through the existing framework and term
-APIs.
+A competency framework is its own objectType, `CompetencyFramework` (schema `competencyframework`), so
+it is distinguishable from a taxonomy framework without a `type` field. lern reads it with
+`GET /competency-framework/v3/read/{id}` and searches for it with `objectType: CompetencyFramework`.
+Everything else — the categories, their terms, the associations — is data created through the
+existing category and term APIs.
 
 ## Curation — three use cases on one shape
 
@@ -210,7 +211,6 @@ spec: competency/v1
 framework:
   id: fw_health_competency
   name: State Health Department Competency Framework
-  type: Competency
   channel: ch_health_dept
   tierLabels: [Competency area, Competency, Skill]
 
@@ -488,7 +488,7 @@ hand it a complete achievement object instead of a name and a course title.
 | POST | `/v1/skill/gap/read` | Missing skills and readiness against current and target role | Self, or supervisor |
 | POST | `/v1/skill/recommend` | Courses and paths ranked by gap closed and effort after waiving | Self |
 | POST | `/v1/skill/role/update` | Set the target role | Self |
-| GET | `/v1/competency/framework/read/:id` | Resolved framework: tree, tier labels, roles and their skills | Public read |
+| GET | `/v1/competency/role/list/:id` | Roles of the framework: live roles and their skills, plus role names; 404 when it has none | Public read |
 | POST | `/private/v1/skill/role/update` | Set the current role | Privileged, HRMS feed |
 | POST | `/private/v1/skill/evidence/import` | Register an external credential against leaf skills | Privileged |
 | POST | `/private/v1/skill/evidence/revoke` | Flag evidence revoked; revoke the badge if the skill is no longer held | Privileged |
@@ -527,7 +527,7 @@ column.
 
 | Phase | Ships | Unblocks | Size |
 |---|---|---|---|
-| **1 · Vocabulary** | `Competency` framework type; the two master categories; `skills` and `competencyFramework` on the content schema; one framework authored and published | Tagging, and competency-based search, with no learner-side change | Knowlg: one enum value plus schema fields. lern-service: none |
+| **1 · Vocabulary** | `CompetencyFramework` object; the two master categories; `skills` and `competencyFramework` on the content schema; one framework authored and published | Tagging, and competency-based search, with no learner-side change | Knowlg: the `CompetencyFramework` schema plus content fields. lern-service: none |
 | **2 · Spec engine** | `validate`, `plan`, `apply` as a CLI against the public APIs; the workbook and YAML front-ends | Framework creation stops being a hand-written script | Small |
 | **3 · Ledger and profile** | `user_skill_evidence` and `user_role`, `AttainmentRules`, ledger, projector, `profile/read`, `reproject`; completion and assessment evidence wired into the progression engine | The skill profile exists | The bulk of the work |
 | **4 · Skill-aware waiving** | The waiver predicate reads held skills | Adaptive paths honour evidence the platform did not produce | Small — one predicate |
