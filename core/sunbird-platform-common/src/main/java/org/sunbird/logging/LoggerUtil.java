@@ -53,11 +53,24 @@ public class LoggerUtil {
       Map<String, Object> object,
       Map<String, Object> param) {
     if (requestContext != null) {
+      if (!logger.isInfoEnabled()) {
+        return; // skip building the JSON log line when INFO is off for this logger
+      }
       requestContext.setLoggerLevel(infoLevel);
       logger.info(jsonMapper(requestContext, message, object, param));
     } else {
       defaultLogger.info(message);
     }
+  }
+
+  /** True if INFO lines of this logger are written; lets callers skip building costly messages. */
+  public boolean isInfoEnabled() {
+    return logger.isInfoEnabled();
+  }
+
+  /** True if a DEBUG line for this request would be written (per-request trace flag or DEBUG level). */
+  public boolean isDebugEnabledFor(RequestContext requestContext) {
+    return isDebugEnabled(requestContext) || defaultLogger.isDebugEnabled();
   }
 
   public void info(Map<String, Object> context, String message) {

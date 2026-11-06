@@ -91,6 +91,9 @@ public abstract class CassandraOperationImpl implements CassandraOperation {
    * Helper method to log debug messages with SLF4J-style placeholders.
    */
   protected void logDebug(RequestContext context, String message, Object... args) {
+    if (!logger.isDebugEnabledFor(context)) {
+      return;
+    }
     String formattedMessage = formatLogMessage(message, args);
     logger.debug(context, formattedMessage);
   }
@@ -99,6 +102,9 @@ public abstract class CassandraOperationImpl implements CassandraOperation {
    * Helper method to log info messages with SLF4J-style placeholders.
    */
   protected void logInfo(RequestContext context, String message, Object... args) {
+    if (!logger.isInfoEnabled()) {
+      return;
+    }
     String formattedMessage = formatLogMessage(message, args);
     logger.info(context, formattedMessage);
   }
