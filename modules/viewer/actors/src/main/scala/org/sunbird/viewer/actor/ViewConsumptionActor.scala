@@ -17,6 +17,8 @@ import org.sunbird.request.{Request, RequestContext}
 import org.sunbird.response.{Response, ResponseCode}
 
 import java.util
+import java.util.concurrent.{ConcurrentHashMap, TimeUnit}
+import scala.concurrent.duration.FiniteDuration
 import javax.inject.{Inject, Named}
 import scala.collection.JavaConverters._
 
@@ -41,7 +43,7 @@ class ViewConsumptionActor @Inject() (
       put("userid", key.get("userid")); put("courseid", key.get("collectionid")); put("batchid", key.get("contextid"))
     }}
     // only stamp an EXISTING enrolment — a plain UPDATE would fabricate a phantom row for an unenrolled view
-    val existing = cassandraOperation.getRecordByIdentifier(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, selectMap, null, ctx)
+    val existing = cassandraOperation.getRecordByIdentifier(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, selectMap, ViewConsumptionActor.EnrolmentExistsColumns, ctx)
       .getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]]).asInstanceOf[util.List[util.Map[String, AnyRef]]]
     if (existing.isEmpty) { logger.info(ctx, s"view: access skip(no-enrolment) | user=${key.get("userid")} course=${key.get("collectionid")} batch=${key.get("contextid")}"); return }
     val updateMap = new util.HashMap[String, AnyRef]() {{
@@ -49,7 +51,8 @@ class ViewConsumptionActor @Inject() (
       put("lastreadcontentid", key.get("contentid"))
       put("lastreadcontentstatus", Integer.valueOf(status))
     }}
-    cassandraOperation.updateRecordV2(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, selectMap, updateMap, true, ctx)
+    // existence was checked above; ifExists=true is not implemented by updateRecordV2 and only logged a WARN per call
+    cassandraOperation.updateRecordV2(enrolmentDBInfo.getKeySpace, enrolmentDBInfo.getTableName, selectMap, updateMap, false, ctx)
     logger.info(ctx, s"view: access stamped | user=${key.get("userid")} course=${key.get("collectionid")} content=${key.get("contentid")} status=$status")
   }
 
@@ -308,8 +311,22 @@ class ViewConsumptionActor @Inject() (
     aggRequest.put("courseId", key.get("collectionid"))
     aggRequest.put("batchId", key.get("contextid"))
     aggRequest.put("contentId", key.get("contentid")) // the leaf; NoContext fan-out needs it (keys are collapsed)
-    logger.info(ctx, s"view: rollup triggered | user=${key.get("userid")} course=${key.get("collectionid")} batch=${key.get("contextid")}")
-    viewerAggregatorActor.tell(aggRequest, ActorRef.noSender)
+    val debounceMs = ViewConsumptionActor.aggregationDebounceMs
+    if (debounceMs <= 0) {
+      logger.info(ctx, s"view: rollup triggered | user=${key.get("userid")} course=${key.get("collectionid")} batch=${key.get("contextid")}")
+      viewerAggregatorActor.tell(aggRequest, ActorRef.noSender)
+    } else {
+      // Coalesce: one rollup per (user, course, batch, content) per window. The rollup re-reads all consumption
+      // rows when it runs, so the later updates in the window are included; later triggers are dropped.
+      val pendingKey = s"${key.get("userid")}|${key.get("collectionid")}|${key.get("contextid")}|${key.get("contentid")}"
+      if (ViewConsumptionActor.pendingAggregations.putIfAbsent(pendingKey, java.lang.Boolean.TRUE) == null) {
+        logger.info(ctx, s"view: rollup scheduled in ${debounceMs}ms | user=${key.get("userid")} course=${key.get("collectionid")} batch=${key.get("contextid")}")
+        getContext().getSystem().scheduler.scheduleOnce(FiniteDuration(debounceMs, TimeUnit.MILLISECONDS)) {
+          ViewConsumptionActor.pendingAggregations.remove(pendingKey)
+          viewerAggregatorActor.tell(aggRequest, ActorRef.noSender)
+        }(getContext().getDispatcher())
+      }
+    }
   }
 
   // ucc primary key; (collectionid, contextid) come from the mode resolver (strict = the old cascade). contentid is always the content.
@@ -398,4 +415,15 @@ class ViewConsumptionActor @Inject() (
     cassandraOperation = ops
     this
   }
+}
+
+object ViewConsumptionActor {
+  // existence check for touchEnrolmentAccess: one non-key column instead of the full enrolment row
+  private[actor] val EnrolmentExistsColumns: java.util.List[String] = java.util.Arrays.asList("active")
+  // viewer_aggregation_debounce_ms: 0 (default) = rollup on every update, as before; > 0 = at most one rollup
+  // per (user, course, batch, content) per window, per JVM
+  private[actor] lazy val aggregationDebounceMs: Long =
+    Option(org.sunbird.common.ProjectUtil.getConfigValue("viewer_aggregation_debounce_ms"))
+      .map(_.trim).filter(v => v.nonEmpty && v.forall(_.isDigit)).map(_.toLong).getOrElse(0L)
+  private[actor] val pendingAggregations = new ConcurrentHashMap[String, java.lang.Boolean]()
 }

@@ -53,6 +53,14 @@ public class PrintEntryExitLog {
       Boolean.parseBoolean(StringUtils.trim(ProjectUtil.getConfigValue("log_response_body")));
 
   /**
+   * Whether the entry log carries the request body (deep-copied and PII-masked). Off by default
+   * (config key {@code log_request_body}): the copy is a Java-serialization clone and the masking
+   * scans the whole body on every request.
+   */
+  private static final boolean LOG_REQUEST_BODY =
+      Boolean.parseBoolean(StringUtils.trim(ProjectUtil.getConfigValue("log_request_body")));
+
+  /**
    * Logs entry information for a given request.
    * Clones the request map and applies masking to sensitive attributes (like OTP)
    * before writing to the log.
@@ -60,20 +68,26 @@ public class PrintEntryExitLog {
    * @param request The operation request to log.
    */
   public static void printEntryLog(Request request) {
+    if (!logger.isInfoEnabled()) {
+      return; // nothing is written below INFO, so skip the copy, serialisation and masking
+    }
     try {
       EntryExitLogEvent entryLogEvent = getLogEvent(request, "ENTRY");
       List<Map<String, Object>> params = new ArrayList<>();
-      Map<String, Object> reqMap = request.getRequest();
-      Map<String, Object> newReqMap = SerializationUtils.clone(new HashMap<>(reqMap));
-      String url = (String) request.getContext().get(JsonKey.URL);
-      if (url.contains("otp")) {
-        if (MapUtils.isNotEmpty(newReqMap)) {
-          maskOtpAttributes(newReqMap);
+      if (LOG_REQUEST_BODY) {
+        Map<String, Object> reqMap = request.getRequest();
+        Map<String, Object> newReqMap = SerializationUtils.clone(new HashMap<>(reqMap));
+        String url = (String) request.getContext().get(JsonKey.URL);
+        if (url.contains("otp")) {
+          if (MapUtils.isNotEmpty(newReqMap)) {
+            maskOtpAttributes(newReqMap);
+          }
         }
+        params.add(newReqMap);
       }
-      params.add(newReqMap);
       entryLogEvent.setEdataParams(params);
-      logger.info(request.getRequestContext(), maskPIIData(entryLogEvent.toString()));
+      String entryLog = entryLogEvent.toString();
+      logger.info(request.getRequestContext(), LOG_REQUEST_BODY ? maskPIIData(entryLog) : entryLog);
     } catch (Exception ex) {
       logger.error("Exception occurred while logging entry log", ex);
     }
@@ -89,6 +103,9 @@ public class PrintEntryExitLog {
    */
   public static void printExitLogOnSuccessResponse(
       org.sunbird.request.Request request, Response response) {
+    if (!logger.isInfoEnabled()) {
+      return;
+    }
     try {
       if (ActorOperations.HEALTH_CHECK.getValue().equalsIgnoreCase(request.getOperation())) {
         return;
