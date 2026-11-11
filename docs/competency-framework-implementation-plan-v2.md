@@ -15,7 +15,7 @@ Phases 1, 2 and 6 are new work, and phase 1 lands outside this repository.
 | Naming rule | Files and service classes keep their `Competency*` names. Data classes, tables and routes take the design's skill vocabulary |
 | Critical path | Phase 1 (Knowlg `CompetencyFramework`) → phase 3 (ledger and profile) → phases 4 and 5 |
 | Largest single risk | `CompetencyFrameworkUtil.meta` returns `CompetencyMeta.empty` when a framework has no `proficiencylevel` terms, so the new frameworks silently no-op until phase 3 lands |
-| Most expensive work | Retagging the published catalogue with `skills` — not code |
+| Most expensive work | Retagging the published catalogue with the skill field — not code |
 | Blocked on a decision | Phases 3 and 6. See below |
 
 ## Open decisions
@@ -29,7 +29,7 @@ Four of these block a phase. Each carries a leaning, not a conclusion.
 | D3 | Classes keep `Competency*` names while tables become `user_skill*` and routes `/v1/skill/*`. The two vocabularies then disagree in the same file | Nothing | Follow the design for tables and routes. Both are being dropped and recreated, and no client consumes the routes yet. Reversible either way |
 | D4 | `modules/lms` and `modules/viewer` are separate Maven profiles, so lms cannot reference the skill layer in-JVM. Private LP creation needs the gap to seed itself | Phase 6 | Put the private LP APIs in lms and have them call `/v1/skill/gap/read` over HTTP, the trade `EnrolDispatcher` already makes. Alternative is a viewer-side endpoint that has no collection or batch machinery |
 | D5 | `recommend` resolves the role as current, else the first target. The design computes a gap against both | Phase 5 | Return both gaps and let the client choose. One extra partition read |
-| D6 | `claimsOf` searches content with `fields = ["competencies"]`. Every Live course and question needs `skills` instead | Phase 3 having real data | Undecided. A bulk metadata update on Live content means a republish per course |
+| D6 | `claimsOf` searches content with `fields = ["competencies"]`. Every Live course and question needs the skill field instead | Phase 3 having real data | Undecided. A bulk metadata update on Live content means a republish per course |
 
 ## Phase 1 · Vocabulary
 
@@ -40,12 +40,13 @@ tested without it.
 |---|---|---|
 | Competency framework object | `schemas/competencyframework/1.0` | objectType `CompetencyFramework` with `/competency-framework/v3/*` APIs; no `type` field |
 | Master categories | Framework config | Two — `competency`, `role`. `competencyarea`, `proficiencylevel`, `position` and `competencyrequirement` are not created |
-| Content and collection fields | Content schema | `skills: array<text>`; `targetRole: text` on the collection — nothing reads a collection-level target today. `competencyFramework` is already read by `CompetencyFrameworkUtil.frameworkOf` |
-| Question field | Question schema | `skills: array<text>` |
+| Content and collection fields | Content schema | The skill field, named after the framework's last category (e.g. `skill: array<text>`; never `skills`, an existing taxonomy field); `targetRole: text` on the collection — nothing reads a collection-level target today. `competencyFramework` is already read by `CompetencyFrameworkUtil.frameworkOf` |
+| Question field | Question schema | The same skill field |
 | Author one framework | Data | `fw_health_competency`, three tiers, two roles, published |
 
-**Done when** `GET /competency-framework/v3/read/fw_health_competency` returns a `competency` category whose
-terms nest by `children`, and a `role` category whose terms carry associations to leaf terms.
+**Done when** `GET /competency-framework/v3/read/fw_health_competency` returns its categories with an
+`index` each, every term associated to terms of the next category, and the skills as the terms of
+the last category.
 
 **Verify first.** Whether custom term properties survive create and publish is the
 open question the whole plan rests on. Confirm the role associations round-trip
@@ -86,8 +87,8 @@ framework therefore resolves to empty and the layer does nothing, silently. Rede
 |---|---|
 | `competency/CompetencyModels.scala` | Delete `LevelDef`, `RequirementDef`, `Criticality`. `CompetencyClaim` collapses to a bare code, so `claimsByNode` becomes `Map[String, List[String]]`. `CompetencyMeta` swaps the scale and validity fields for `leaves: Set[String]`, `roleSkills: Map[String, Set[String]]`. `Evidence` drops `level`, `levelIndex`, `evidenceCount`, `expiresOn`. `PassbookEntry` becomes `SkillEntry` — no level, no status, no expiry. `GapRow` becomes `(skillId, MET \| MISSING)`. `PositionAssignment` becomes `RoleAssignment` |
 | `competency/AttainmentRules.scala` | Delete `band`, `pct`, `capCompletion`, `isExpired`, `expiryOf`, `expiryBucket`, `IN_PROGRESS`, `EXPIRING`, `EXPIRED`, `best`. `project` returns `Option[SkillEntry]` — `Some` when a non-revoked row exists, `None` otherwise. Keep `evidenceId` unchanged; it already sorts and dedupes. New: `fullMarks(questions)` |
-| `competency/CompetencyFrameworkUtil.scala` | Delete `CAT_AREA`, `CAT_LEVEL`, `CAT_REQUIREMENT`, `parseLevels`, `parseValidity`, `validityMonthsFor`, `defaultRequiredLevel` and `maxCompletionDerivedLevel` handling. `CAT_POSITION` becomes `CAT_ROLE = "role"`. New `parseTree` walks `children` to produce the leaf set and the tier depth. `parseRequirements` keeps only its small-variant branch — a role term's own associations to `competency` terms — and returns `Set[String]` per role. `parseClaims` reads `skills` as a flat array. `searchByIds` requests `skills` |
-| `competency/CompetencyLedger.scala` | `creditCompletion` drops the cap and the expiry stamp; it appends one row per code in `skills`. `creditAssessments` replaces cut-score banding with the full-marks test, appends only for skills that pass it (D2), and unions across attempts (D1). `importExternal` loses its level argument |
+| `competency/CompetencyFrameworkUtil.scala` | Delete `CAT_AREA`, `CAT_LEVEL`, `CAT_REQUIREMENT`, `parseLevels`, `parseValidity`, `validityMonthsFor`, `defaultRequiredLevel` and `maxCompletionDerivedLevel` handling. `CAT_POSITION` goes; roles come from `role_skill`. New `parseTree` takes the terms of the last category by `index` as the leaf set; `parseSkillField` takes that category's code as the content field. `parseClaims` reads that field as a flat array, and `searchByIds` requests it |
+| `competency/CompetencyLedger.scala` | `creditCompletion` drops the cap and the expiry stamp; it appends one row per code in the skill field. `creditAssessments` replaces cut-score banding with the full-marks test, appends only for skills that pass it (D2), and unions across attempts (D1). `importExternal` loses its level argument |
 | `competency/CompetencyProjector.scala` | Delete `sweep`, `bucketsAround` and the `expiringWindowMillis` config read. `project` drops the `indexExpiry` write; the `None` branch deletes the row instead of calling `setPassbookStatus`. `reproject` and `rederive` unchanged in shape |
 | `competency/CompetencyDao.scala` | Three tables, not five. Delete `indexExpiry`, `expiriesIn`, `setPassbookStatus`, `upsertRequirement`. Rename `passbookOf`/`upsertPassbook` to `profileOf`/`upsertSkill`, `positionOf`/`upsertPosition` to `roleOf`/`upsertRole`. New `deleteSkill`. Keep `enrolmentsOf` and `assessedContentIds` as they are |
 | `competency/CompetencyService.scala` | `heldLevels` becomes `heldSkills(userId): Set[String]`. `claimIndexes` becomes `claimsOf(nodeIds): Map[String, List[String]]`. Delete `sweep` and `refreshRequirements`. `gap` returns `(List[GapRow], Int)` over set difference |
@@ -102,7 +103,7 @@ framework therefore resolves to empty and the layer does nothing, silently. Rede
 | File | Change |
 |---|---|
 | `competency/AttainmentRulesSpec.scala` | Rewrite. Drop every banding and expiry case. New: full marks across one and several questions, one wrong answer, a revoked row, all rows revoked |
-| `competency/CompetencyFrameworkUtilParseSpec.scala` | Rewrite. New: leaf resolution at three and four tiers, uneven branch depth, a role associating a non-leaf, `skills` parsed as a flat array |
+| `competency/CompetencyFrameworkUtilParseSpec.scala` | Rewrite. New: the skill category by `index`, the skill field named by it, the skill field parsed as a flat array |
 | `competency/GapCalculatorSpec.scala` | Rewrite as set difference. Readiness at 0, part and 100 |
 | `competency/CompetencyLedgerSpec.scala` | The one file added anywhere in this plan. The full-marks and union-across-attempts rules are the two most arguable in the design and neither is covered today |
 
@@ -128,7 +129,7 @@ never waived.
 | Role assignment | `CompetencyDao`, `CompetencyActor` | `user_role` read and write. `source` stays `HRMS \| PROFILE \| SELF` |
 | Gap and readiness | `GapCalculator`, `CompetencyService` | Already rewritten in phase 3; wire `gap/read` to return current and target (D5) |
 | Recommendation | `CompetencyActor.recommend` | Ranks candidates by gap skills covered, then by effort after waiving. Today it returns bare outstanding codes and no candidates |
-| Coverage report | LP publish | Role skills against the union of its courses' `skills`. Warns on assessability. Does not block publish |
+| Coverage report | LP publish | Role skills against the union of its courses' skill tags. Warns on assessability. Does not block publish |
 
 **Done when** readiness against a role moves as skills are earned, and `recommend` returns ranked
 collections rather than a code list.

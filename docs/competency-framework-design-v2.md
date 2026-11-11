@@ -2,8 +2,8 @@
 
 ## Summary
 
-A competency framework is one nested skill tree, plus optional roles. Courses and questions are
-tagged with the tree's leaf skills. Completing a tagged course, or answering a skill's questions at
+A competency framework is a skill tree of categories ordered by `index`, whose last category holds
+the skills, plus optional roles. Courses and questions are tagged with those skills. Completing a tagged course, or answering a skill's questions at
 full marks, records that skill against the learner. What the learner holds, set against what a role
 needs, drives the next path.
 
@@ -11,7 +11,7 @@ needs, drives the next path.
 
 | Aspect | Position |
 |---|---|
-| Framework objects | Two categories — `competency` (nested terms) and `role` (optional) |
+| Framework objects | Categories ordered by `index`, named by the adopter (e.g. `competencyarea` → `competency` → `skill`). The last one holds the skills |
 | Hierarchy | Minimum three tiers, no upper bound. Tiers are depths of the tree, not categories |
 | Tagging point | Leaf terms only. Courses, questions and roles all link the same leaves |
 | Proficiency levels | None. A skill is held or not held |
@@ -25,8 +25,8 @@ needs, drives the next path.
 
 | Decision | Reason |
 |---|---|
-| One `competency` category, terms nested by `children` | Grouping and decomposition are the same relation. A second mechanism for it earns nothing |
-| Three tiers minimum, no maximum, by depth rather than by category | A framework grows a tier by nesting deeper, so depth is an authoring choice and not a schema change |
+| Skills are the terms of the last category by `index` | Adopters name and number their own tiers; one rule finds the skills, and the content field that carries them, with no configuration |
+| Three tiers minimum, no maximum, one category per tier | A framework grows a tier by adding a category; the last one always holds the skills |
 | Only leaf terms are tagged | The thing a course teaches, a question measures and a role requires is one object. One tagging point removes the question of which tier to tag |
 | No proficiency scale | A scale has to be authored, tuned and explained per framework before a single skill can be credited, and every reader of the profile then has to reason about levels |
 | Binary attainment | Full marks on a skill's questions, or completion of a course that teaches it. The progression engine already computes both |
@@ -34,7 +34,7 @@ needs, drives the next path.
 | Roles are optional | A platform with a single audience has nothing to compare a learner against, and should not have to author a role to use the tree |
 | No expiry | It would be the only scheduled component in the design, and it serves one of the three use cases. See *Open questions* |
 | A role's skill list is cached, not stored | It is framework data of the same size and volatility as the tree it points at, so a table would be a second authority on it |
-| `skills` on content is a flat array of codes | A flat array filters in Elasticsearch without a nested query, so no denormalised mirror field is needed |
+| The skill category's code is the content field, a flat array of codes | A flat array filters in Elasticsearch without a nested query, so no denormalised mirror field is needed |
 | The learner record splits into an append-only ledger and a derived projection | A retagged course or a corrected mapping can be replayed over history without asking learners to redo anything |
 
 ## The model
@@ -44,8 +44,8 @@ learner.
 
 | Object | What it is | Where it lives | Cardinality |
 |---|---|---|---|
-| **Skill tree** | One `competency` category whose terms nest by `children`. Leaves are the skills | Knowlg framework | 3+ tiers, 200–2000 leaves |
-| **Role** | A named set of leaf skills — a job post, a grade, a career track | Knowlg framework, `role` category | 0–500 |
+| **Skill tree** | Categories ordered by `index`, joined by term associations. Terms of the last category are the skills | Knowlg `CompetencyFramework` | 3+ tiers, 200–2000 skills |
+| **Role** | A named set of leaf skills — a job post, a grade, a career track | lern-service, `role_skill` | 0–500 |
 | **Evidence** | A dated, attributed record that a learner holds a leaf skill | lern-service, append-only | Per learner, per skill |
 
 ![The competency framework model — framework, nested skill tree, roles, tagged content](images/competency-model-v2.svg)
@@ -57,11 +57,10 @@ excalidraw.com or with the VS Code Excalidraw extension. Re-export the SVG after
 
 | Rule | Statement | Enforced at |
 |---|---|---|
-| Depth | Three tiers minimum, no maximum. A framework grows a tier by nesting deeper | Spec validation |
-| Leaf | A term with no children. Nothing else is tagged | Spec validation |
-| One relation inside the tree | `children` / `parents` (`hasSequenceMember`) | Term schema |
-| One relation out of the tree | `role` term → leaf terms (`associations` / `associatedTo`) | Term schema |
-| Uniform leaf depth is not required | One branch may stop at tier 3 while another goes to tier 4 | — |
+| Depth | Three tiers minimum, no maximum. A framework grows a tier by adding a category | Spec validation |
+| Leaf | A term of the last category by `index`. Nothing else is tagged | lern reads the framework |
+| One relation inside the tree | A term associates to terms of the next category (`associations`) | Term schema |
+| Roles are outside the tree | `role_skill` rows in lern name leaf skills | Role upsert validates against the framework |
 | Codes are immutable | A rename changes the label, never the code | Spec validation |
 | Terms are retired, never deleted | Evidence rows point at them | Spec validation |
 
@@ -70,12 +69,16 @@ never held by a learner, so no rollup rule is needed to make them attainable.
 
 ### What gets tagged
 
+The skill field is named after the framework's last category — `skill` in these examples. An adopter
+whose last category is `capability` tags content with `capability`. It must not be `skills`, which on
+content is an existing taxonomy field restricted to fixed values.
+
 | Object | Field | Type | Means |
 |---|---|---|---|
-| Question | `skills` | `array<text>` | Full marks on every question carrying this skill is evidence of it |
-| Course | `skills` | `array<text>` | Completing this course records these skills |
-| Learning Path | `skills` | `array<text>` | The union of its courses' skills; written at publish |
-| Learning Path | `targetRole` | `text` | The role the programme is built for. Drives the coverage report and the gap |
+| Question | `skill` | `array<text>` | Full marks on every question carrying this skill is evidence of it |
+| Course | `skill` | `array<text>` | Completing this course records these skills |
+| Learning Path | `skill` | `array<text>` | Recorded when the path completes |
+| Learning Path | `targetRole` | `text` | The role the programme is built for. Drives the coverage report only |
 | Course, Question, LP | `competencyFramework` | `text` | Which framework the codes belong to. Distinct from `framework`, which is the taxonomy |
 
 ### The Knowlg object
@@ -192,8 +195,8 @@ Editable source: [`competency-creation-v2.excalidraw`](images/competency-creatio
 | 2 · Author the spec | Same | One workbook or YAML file | 200–2000 leaves, 0–500 roles | Once, then amendments |
 | 3 · `validate` → `plan` | Platform admin | A diff against the live framework | - | Per amendment |
 | 4 · `apply` → publish | Platform admin | Terms and associations, framework Live | - | Per amendment |
-| 5 · Tag courses | Course author | `skills` on the course | 1 list per course | Per course |
-| 6 · Tag questions | Assessment author | `skills` on each question | Thousands | Per question set |
+| 5 · Tag courses | Course author | `skill` on the course | 1 list per course | Per course |
+| 6 · Tag questions | Assessment author | `skill` on each question | Thousands | Per question set |
 | 7 · Assemble the LP | Programme owner | Levels, courses, `targetRole`, `policy` | Per programme | Per programme |
 | 8 · Coverage report | Automatic, at publish | Covered and uncovered role skills | - | Per publish |
 | 9 · Create the batch | Platform admin | LP batch, child batches, certificate templates | Per cohort | Per cohort |
@@ -212,14 +215,14 @@ framework:
   name: State Health Department Competency Framework
   channel: ch_health_dept
 
-tree:                                 # one branch shown; the rest follows the table above
+tree:                                 # one branch shown; each tier becomes a category, in index order
   - code: domain
     name: Domain
     children:
       - code: medication-administration
         name: Medication Administration
         children:
-          # no children of their own ⇒ leaves ⇒ the only taggable terms
+          # the last tier ⇒ the skill category ⇒ the only taggable terms
           - { code: dosage-calculation,        name: Dosage Calculation }
           - { code: iv-administration,         name: IV Administration }
           - { code: medication-reconciliation, name: Medication Reconciliation }
@@ -272,7 +275,7 @@ Editable source: [`competency-consumption-v2.excalidraw`](images/competency-cons
 
 | Source | Condition | Records |
 |---|---|---|
-| `COURSE` | A tagged course reaches completion | Every code in its `skills` |
+| `COURSE` | A tagged course reaches completion | Every code in its `skill` |
 | `ASSESSMENT` | In the learner's best attempt, every question tagged with the skill scored `score == maxScore` | That skill |
 | `EXTERNAL` | An import call maps a credential to leaf skills | Those skills |
 
@@ -298,7 +301,7 @@ Set arithmetic on two lists of codes. There is no level comparison and no critic
 
 ### Waiving
 
-A course is waived when `course.skills ⊆ held`. A course with no `skills` is waivable only on prior
+A course is waived when `course.skill ⊆ held`. A course with no `skill` is waivable only on prior
 completion. Under `PriorLearning` a skill counts however it was acquired — a different course, or a
 credential imported from another platform.
 
@@ -310,7 +313,7 @@ waived only when all three are held, so a learner who missed one of them still t
 `do_ICU_Nurse_Induction` · `competencyFramework = fw_health_competency` ·
 `targetRole = staff-nurse-icu` · `policy = Adaptive`.
 
-| Level | Contents | `skills` |
+| Level | Contents | `skill` |
 |---|---|---|
 | 1 | ICU Entry Assessment *(Evaluation Course)* | questions tagged individually |
 | 2 | Safe Medication Practice | `dosage-calculation` · `iv-administration` |
@@ -366,7 +369,7 @@ pick courses from the catalogue.
 | Created by | Author, through review and publish | Learner, no review, no publish |
 | Levels | Authored and ordered | Flat, or ordered by the learner |
 | `targetRole` | Set by the author | Inherited from the learner's target role, or none |
-| `skills` | Authored | Union of the chosen courses' skills |
+| `skill` | Authored | Union of the chosen courses' skills |
 | `policy` | `Strict` · `Adaptive` · `PriorLearning` | `PriorLearning` — waives what is already held |
 | Batch | Authored, per cohort | Implicit, personal |
 | Course certificates | Issue | Issue |
@@ -505,7 +508,7 @@ most of it gets smaller.
 |---|---|
 | `competency/AttainmentRules.scala` | Delete `band`, `pct`, `capCompletion`, `isExpired`, `expiryOf`, `expiryBucket`. `project` returns held or not held. `evidenceId` unchanged |
 | `competency/GapCalculator.scala` | Drop the level comparison and `isMandatory`. `rows` becomes a set difference; `readiness` counts rows |
-| `competency/CompetencyFrameworkUtil.scala` | Resolve two categories, not five. Delete `CAT_AREA`, `CAT_LEVEL`, `CAT_REQUIREMENT`, the scale parser, `defaultRequiredLevel`, `maxCompletionDerivedLevel`, `validityMonthsFor`. `CAT_POSITION` becomes `CAT_ROLE` |
+| `competency/CompetencyFrameworkUtil.scala` | Take the skills and the content field from the last category by `index`. Delete `CAT_AREA`, `CAT_LEVEL`, `CAT_REQUIREMENT`, `CAT_POSITION`, the scale parser, `defaultRequiredLevel`, `maxCompletionDerivedLevel`, `validityMonthsFor` |
 | `competency/CompetencyModels.scala` | Delete `LevelDef` and `Criticality`. `CompetencyClaim` loses `levelCode`. `PassbookEntry` loses level, status and expiry. `RequirementDef` collapses to a code |
 | `competency/CompetencyLedger.scala` | Drop the completion cap and the expiry stamp |
 | `competency/CompetencyProjector.scala` | Drop the expiry index write and the status transitions |
@@ -514,7 +517,7 @@ most of it gets smaller.
 | `viewer/util/ProgressionPolicy.scala` | `computeOptionalNodes` takes a held-skill set, not a level map. The waiver becomes `course.skills ⊆ held` |
 | `viewer/service/conf/routes` | Delete `/private/v1/competency/expiry/sweep`. Rename the passbook, gap, recommend and position routes |
 | `actors/src/main/resources/competency.cql` | Replace `user_competency_evidence`, `user_competency`, `user_competency_position` with the three tables above. Delete `competency_expiry_index` and `competency_requirement`. Keep both `user_enrolments` ALTERs |
-| Content schema | `competencies: [{code, level}]` becomes `skills: array<text>`. `competencyFramework` unchanged. `competencyCodes` was never built, so nothing to remove |
+| Content schema | `competencies: [{code, level}]` becomes the skill field (`skill: array<text>`). `competencyFramework` unchanged. `competencyCodes` was never built, so nothing to remove |
 | Tests | `AttainmentRulesSpec`, `GapCalculatorSpec`, `CompetencyFrameworkUtilParseSpec`, `ProgressionPolicySpec` all lose their level fixtures |
 
 No shipped route or table is reused under a changed meaning. The existing tables are dropped and
@@ -525,7 +528,7 @@ column.
 
 | Phase | Ships | Unblocks | Size |
 |---|---|---|---|
-| **1 · Vocabulary** | `CompetencyFramework` object; the two master categories; `skills` and `competencyFramework` on the content schema; one framework authored and published | Tagging, and competency-based search, with no learner-side change | Knowlg: the `CompetencyFramework` schema plus content fields. lern-service: none |
+| **1 · Vocabulary** | `CompetencyFramework` object and its categories, skills last; the skill field and `competencyFramework` on the content schema; one framework authored and published | Tagging, and competency-based search, with no learner-side change | Knowlg: the `CompetencyFramework` schema plus content fields. lern-service: none |
 | **2 · Spec engine** | `validate`, `plan`, `apply` as a CLI against the public APIs; the workbook and YAML front-ends | Framework creation stops being a hand-written script | Small |
 | **3 · Ledger and profile** | `user_skill_evidence` and `user_role`, `AttainmentRules`, ledger, projector, `profile/read`, `reproject`; completion and assessment evidence wired into the progression engine | The skill profile exists | The bulk of the work |
 | **4 · Skill-aware waiving** | The waiver predicate reads held skills | Adaptive paths honour evidence the platform did not produce | Small — one predicate |
@@ -553,7 +556,7 @@ expensive part, which is tagging rather than code.
 | Question | Why it matters | Leaning |
 |---|---|---|
 | Do custom term properties, such as a role's skill associations, survive Knowlg create and publish? | Blocks phase 1 | Verify against the term schema config before anything else. Expect a schema config change per property |
-| How does the already-published catalogue get retagged with `skills`? | Blocks phase 3 having real data | Undecided. A bulk metadata update on Live content means a republish per course |
+| How does the already-published catalogue get retagged with `skill`? | Blocks phase 3 having real data | Undecided. A bulk metadata update on Live content means a republish per course |
 | Full marks on every tagged question is a hard bar. What happens when a skill has one badly written question? | Skills silently stay unheld, and waiving under-fires | Report per-skill attainment rates in the coverage panel so a bad question is visible |
 | Do role skill sets carry effective dates? | Adding a skill to a role lowers every learner's readiness retroactively | Needed before phase 5 ships to a live cadre |
 | Who may see whose profile? | It is personnel data | Self always; supervisor within the role hierarchy; org level only in aggregate. Decide before phase 3 |

@@ -23,21 +23,24 @@ filters. It is unchanged.
 
 The competency framework answers *what does this content teach?* It is a separate Knowlg object,
 `objectType: CompetencyFramework`, with no `type` field. A course points at it through
-`competencyFramework` and lists its skills in `skill`.
+`competencyFramework` and lists its skills in the skill field, named after the framework's last
+category.
 
 ## The skill tree
 
 ![A three-tier skill tree with leaf skills, a tagged course and a role](images/competency-overview-tree-v2.svg)
 
-The tree is one `competency` category whose terms nest by `children`. It has at least three tiers
-and no upper limit. Branches may stop at different depths.
+The tree is a set of categories ordered by `index`, such as `competencyarea` → `competency` →
+`skill`; adopters choose the names. Each term associates to terms of the next category. It has at
+least three tiers and no upper limit.
 
-The leaves are the skills. Only leaves are tagged on courses and questions, required by roles and
-held by learners. Higher tiers exist for navigation and reporting.
+The terms of the last category are the skills, and that category's code is the field content
+carries them in. Only skills are tagged on courses and questions, required by roles and held by
+learners. Higher tiers exist for navigation and reporting.
 
 ## Roles
 
-![How a role links skills and learners: framework, role_skill, user_role, user_skill, gap](images/competency-overview-roles-v2.svg)
+![How a role links skills and learners: framework, role_skill, user_role, user_skill_evidence, gap](images/competency-overview-roles-v2.svg)
 
 A role is a named set of leaf skills: a job post, a grade or a career track. It is not part of the
 Knowlg framework. lern stores it in `role_skill`, one row per role and required skill, and checks
@@ -131,8 +134,8 @@ Knowlg needs these schema changes:
 | Schema | Change |
 |---|---|
 | Competency framework | `CompetencyFramework` objectType |
-| Content and collection | `competencyFramework`, `skill`; `targetRole` on Learning Paths |
-| Question | `skill` |
+| Content and collection | `competencyFramework`, the skill field (e.g. `skill`); `targetRole` on Learning Paths |
+| Question | The skill field (e.g. `skill`) |
 
 ## Rules
 
