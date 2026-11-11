@@ -26,12 +26,12 @@
 <text x="250.0" y="251.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#34a853" text-anchor="middle" style="white-space:pre">RECORD AND DERIVE</text>
 <rect x="850.0" y="268.0" width="230.0" height="80.0" rx="16.0" fill="#e6f4ea" stroke="#34a853" stroke-width="2"/>
 <text x="965.0" y="297.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">Append evidence</text>
-<text x="965.0" y="315.4" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">COURSE · ASSESSMENT</text>
-<text x="965.0" y="329.2" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">· EXTERNAL  ·  append-only</text>
+<text x="965.0" y="315.4" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">COURSE · ASSESSMENT · LP</text>
+<text x="965.0" y="329.2" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">EXTERNAL  ·  user_skill_evidence</text>
 <rect x="580.0" y="268.0" width="230.0" height="80.0" rx="16.0" fill="#e6f4ea" stroke="#34a853" stroke-width="2"/>
 <text x="695.0" y="297.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">Skill profile</text>
-<text x="695.0" y="315.4" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">user_skill — derived,</text>
-<text x="695.0" y="329.2" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">held or not held</text>
+<text x="695.0" y="315.4" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">computed on read from</text>
+<text x="695.0" y="329.2" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">the evidence; held or not</text>
 <rect x="310.0" y="268.0" width="230.0" height="80.0" rx="16.0" fill="#e6f4ea" stroke="#34a853" stroke-width="2"/>
 <text x="425.0" y="297.3" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#202124" text-anchor="middle" style="white-space:pre">Gap vs target role</text>
 <text x="425.0" y="315.4" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#5f6368" text-anchor="middle" style="white-space:pre">required − held</text>
