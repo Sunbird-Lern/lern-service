@@ -272,7 +272,6 @@ class CompetencyActor extends BaseEnrolmentActor {
     reply("status" -> "SUCCESS")
   }
 
-  /** Resolved framework: tier labels, the leaf skills, and each role's required set. */
   /** Live roles and all role names, from `role_skill` alone; no roles means 404. */
   private def roleList(request: Request): Unit = {
     val ctx = request.getRequestContext

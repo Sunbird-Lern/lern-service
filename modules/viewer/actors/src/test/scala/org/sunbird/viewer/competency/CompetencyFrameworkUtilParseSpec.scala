@@ -9,8 +9,7 @@ class CompetencyFrameworkUtilParseSpec extends AnyFlatSpec with Matchers {
 
   // Three tiers, nested by children. Two roles sharing a leaf pool.
   private val healthFramework =
-    """{"result":{"framework":{"identifier":"fw_health_competency","type":"Competency",
-       "tierLabels":["Competency area","Competency","Skill"],
+    """{"result":{"framework":{"identifier":"fw_health_competency","objectType":"CompetencyFramework",
        "categories":[
          {"code":"competency","terms":[
             {"code":"domain","children":[
@@ -32,7 +31,6 @@ class CompetencyFrameworkUtilParseSpec extends AnyFlatSpec with Matchers {
   // Four tiers, and an uneven branch: measurement is a leaf at tier 2 while fractions reach 4.
   private val schoolFramework =
     """{"result":{"framework":{"identifier":"fw_ncf_outcomes",
-       "tierLabels":"Subject area | Competency | Skill | Sub-skill",
        "categories":[
          {"code":"competency","terms":[
             {"code":"numeracy","children":[
@@ -98,19 +96,6 @@ class CompetencyFrameworkUtilParseSpec extends AnyFlatSpec with Matchers {
 
   it should "return nothing for an unparseable body" in {
     parseTree("not json") shouldBe ((Set.empty[String], 0))
-  }
-
-  "parseTierLabels" should "read a list" in {
-    parseTierLabels(healthFramework) shouldBe List("Competency area", "Competency", "Skill")
-  }
-
-  it should "read a pipe-separated string, which is what a workbook round-trip produces" in {
-    parseTierLabels(schoolFramework) shouldBe
-      List("Subject area", "Competency", "Skill", "Sub-skill")
-  }
-
-  it should "be empty when the framework does not declare them" in {
-    parseTierLabels(flatFramework) shouldBe Nil
   }
 
   // The role -> skill map is authored in `role_skill` and read through the DAO, NOT parsed out of
@@ -296,16 +281,16 @@ class CompetencyFrameworkUtilParseSpec extends AnyFlatSpec with Matchers {
 
   "CompetencyMeta" should "be empty when the tree resolved no leaves" in {
     CompetencyMeta.empty.isEmpty shouldBe true
-    CompetencyMeta("fw", Nil, Set.empty, 0, Map("r" -> Set("x")), Map.empty).isEmpty shouldBe true
+    CompetencyMeta("fw", Set.empty, 0, Map("r" -> Set("x")), Map.empty).isEmpty shouldBe true
   }
 
   it should "not be empty merely because it declares no roles" in {
-    CompetencyMeta("fw", Nil, Set("leaf"), 3, Map.empty, Map.empty).isEmpty shouldBe false
+    CompetencyMeta("fw", Set("leaf"), 3, Map.empty, Map.empty).isEmpty shouldBe false
   }
 
   it should "answer isLeaf and skillsOf off the resolved tree" in {
     val (leaves, depth) = parseTree(healthFramework)
-    val m = CompetencyMeta("fw_health_competency", parseTierLabels(healthFramework), leaves, depth,
+    val m = CompetencyMeta("fw_health_competency", leaves, depth,
       Map("nursing-officer" -> Set("dosage-calculation", "iv-administration")), Map.empty)
     m.isLeaf("ppe-use") shouldBe true
     m.isLeaf("domain") shouldBe false

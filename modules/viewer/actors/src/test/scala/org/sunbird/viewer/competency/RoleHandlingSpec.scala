@@ -23,7 +23,7 @@ class RoleHandlingSpec extends AnyFlatSpec with Matchers {
 
   // Three tiers; leaves a, b, c, d.
   private val framework =
-    """{"result":{"framework":{"identifier":"fw_health_competency","type":"Competency",
+    """{"result":{"framework":{"identifier":"fw_health_competency","objectType":"CompetencyFramework",
        "categories":[{"code":"competency","terms":[
          {"code":"area","children":[
            {"code":"comp-1","children":[{"code":"a"},{"code":"b"}]},

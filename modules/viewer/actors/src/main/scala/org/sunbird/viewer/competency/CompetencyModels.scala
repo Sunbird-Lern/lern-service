@@ -8,12 +8,8 @@ package org.sunbird.viewer.competency
  * role code (from `role_skill`) to the leaf skills it requires, RETIRED roles included so anyone
  * holding one is still measured; `retiredRoles` names them. Both are empty in the cached vocabulary
  * and filled per request by `CompetencyFrameworkUtil.withRoles`.
- *
- * `tierLabels` are display names for the tree's depths, outermost first. They name nothing the
- * engine reads; depth comes from the tree, not from the labels.
  */
 case class CompetencyMeta(frameworkId: String,
-                          tierLabels: List[String],
                           leaves: Set[String],
                           depth: Int,
                           roleSkills: Map[String, Set[String]],
@@ -41,7 +37,7 @@ case class CompetencyMeta(frameworkId: String,
 }
 
 object CompetencyMeta {
-  val empty: CompetencyMeta = CompetencyMeta("", Nil, Set.empty, 0, Map.empty, Map.empty)
+  val empty: CompetencyMeta = CompetencyMeta("", Set.empty, 0, Map.empty, Map.empty)
 }
 
 /**

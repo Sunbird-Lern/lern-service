@@ -94,17 +94,6 @@ object CompetencyFrameworkUtil {
     str(frameworkMap(frameworkJson), field)
 
   /**
-   * Display labels for the tree's depths, outermost first. Accepts either a list or a single
-   * pipe-separated string, because a workbook round-trip produces the latter.
-   */
-  private[competency] def parseTierLabels(frameworkJson: String): List[String] =
-    Option(frameworkMap(frameworkJson).get("tierLabels")) match {
-      case Some(s: String) => s.split("\\|").map(_.trim).filter(_.nonEmpty).toList
-      case Some(other) => asStrings(other)
-      case None => Nil
-    }
-
-  /**
    * The skill tree's leaves, and how deep it goes.
    *
    * Primary shape is nested `children`, which is what framework read returns. The fallback covers
@@ -332,7 +321,6 @@ class CompetencyFrameworkUtil(roleSource: (String, RequestContext) => RoleIndex)
     // invisible for the whole TTL. `withRoles` reads them fresh.
     val built = CompetencyMeta(
       frameworkId = frameworkId,
-      tierLabels = parseTierLabels(json),
       leaves = leaves,
       depth = depth,
       roleSkills = Map.empty,
