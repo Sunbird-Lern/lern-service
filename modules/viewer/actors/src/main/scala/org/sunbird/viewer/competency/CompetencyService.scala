@@ -214,7 +214,7 @@ class CompetencyService(cassandra: CassandraOperation, keyspace: String,
     val missing = outstanding(userId, frameworkId, roleId, ctx).toSet
     if (missing.isEmpty) return (Nil, Nil)
     val ranked = GapCalculator.rankCandidates(
-      frameworkUtil.candidatesFor(missing, ctx), missing, heldSkills(userId, ctx))
+      frameworkUtil.candidatesFor(missing, meta(frameworkId, ctx).skillField, ctx), missing, heldSkills(userId, ctx))
     (missing.toList.sorted, ranked)
   }
 

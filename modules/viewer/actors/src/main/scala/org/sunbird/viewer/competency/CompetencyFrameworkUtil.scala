@@ -26,8 +26,6 @@ object CompetencyFrameworkUtil {
   private val mapper = new ObjectMapper()
   private val logger = LoggerFactory.getLogger(classOf[CompetencyFrameworkUtil])
 
-  val CAT_COMPETENCY = "competency"
-
   private def cfg(key: String, default: String): String =
     Option(ProjectUtil.getConfigValue(key)).map(_.trim).filter(_.nonEmpty).getOrElse(default)
 
@@ -83,113 +81,55 @@ object CompetencyFrameworkUtil {
     result(frameworkJson).getOrDefault("framework", new util.HashMap[String, AnyRef]())
       .asInstanceOf[util.Map[String, AnyRef]]
 
-  /** Terms of one framework category, by category `code`. */
-  private[competency] def termsOf(frameworkJson: String, categoryCode: String): List[util.Map[String, AnyRef]] =
-    asList(frameworkMap(frameworkJson).get("categories"))
-      .find(c => str(c, "code").exists(_.equalsIgnoreCase(categoryCode)))
-      .map(c => asList(c.get("terms")))
-      .getOrElse(Nil)
-
   private[competency] def frameworkField(frameworkJson: String, field: String): Option[String] =
     str(frameworkMap(frameworkJson), field)
 
-  /**
-   * The skill tree's leaves, and how deep it goes.
-   *
-   * Primary shape is nested `children`, which is what framework read returns. The fallback covers
-   * a flat term list carrying `parents` or `parentCode`: a code no other term claims as its parent
-   * is a leaf. Both shapes agree on the answer; only the traversal differs.
-   */
-  /**
-   * identifier -> the full term, across every category.
-   *
-   * An `associations` entry in a framework read is SHALLOW - it carries identifier, code, name and
-   * category, but not the target's own relations. Following an association chain therefore means
-   * looking each hop up here; walking the inline objects alone stops after one tier.
-   */
-  private[competency] def termIndex(frameworkJson: String): Map[String, util.Map[String, AnyRef]] =
-    asList(frameworkMap(frameworkJson).get("categories")).flatMap { c =>
-      asList(c.get("terms")).flatMap(t => str(t, "identifier").map(_ -> t))
-    }.toMap
+  /** Categories in authored order: by `index`, falling back to their position in the response. */
+  private[competency] def categoriesOf(frameworkJson: String): List[util.Map[String, AnyRef]] =
+    asList(frameworkMap(frameworkJson).get("categories")).zipWithIndex.sortBy { case (c, pos) =>
+      Option(c.get("index")).collect { case n: Number => n.intValue() }.getOrElse(pos)
+    }.map(_._1)
+
+  /** Skills are the last category by `index`; its code is the field content carries them in. */
+  private[competency] def parseSkillField(frameworkJson: String): Option[String] =
+    categoriesOf(frameworkJson).lastOption.flatMap(c => str(c, "code"))
 
   /**
-   * The skill tree's leaves, and how deep it goes.
+   * The skill category's leaves, and how deep the framework goes.
    *
-   * THREE AUTHORING SHAPES, one answer. All of them exist in the wild, so all are read:
-   *
-   *   1. `children`      - tiers nested inside the one `competency` category.
-   *   2. `associations`  - tiers held in SEPARATE categories (competencyarea / competency / skill)
-   *                        and joined across them. This is how the existing frameworks are
-   *                        authored, and how the framework workbook exports.
-   *   3. `parentCode`    - a flat term list carrying its parent.
-   *
-   * A term is a leaf when it has no descendant by any of these. Shape 2 needs the index above,
-   * because an association entry does not carry the target's own associations.
-   *
-   * An association is followed ONLY when it leaves the term's own category. Within v1 frameworks a
-   * requirement term associates sideways to a position and a proficiency level as well as down to a
-   * competency; and `associationswith` means a term can be pointed at from above. Following those
-   * would walk back up the tree and turn an interior term into a leaf. `seen` additionally stops a
-   * cycle in authored data from recursing until the stack blows.
+   * Every term of the last category is a skill. Inside it, terms may still nest by `children` or
+   * name a `parentCode`/`parents` in the same category; then only a term nobody descends from counts.
+   * Depth is the categories above plus the nesting inside the skill category.
    */
   private[competency] def parseTree(frameworkJson: String): (Set[String], Int) = {
-    val roots = termsOf(frameworkJson, CAT_COMPETENCY)
-    if (roots.isEmpty) return (Set.empty, 0)
+    val categories = categoriesOf(frameworkJson)
+    val terms = categories.lastOption.map(c => asList(c.get("terms"))).getOrElse(Nil)
+    if (terms.isEmpty) return (Set.empty, 0)
 
-    val index = termIndex(frameworkJson)
-    def resolve(ref: util.Map[String, AnyRef]): util.Map[String, AnyRef] =
-      str(ref, "identifier").flatMap(index.get).getOrElse(ref)
+    def flatten(t: util.Map[String, AnyRef], tier: Int): List[(util.Map[String, AnyRef], Int)] =
+      (t, tier) :: asList(t.get("children")).flatMap(flatten(_, tier + 1))
+    val all = terms.flatMap(flatten(_, 1))
+    val codes = all.flatMap { case (t, _) => str(t, "code") }.toSet
 
-    def descendants(t: util.Map[String, AnyRef], seen: Set[String]): List[util.Map[String, AnyRef]] = {
-      val kids = asList(t.get("children"))
-      if (kids.nonEmpty) return kids.map(resolve)
-      val ownCategory = str(t, "category").getOrElse("")
-      asList(t.get("associations")).flatMap { a =>
-        val targetCategory = str(a, "category").getOrElse("")
-        if (targetCategory.isEmpty || targetCategory == ownCategory) None
-        else str(a, "identifier").filterNot(seen.contains).flatMap(index.get)
-      }
-    }
-
-    val walked = scala.collection.mutable.Set[String]()
-    var walkedDepth = 0
-
-    def walk(t: util.Map[String, AnyRef], tier: Int, seen: Set[String]): Unit = {
-      // A nested `children` entry carries no identifier, so an absent one must NOT join `seen` -
-      // every such term would share the empty key and the second sibling would look like a cycle.
-      val id = str(t, "identifier").filter(_.nonEmpty)
-      if (id.exists(seen.contains)) return
-      val nextSeen = id.fold(seen)(seen + _)
-      val next = descendants(t, nextSeen)
-      if (next.isEmpty) str(t, "code").foreach { code =>
-        walked += code
-        if (tier > walkedDepth) walkedDepth = tier
-      }
-      else next.foreach(n => walk(n, tier + 1, nextSeen))
-    }
-
-    roots.foreach(r => walk(r, 1, Set.empty))
-    if (walkedDepth > 1) return (walked.toSet, walkedDepth)
-
-    // Flat shape: derive the parent of each term, then anything that is nobody's parent is a leaf.
-    val parentOf: Map[String, String] = roots.flatMap { t =>
+    val parentOf: Map[String, String] = all.flatMap { case (t, _) =>
       val parent = str(t, "parentCode")
         .orElse(asList(t.get("parents")).flatMap(p => str(p, "code")).headOption)
+        .filter(codes.contains)
       for { code <- str(t, "code"); p <- parent } yield code -> p
     }.toMap
-    if (parentOf.isEmpty) return (walked.toSet, walkedDepth)
-
-    val codes = roots.flatMap(t => str(t, "code")).toSet
-    val parents = parentOf.values.toSet
-    val leaves = codes.diff(parents)
-
-    def tierOf(code: String, seen: Set[String] = Set.empty): Int =
+    def chainTier(code: String, seen: Set[String] = Set.empty): Int =
       parentOf.get(code) match {
-        case Some(p) if !seen.contains(p) && codes.contains(p) => 1 + tierOf(p, seen + code)
+        case Some(p) if !seen.contains(p) => 1 + chainTier(p, seen + code)
         case _ => 1
       }
 
-    (leaves, if (leaves.isEmpty) 0 else leaves.map(c => tierOf(c)).max)
+    val parents = parentOf.values.toSet
+    val leaves = all.collect {
+      case (t, tier) if asList(t.get("children")).isEmpty => str(t, "code").map(_ -> tier)
+    }.flatten.filterNot { case (code, _) => parents.contains(code) }
+    if (leaves.isEmpty) return (Set.empty, 0)
+    val inner = leaves.map { case (code, tier) => tier + chainTier(code) - 1 }.max
+    (leaves.map(_._1).toSet, categories.size - 1 + inner)
   }
 
   /**
@@ -215,22 +155,13 @@ object CompetencyFrameworkUtil {
       role -> ok
     }
 
-  /**
-   * Courses and Learning Paths off a search row, for the recommendation.
-   *
-   * THE CONTENT FIELD IS `skill`, NOT `skills`. design-v2 specified `skills: array<text>`, but that
-   * name is already taken on the content and collection schemas by a taxonomy field locked to
-   * [Listening, Speaking, Reading, Writing, Touch, Gestures, Draw] - tagging a course with a
-   * competency code there is rejected outright. `skill` is the framework category the leaves live
-   * in, so content carries its terms under the category's own name, which is the ordinary Sunbird
-   * convention for framework-driven metadata.
-   */
-  private[competency] def parseCandidates(searchJson: String): List[Candidate] = {
+  /** Courses and Learning Paths off a search row, for the recommendation. */
+  private[competency] def parseCandidates(searchJson: String, skillField: String): List[Candidate] = {
     val rows = result(searchJson).asScala.values.collect {
       case l: util.List[_] => l.asInstanceOf[util.List[util.Map[String, AnyRef]]].asScala
     }.flatten.toList
     rows.flatMap { r =>
-      val skills = asStrings(r.get("skill")).distinct.toSet
+      val skills = asStrings(r.get(skillField)).distinct.toSet
       for { id <- str(r, "identifier") if skills.nonEmpty } yield Candidate(
         id = id,
         name = str(r, "name").getOrElse(id),
@@ -239,13 +170,13 @@ object CompetencyFrameworkUtil {
     }.distinct
   }
 
-  /** `skill: [code]` off a content, collection or question search row. */
-  private[competency] def parseClaims(searchJson: String): Map[String, List[String]] = {
+  /** `<skillField>: [code]` off a content, collection or question search row. */
+  private[competency] def parseClaims(searchJson: String, skillField: String): Map[String, List[String]] = {
     val rows = result(searchJson).asScala.values.collect {
       case l: util.List[_] => l.asInstanceOf[util.List[util.Map[String, AnyRef]]].asScala
     }.flatten.toList
     rows.flatMap { r =>
-      str(r, "identifier").map(id => id -> asStrings(r.get("skill")).distinct)
+      str(r, "identifier").map(id => id -> asStrings(r.get(skillField)).distinct)
     }.filter(_._2.nonEmpty).toMap
   }
 
@@ -310,7 +241,7 @@ class CompetencyFrameworkUtil(roleSource: (String, RequestContext) => RoleIndex)
     val (leaves, depth) = parseTree(json)
     if (leaves.isEmpty) {
       logger.warn(s"CompetencyFrameworkUtil: framework $frameworkId resolved no leaf skills; " +
-        "check that the competency category exists and its terms nest by children")
+        "check that its last category (by index) holds the skill terms")
       return CompetencyMeta.empty
     }
     if (depth < 3)
@@ -321,6 +252,7 @@ class CompetencyFrameworkUtil(roleSource: (String, RequestContext) => RoleIndex)
     // invisible for the whole TTL. `withRoles` reads them fresh.
     val built = CompetencyMeta(
       frameworkId = frameworkId,
+      skillField = parseSkillField(json).getOrElse(""),
       leaves = leaves,
       depth = depth,
       roleSkills = Map.empty,
@@ -386,40 +318,40 @@ class CompetencyFrameworkUtil(roleSource: (String, RequestContext) => RoleIndex)
    * recommendation is worse than a slow one. Assessment courses are excluded — an evaluation is
    * not something to recommend as learning.
    */
-  def candidatesFor(skills: Set[String], ctx: RequestContext): List[Candidate] = {
-    if (skills.isEmpty) return Nil
+  def candidatesFor(skills: Set[String], skillField: String, ctx: RequestContext): List[Candidate] = {
+    if (skills.isEmpty || StringUtils.isBlank(skillField)) return Nil
     val categories = cfg("competency_recommend_primary_categories", "Course,Learning Path")
       .split(",").map(_.trim).filter(_.nonEmpty).toList
     val filters = new util.HashMap[String, AnyRef]() {{
       put("status", util.Arrays.asList("Live"))
-      put("skill", skills.toList.asJava)
+      put(skillField, skills.toList.asJava)
       put("primaryCategory", categories.asJava)
     }}
     val request = new util.HashMap[String, AnyRef]() {{
       put("filters", filters)
-      put("fields", List("identifier", "name", "primaryCategory", "skill").asJava)
+      put("fields", List("identifier", "name", "primaryCategory", skillField).asJava)
       put("limit", Integer.valueOf(cfg("competency_recommend_limit", "50").toInt))
     }}
     val json = post(searchUrl,
       mapper.writeValueAsString(new util.HashMap[String, AnyRef]() {{ put("request", request) }}))
-    parseCandidates(json)
+    parseCandidates(json, skillField)
   }
 
-  /** `skill` tags for the given content ids (courses, question sets, questions). */
-  def claimsOf(nodeIds: List[String], ctx: RequestContext): Map[String, List[String]] = {
-    if (nodeIds.isEmpty) return Map.empty
+  /** Skill tags, read from `skillField`, for the given content ids (courses, question sets, questions). */
+  def claimsOf(nodeIds: List[String], skillField: String, ctx: RequestContext): Map[String, List[String]] = {
+    if (nodeIds.isEmpty || StringUtils.isBlank(skillField)) return Map.empty
     val now = System.currentTimeMillis()
     val wanted = nodeIds.distinct.filter(_.nonEmpty)
     val cached = wanted.flatMap { id =>
-      val hit = claimCache.get(id)
+      val hit = claimCache.get(skillField + "|" + id)
       if (hit != null && hit._1 > now) Some(id -> hit._2) else None
     }.toMap
     val missing = wanted.filterNot(cached.contains)
     val fetched =
       if (missing.isEmpty) Map.empty[String, List[String]]
-      else parseClaims(searchByIds(missing, List("skill", "primaryCategory")))
+      else parseClaims(searchByIds(missing, List(skillField, "primaryCategory")), skillField)
     // negative-cache the misses too, so an untagged node is not searched again on every event
-    missing.foreach(id => claimCache.put(id, (now + metaTtl, fetched.getOrElse(id, Nil))))
+    missing.foreach(id => claimCache.put(skillField + "|" + id, (now + metaTtl, fetched.getOrElse(id, Nil))))
     (cached ++ fetched).filter(_._2.nonEmpty)
   }
 
@@ -432,7 +364,7 @@ class CompetencyFrameworkUtil(roleSource: (String, RequestContext) => RoleIndex)
   def leafClaimsOf(nodeIds: List[String], m: CompetencyMeta,
                    ctx: RequestContext): Map[String, List[String]] = {
     if (m.isEmpty) return Map.empty
-    claimsOf(nodeIds, ctx).map { case (node, codes) =>
+    claimsOf(nodeIds, m.skillField, ctx).map { case (node, codes) =>
       val (ok, bad) = codes.partition(m.isLeaf)
       if (bad.nonEmpty)
         logger.warn(s"CompetencyFrameworkUtil: node $node is tagged with non-leaf skills " +

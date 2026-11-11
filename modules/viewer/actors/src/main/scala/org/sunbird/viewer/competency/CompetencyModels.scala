@@ -3,13 +3,15 @@ package org.sunbird.viewer.competency
 /**
  * Resolved, cached vocabulary of one competency framework.
  *
- * The framework is one `competency` category whose terms nest by `children`. Only a term with no
- * children is taggable, so `leaves` is what every lookup is checked against. `roleSkills` maps a
+ * Skills are the terms of the framework's last category by `index`, and `skillField` is that
+ * category's code: the field content carries its skill tags in. `leaves` is what every lookup is
+ * checked against. `roleSkills` maps a
  * role code (from `role_skill`) to the leaf skills it requires, RETIRED roles included so anyone
  * holding one is still measured; `retiredRoles` names them. Both are empty in the cached vocabulary
  * and filled per request by `CompetencyFrameworkUtil.withRoles`.
  */
 case class CompetencyMeta(frameworkId: String,
+                          skillField: String,
                           leaves: Set[String],
                           depth: Int,
                           roleSkills: Map[String, Set[String]],
@@ -37,7 +39,7 @@ case class CompetencyMeta(frameworkId: String,
 }
 
 object CompetencyMeta {
-  val empty: CompetencyMeta = CompetencyMeta("", Set.empty, 0, Map.empty, Map.empty)
+  val empty: CompetencyMeta = CompetencyMeta("", "", Set.empty, 0, Map.empty, Map.empty)
 }
 
 /**

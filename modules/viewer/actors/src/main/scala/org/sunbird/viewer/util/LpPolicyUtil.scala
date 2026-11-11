@@ -16,9 +16,8 @@ case class NodeMeta(primaryCategory: String, childNodes: List[String])
  * Structural metadata of a Learning Path: its progression policy, the competency framework it
  * declares, and the primaryCategory/childNodes of its nodes.
  *
- * Competency claims are not read here. They come from CompetencyFrameworkUtil, against
- * `competencyFramework` and the `competencies` field, rather than from the taxonomy framework's
- * highest-index category.
+ * Competency claims are not read here. They come from CompetencyFrameworkUtil, from the field named
+ * by the competency framework's highest-index category.
  */
 case class LpMeta(policy: String, competencyFramework: String, nodes: Map[String, NodeMeta])
 

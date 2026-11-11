@@ -18,15 +18,7 @@ class CompetencyFrameworkUtilParseSpec extends AnyFlatSpec with Matchers {
                   {"code":"iv-administration"}]},
                {"code":"infection-prevention","children":[
                   {"code":"hand-hygiene"},
-                  {"code":"ppe-use"}]}]}]},
-         {"code":"role","terms":[
-            {"code":"staff-nurse-icu","associations":[
-               {"category":"competency","code":"dosage-calculation"},
-               {"category":"competency","code":"hand-hygiene"},
-               {"category":"competency","code":"ppe-use"}]},
-            {"code":"nursing-officer","associations":[
-               {"category":"competency","code":"dosage-calculation"},
-               {"category":"competency","code":"iv-administration"}]}]}]}}}"""
+                  {"code":"ppe-use"}]}]}]}]}}}"""
 
   // Four tiers, and an uneven branch: measurement is a leaf at tier 2 while fractions reach 4.
   private val schoolFramework =
@@ -38,23 +30,7 @@ class CompetencyFrameworkUtilParseSpec extends AnyFlatSpec with Matchers {
                   {"code":"fractions","children":[
                      {"code":"fr-compare"},
                      {"code":"fr-add-unlike"}]}]},
-               {"code":"measurement"}]}]},
-         {"code":"role","terms":[
-            {"code":"grade-6","associations":[
-               {"category":"competency","code":"fr-compare"},
-               {"category":"competency","code":"measurement"}]}]}]}}}"""
-
-  // A role pointing at a parent term rather than a leaf. The importer should have caught it.
-  private val badRoleFramework =
-    """{"result":{"framework":{"identifier":"fw_bad",
-       "categories":[
-         {"code":"competency","terms":[
-            {"code":"area","children":[
-               {"code":"parent","children":[{"code":"leaf-a"},{"code":"leaf-b"}]}]}]},
-         {"code":"role","terms":[
-            {"code":"r1","associations":[
-               {"category":"competency","code":"parent"},
-               {"category":"competency","code":"leaf-a"}]}]}]}}}"""
+               {"code":"measurement"}]}]}]}}}"""
 
   // Flat term list carrying parentCode instead of nested children.
   private val flatFramework =
@@ -90,7 +66,7 @@ class CompetencyFrameworkUtilParseSpec extends AnyFlatSpec with Matchers {
     depth shouldBe 3
   }
 
-  it should "return nothing for a framework with no competency category" in {
+  it should "return nothing for a framework with no categories" in {
     parseTree("""{"result":{"framework":{"categories":[]}}}""") shouldBe ((Set.empty[String], 0))
   }
 
@@ -101,44 +77,38 @@ class CompetencyFrameworkUtilParseSpec extends AnyFlatSpec with Matchers {
   // The role -> skill map is authored in `role_skill` and read through the DAO, NOT parsed out of
   // the framework. `leafOnly` is all that stands between an authored row and readiness, because
   // nothing validates it at write time against a tree the writer cannot see.
-  // The tiers live in SEPARATE categories, joined by associations - how the existing frameworks are
-  // authored. `competency` terms are interior here; the leaves sit in `skill`.
+  // The tiers live in SEPARATE categories, joined by associations. The last category by index
+  // holds the skills, whatever the adopter names it.
   private val assocFramework =
     """{"result":{"framework":{"categories":[
-      {"code":"competencyarea","terms":[
+      {"code":"competencyarea","index":1,"terms":[
         {"identifier":"fw_competencyarea_domain","code":"domain","category":"competencyarea",
          "associations":[{"identifier":"fw_competency_med-admin","code":"med-admin","category":"competency"}]}]},
-      {"code":"competency","terms":[
+      {"code":"competency","index":2,"terms":[
         {"identifier":"fw_competency_med-admin","code":"med-admin","category":"competency",
          "associations":[
            {"identifier":"fw_skill_dosage","code":"dosage","category":"skill"},
            {"identifier":"fw_skill_iv","code":"iv","category":"skill"}]},
         {"identifier":"fw_competency_comms","code":"comms","category":"competency",
          "associations":[{"identifier":"fw_skill_counselling","code":"counselling","category":"skill"}]}]},
-      {"code":"skill","terms":[
+      {"code":"skill","index":3,"terms":[
         {"identifier":"fw_skill_dosage","code":"dosage","category":"skill"},
         {"identifier":"fw_skill_iv","code":"iv","category":"skill"},
         {"identifier":"fw_skill_counselling","code":"counselling","category":"skill"}]}]}}}"""
 
-  "parseTree" should "follow associations across categories to the real leaves" in {
+  "parseTree" should "take the skills from the last category by index" in {
     val (leaves, depth) = parseTree(assocFramework)
     leaves shouldBe Set("dosage", "iv", "counselling")
-    depth shouldBe 2
+    depth shouldBe 3
   }
 
-  // The regression this guards: taking the association targets at face value stops after one hop,
-  // because an association entry in a read is shallow and carries none of its own relations. The
-  // 7 interior competency terms would then be reported as the leaves, and every role requirement
-  // naming a real skill would be silently rejected as a non-leaf.
-  it should "not mistake an interior competency term for a leaf" in {
+  it should "not take a term from a category above the skills" in {
     val (leaves, _) = parseTree(assocFramework)
     leaves should not contain "med-admin"
     leaves should not contain "comms"
   }
 
-  // v1 requirement terms associate sideways to a position and a proficiency level as well as down
-  // to a competency. Following those would walk back up and turn an interior term into a leaf.
-  it should "ignore an association that does not leave the term's own category" in {
+  it should "ignore associations between terms of the skill category" in {
     val sideways =
       """{"result":{"framework":{"categories":[
         {"code":"competency","terms":[
@@ -163,8 +133,7 @@ class CompetencyFrameworkUtilParseSpec extends AnyFlatSpec with Matchers {
     leaves should not be empty
   }
 
-  // `children` must keep winning where it is present, so the nested frameworks are unaffected.
-  it should "still prefer children when a term has both" in {
+  it should "ignore children nested in a category above the skills" in {
     val both =
       """{"result":{"framework":{"categories":[
         {"code":"competency","terms":[
@@ -173,7 +142,22 @@ class CompetencyFrameworkUtilParseSpec extends AnyFlatSpec with Matchers {
            "associations":[{"identifier":"fw_skill_other","code":"other","category":"skill"}]}]},
         {"code":"skill","terms":[{"identifier":"fw_skill_other","code":"other","category":"skill"}]}]}}}"""
     val (leaves, _) = parseTree(both)
-    leaves shouldBe Set("kid")
+    leaves shouldBe Set("other")
+  }
+
+  it should "order categories by index, not by their position in the response" in {
+    val shuffled =
+      """{"result":{"framework":{"categories":[
+        {"code":"capability","index":3,"terms":[{"code":"c1"},{"code":"c2"}]},
+        {"code":"area","index":1,"terms":[{"code":"a1"}]},
+        {"code":"cluster","index":2,"terms":[{"code":"k1"}]}]}}}"""
+    parseTree(shuffled) shouldBe ((Set("c1", "c2"), 3))
+    parseSkillField(shuffled) shouldBe Some("capability")
+  }
+
+  it should "fall back to position when categories carry no index" in {
+    parseSkillField(assocFramework.replaceAll(",\"index\":\\d", "")) shouldBe Some("skill")
+    parseSkillField(healthFramework) shouldBe Some("competency")
   }
 
   "leafOnly" should "keep the requirements that name a real leaf" in {
@@ -211,50 +195,43 @@ class CompetencyFrameworkUtilParseSpec extends AnyFlatSpec with Matchers {
     leafOnly("fw", Map.empty, leaves) shouldBe Map.empty[String, Set[String]]
   }
 
-  // Regression: design-v2 read roles out of a `role` category in the framework. That path is gone,
-  // so a framework still carrying one must contribute nothing - otherwise there are two authorities
-  // on what a role requires, which is exactly the divergence v1 shipped.
-  it should "ignore a role category left behind in the framework" in {
-    val (leaves, _) = parseTree(healthFramework)   // healthFramework DOES declare a role category
-    leafOnly("fw", Map.empty, leaves) shouldBe Map.empty[String, Set[String]]
-    parseTree(healthFramework)._1 should not contain "staff-nurse-icu"
-  }
-
-  // The content field is `skill`, NOT `skills`: on the content and collection schemas `skills` is
-  // a pre-existing taxonomy field locked to [Listening, Speaking, Reading, Writing, Touch,
-  // Gestures, Draw], so a competency code written there is rejected by Knowlg outright.
   "parseClaims" should "read a flat skill array off a search row" in {
     val json = """{"result":{"content":[
       {"identifier":"crs1","skill":["dosage-calculation","iv-administration"]},
       {"identifier":"crs2","skill":[]}]}}"""
-    parseClaims(json) shouldBe Map("crs1" -> List("dosage-calculation", "iv-administration"))
+    parseClaims(json, "skill") shouldBe Map("crs1" -> List("dosage-calculation", "iv-administration"))
   }
 
   it should "read a question row the same way" in {
     val json = """{"result":{"questions":[{"identifier":"q1","skill":["fr-compare"]}]}}"""
-    parseClaims(json) shouldBe Map("q1" -> List("fr-compare"))
+    parseClaims(json, "skill") shouldBe Map("q1" -> List("fr-compare"))
   }
 
   it should "accept a single string where an array was expected" in {
     val json = """{"result":{"content":[{"identifier":"c","skill":"hand-hygiene"}]}}"""
-    parseClaims(json) shouldBe Map("c" -> List("hand-hygiene"))
+    parseClaims(json, "skill") shouldBe Map("c" -> List("hand-hygiene"))
   }
 
   it should "de-duplicate a repeated tag" in {
     val json = """{"result":{"content":[{"identifier":"c","skill":["ppe-use","ppe-use"]}]}}"""
-    parseClaims(json) shouldBe Map("c" -> List("ppe-use"))
+    parseClaims(json, "skill") shouldBe Map("c" -> List("ppe-use"))
   }
 
   it should "skip a row with no skills rather than mapping it to an empty list" in {
     val json = """{"result":{"content":[{"identifier":"c"}]}}"""
-    parseClaims(json) shouldBe Map.empty[String, List[String]]
+    parseClaims(json, "skill") shouldBe Map.empty[String, List[String]]
+  }
+
+  it should "read whichever field the framework names" in {
+    val json = """{"result":{"content":[{"identifier":"c","capability":["c1"],"skill":["x"]}]}}"""
+    parseClaims(json, "capability") shouldBe Map("c" -> List("c1"))
   }
 
   "parseCandidates" should "read the fields the ranking needs" in {
     val json = """{"result":{"content":[
       {"identifier":"do_1","name":"Safe Medication Practice","primaryCategory":"Course",
        "skill":["dosage-calculation","iv-administration"]}]}}"""
-    parseCandidates(json) shouldBe List(Candidate("do_1", "Safe Medication Practice", "Course",
+    parseCandidates(json, "skill") shouldBe List(Candidate("do_1", "Safe Medication Practice", "Course",
       Set("dosage-calculation", "iv-administration")))
   }
 
@@ -262,16 +239,16 @@ class CompetencyFrameworkUtilParseSpec extends AnyFlatSpec with Matchers {
     val json = """{"result":{"content":[
       {"identifier":"do_1","name":"Untagged","primaryCategory":"Course"},
       {"identifier":"do_2","name":"Tagged","primaryCategory":"Course","skill":["ppe-use"]}]}}"""
-    parseCandidates(json).map(_.id) shouldBe List("do_2")
+    parseCandidates(json, "skill").map(_.id) shouldBe List("do_2")
   }
 
   it should "fall back to the identifier when a row has no name" in {
     val json = """{"result":{"content":[{"identifier":"do_1","skill":["ppe-use"]}]}}"""
-    parseCandidates(json).head.name shouldBe "do_1"
+    parseCandidates(json, "skill").head.name shouldBe "do_1"
   }
 
   it should "be empty for an unparseable body" in {
-    parseCandidates("not json") shouldBe Nil
+    parseCandidates("not json", "skill") shouldBe Nil
   }
 
   "frameworkField" should "read a scalar off the framework object" in {
@@ -281,16 +258,16 @@ class CompetencyFrameworkUtilParseSpec extends AnyFlatSpec with Matchers {
 
   "CompetencyMeta" should "be empty when the tree resolved no leaves" in {
     CompetencyMeta.empty.isEmpty shouldBe true
-    CompetencyMeta("fw", Set.empty, 0, Map("r" -> Set("x")), Map.empty).isEmpty shouldBe true
+    CompetencyMeta("fw", "skill", Set.empty, 0, Map("r" -> Set("x")), Map.empty).isEmpty shouldBe true
   }
 
   it should "not be empty merely because it declares no roles" in {
-    CompetencyMeta("fw", Set("leaf"), 3, Map.empty, Map.empty).isEmpty shouldBe false
+    CompetencyMeta("fw", "skill", Set("leaf"), 3, Map.empty, Map.empty).isEmpty shouldBe false
   }
 
   it should "answer isLeaf and skillsOf off the resolved tree" in {
     val (leaves, depth) = parseTree(healthFramework)
-    val m = CompetencyMeta("fw_health_competency", leaves, depth,
+    val m = CompetencyMeta("fw_health_competency", "competency", leaves, depth,
       Map("nursing-officer" -> Set("dosage-calculation", "iv-administration")), Map.empty)
     m.isLeaf("ppe-use") shouldBe true
     m.isLeaf("domain") shouldBe false
