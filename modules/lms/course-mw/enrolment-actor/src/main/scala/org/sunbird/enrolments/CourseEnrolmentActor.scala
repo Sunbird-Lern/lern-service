@@ -97,6 +97,7 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
             cacheUtil.delete(getCacheKey(userId))
         }
         sender().tell(successResponse(), self)
+        viewerEnrolHook(userId, courseId, batchId, request.getRequestContext)
         generateTelemetryAudit(userId, courseId, batchId, data, "enrol", JsonKey.CREATE, request.getContext)
         notifyUser(userId, batchData, JsonKey.ADD)
         fireLpBootstrap(userId, courseId, batchId, request)
@@ -119,6 +120,20 @@ class CourseEnrolmentActor @Inject()(@Named("course-batch-notification-actor") c
             }
             logger.info(request.getRequestContext, s"enrol: LP bootstrap fired | user=$userId course=$courseId batch=$batchId")
         } catch { case ex: Exception => logger.error(request.getRequestContext, s"enrol: LP bootstrap failed: ${ex.getMessage}", ex) }
+    }
+
+    // fire the viewer enrol hook (copy carry-forward / noContext recompute) after the enrol response; best-effort, non-blocking.
+    // Monolith transport (in-JVM actor); strict mode & viewer-disabled are no-ops. Distributed transport is a follow-up.
+    private def viewerEnrolHook(userId: String, courseId: String, batchId: String, ctx: RequestContext): Unit = {
+        try {
+            val mode = Option(ProjectUtil.getConfigValue("viewer_context_mode")).map(_.trim).getOrElse("strict")
+            val enabled = "true".equalsIgnoreCase(ProjectUtil.getConfigValue("viewer_enabled"))
+            val monolith = !"distributed".equalsIgnoreCase(ProjectUtil.getConfigValue("deployment_mode"))
+            if (!enabled || monolith == false || mode.isEmpty || mode == "strict") return
+            val body = new java.util.HashMap[String, AnyRef]() {{ put(JsonKey.USER_ID, userId); put("courseId", courseId); put("batchId", batchId) }}
+            val req = new Request(); req.setRequestContext(ctx); req.setOperation("enrolHook"); req.setRequest(body)
+            context.actorSelection("/user/viewer-aggregator-actor").tell(req, self)
+        } catch { case e: Throwable => logger.info(ctx, s"enrol: viewer hook skipped: ${e.getMessage}") }
     }
 
     def unEnroll(request:Request): Unit = {

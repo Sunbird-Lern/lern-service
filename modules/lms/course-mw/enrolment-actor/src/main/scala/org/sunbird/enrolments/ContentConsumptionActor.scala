@@ -477,24 +477,28 @@ class ContentConsumptionActor @Inject() (
                 mapper.writeValueAsString(new java.util.HashMap[String, AnyRef]() {{ put(JsonKey.REQUEST, body) }}), viewerHeaders(token), ctx)
             StringUtils.isNotBlank(resp) && (try "OK" == mapper.readTree(resp).path("responseCode").asText("") catch { case _: Exception => false })
         }
-    /** Read op (view/read): ucc rows. Monolith returns native Cassandra types; distributed parses JSON + coerces. */
+    /** Read op (view/read): viewer returns the spec `contents`; ViewerRowMapper maps each item back to the internal ucc row so getConsumption is unchanged. */
     private def viewerRead(actorName: String, httpApi: String, operation: String,
                            body: java.util.Map[String, AnyRef], token: String, ctx: RequestContext): java.util.List[java.util.Map[String, AnyRef]] = {
         val empty = new java.util.ArrayList[java.util.Map[String, AnyRef]]()
-        if (isMonolith) viewerAsk(actorName, operation, body, ctx) match {
-            case r: Response => r.getResult.getOrDefault(JsonKey.RESPONSE, empty).asInstanceOf[java.util.List[java.util.Map[String, AnyRef]]]
-            case _ => empty
-        } else {
-            val responseStr = HttpClientUtil.post(viewerBaseUrl + httpApi,
-                mapper.writeValueAsString(new java.util.HashMap[String, AnyRef]() {{ put(JsonKey.REQUEST, body) }}), viewerHeaders(token), ctx)
-            if (StringUtils.isBlank(responseStr)) empty
-            else {
-                val respNode = mapper.readTree(responseStr).path("result").path("response")
-                val rows = mapper.convertValue(respNode, classOf[java.util.List[java.util.Map[String, AnyRef]]])
-                rows.asScala.foreach(coerceUccRowTypes)
-                rows
+        val items: java.util.List[java.util.Map[String, AnyRef]] =
+            if (isMonolith) viewerAsk(actorName, operation, body, ctx) match {
+                case r: Response => r.getResult.getOrDefault("contents", empty).asInstanceOf[java.util.List[java.util.Map[String, AnyRef]]]
+                case _ => empty
+            } else {
+                val responseStr = HttpClientUtil.post(viewerBaseUrl + httpApi,
+                    mapper.writeValueAsString(new java.util.HashMap[String, AnyRef]() {{ put(JsonKey.REQUEST, body) }}), viewerHeaders(token), ctx)
+                if (StringUtils.isBlank(responseStr)) empty
+                else mapper.convertValue(mapper.readTree(responseStr).path("result").path("contents"),
+                    classOf[java.util.List[java.util.Map[String, AnyRef]]])
             }
+        val rows = new java.util.ArrayList[java.util.Map[String, AnyRef]]()
+        items.asScala.foreach { item =>
+            val row = ViewerRowMapper.toUccRow(item, mapper)
+            coerceUccRowTypes(row)
+            rows.add(row)
         }
+        rows
     }
 
     // dispatch content/state to the viewer (status>=2 -> viewEnd else viewStart), keeping the legacy invalid/closed-batch guards

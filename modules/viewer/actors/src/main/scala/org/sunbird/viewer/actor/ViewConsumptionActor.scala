@@ -121,10 +121,14 @@ class ViewConsumptionActor @Inject() (
     cassandraOperation.upsertRecord(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE, row.asInstanceOf[util.Map[String, AnyRef]], ctx)
     touchEnrolmentAccess(key, 2, ctx)
     triggerAggregation(request, ctx)
-    val out = new Response(); out.put(contentId, JsonKey.SUCCESS); sender().tell(out, self)
+    sender().tell(ackResponse(contentId, "Score Updated"), self)
   }
 
-  // /v1/assessment/read: best score / max score per content from assessment_aggregator
+  private def ackResponse(contentId: String, message: String): Response = {
+    val out = new Response(); out.put(contentId, message); out
+  }
+
+  // /v1/assessment/read: all attempts (score/max_score) per content from assessment_aggregator
   private def assessmentRead(request: Request): Unit = {
     val ctx = request.getRequestContext
     val userId = request.get(JsonKey.USER_ID).asInstanceOf[String]
@@ -135,26 +139,26 @@ class ViewConsumptionActor @Inject() (
       case s: String if StringUtils.isNotBlank(s) => List(s)
       case _ => List.empty
     }
-    val contents = new util.ArrayList[util.Map[String, AnyRef]]()
+    // assessments are per-attempt (not best-per-content), each tagged with its contentId
+    val assessments = new util.ArrayList[util.Map[String, AnyRef]]()
     contentIds.foreach { cid =>
-      // same cascade viewAssess wrote with: collectionid <- courseId?:content, contextid <- batchId?:courseId?:content
-      val collectionId = courseIdOpt.getOrElse(cid)
-      val contextId = batchIdOpt.orElse(courseIdOpt).getOrElse(cid)
+      // same key viewAssess wrote with, via the mode resolver (strict = the old cascade)
+      val (collectionId, contextId) = ViewerMode.resolveKey(ViewerMode.mode(), ViewerMode.scope(), courseIdOpt, batchIdOpt, cid)
       val stored = assessmentCassandra.getUserAssessments(userId, collectionId, contextId, cid, ctx)
-      if (stored.nonEmpty) {
-        val best = stored.maxBy(_.totalScore)
+      stored.foreach { a =>
         val m = new util.HashMap[String, AnyRef]()
-        m.put("identifier", cid)
-        m.put("score", best.totalScore.asInstanceOf[AnyRef])
-        m.put("max_score", best.totalMaxScore.asInstanceOf[AnyRef])
-        contents.add(m)
+        m.put("contentId", cid)
+        m.put("attemptId", a.attemptId)
+        m.put("score", a.totalScore.asInstanceOf[AnyRef])
+        m.put("max_score", a.totalMaxScore.asInstanceOf[AnyRef])
+        assessments.add(m)
       }
     }
     val out = new Response()
     out.put(JsonKey.USER_ID, userId)
-    out.put("courseId", courseIdOpt.orNull)
-    out.put("batchId", batchIdOpt.orNull)
-    out.put("contents", contents)
+    out.put("collectionId", courseIdOpt.orNull)
+    out.put("contextId", batchIdOpt.orNull)
+    out.put("assessments", assessments)
     sender().tell(out, self)
   }
 
@@ -171,25 +175,64 @@ class ViewConsumptionActor @Inject() (
       case _ => null
     }
     val hasContent = contentIds != null && !contentIds.isEmpty
+    // read must be anchored: a specific content (organic) or a collection (whole-collection read). contextall drops the context only.
+    if (!hasContent && courseIdOpt.isEmpty)
+      ProjectCommonException.throwClientErrorException(ResponseCode.mandatoryParamsMissing, "contentId or collectionId is required")
     // individual content (no collection): PK collapses to the single contentId for collection+context (scenario 1)
     val singleContent = if (courseIdOpt.isEmpty && hasContent && contentIds.size == 1) contentIds.get(0) else null
-    val collectionId = courseIdOpt.getOrElse(singleContent)
-    val contextId = batchIdOpt.orElse(courseIdOpt).getOrElse(singleContent)
+    // (collectionid, contextid) via the mode resolver; strict reproduces the old cascade off singleContent
+    val (collectionId, contextId) = ViewerMode.resolveKey(ViewerMode.mode(), ViewerMode.scope(), courseIdOpt, batchIdOpt, singleContent)
     val filters = new util.HashMap[String, AnyRef]()
     filters.put("userid", userId)
     if (collectionId != null) filters.put("collectionid", collectionId)
     if (!allContexts && contextId != null) filters.put("contextid", contextId)
     if (hasContent) filters.put("contentid", contentIds)
-    val response = cassandraOperation.getRecords(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE,
-      filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)
-    val rows = response.getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]])
-      .asInstanceOf[util.List[util.Map[String, AnyRef]]]
-    // surface the renamed ucc columns back as the courseId/batchId API contract
-    rows.asScala.foreach { r =>
-      Option(r.remove("collectionid")).foreach(v => r.put("courseId", v))
-      Option(r.remove("contextid")).foreach(v => r.put("batchId", v))
-    }
-    val out = new Response(); out.put(JsonKey.RESPONSE, rows); sender().tell(out, self)
+    // a whole-collection read the mode collapsed to no collection key (NoContext Content) owns no rows under a collection key -> serve empty, don't scan the userid partition
+    val rows: util.List[util.Map[String, AnyRef]] =
+      if (collectionId == null && !hasContent) new util.ArrayList[util.Map[String, AnyRef]]()
+      else cassandraOperation.getRecords(consumptionDBInfo.getKeySpace, CONSUMPTION_TABLE,
+          filters.asInstanceOf[util.Map[String, AnyRef]], null, ctx)
+        .getResult.getOrDefault(JsonKey.RESPONSE, new util.ArrayList[util.Map[String, AnyRef]])
+        .asInstanceOf[util.List[util.Map[String, AnyRef]]]
+    // per-item operational fields (viewCount/last*Time/completionPercentage) are retained so content/state can reconstruct its ucc row
+    val contents = new util.ArrayList[util.Map[String, AnyRef]]()
+    rows.asScala.foreach(r => contents.add(toContentItem(r)))
+    val out = new Response()
+    out.put(JsonKey.USER_ID, userId)
+    out.put("collectionId", courseIdOpt.orNull)
+    out.put("contextId", batchIdOpt.orNull)
+    out.put("type", if (allContexts) "contextall" else "content")
+    out.put("contents", contents)
+    sender().tell(out, self)
+  }
+
+  // allow-list: view.read emits only the fields we need; any other column in the row (old_*, userId, lastUpdatedTime, …)
+  // is ignored by default. Accepts both key casings (prod camelCase from CassandraUtil / raw lowercase).
+  private def toContentItem(r: util.Map[String, AnyRef]): util.Map[String, AnyRef] = {
+    val item = new util.HashMap[String, AnyRef]()
+    putIf(item, "contentId", firstVal(r, "contentId", "contentid"))
+    putIf(item, "collectionId", firstVal(r, "collectionid", "collectionId"))
+    putIf(item, "contextId", firstVal(r, "contextid", "contextId"))
+    putIf(item, "status", firstVal(r, "status"))
+    putIf(item, "progress", firstVal(r, "progress"))
+    putIf(item, "viewCount", firstVal(r, "viewCount", "viewcount"))
+    putIf(item, "completedCount", firstVal(r, "completedCount", "completedcount"))
+    putIf(item, "completionPercentage", firstVal(r, "completionPercentage", "completionpercentage"))
+    putIf(item, "lastAccessTime", firstVal(r, "lastAccessTime", "last_access_time"))
+    putIf(item, "lastCompletedTime", firstVal(r, "lastCompletedTime", "last_completed_time"))
+    putIf(item, "dateTime", firstVal(r, "dateTime", "datetime"))
+    putIf(item, "addedBy", firstVal(r, "addedBy", "addedby"))
+    Option(firstVal(r, "progressdetails", "progressDetails")).foreach(v => item.put("progressDetails", parseProgressDetails(v)))
+    item
+  }
+
+  private def firstVal(r: util.Map[String, AnyRef], keys: String*): AnyRef = keys.iterator.map(r.get).find(_ != null).orNull
+  private def putIf(m: util.Map[String, AnyRef], k: String, v: AnyRef): Unit = if (v != null) m.put(k, v)
+
+  private def parseProgressDetails(v: AnyRef): AnyRef = v match {
+    case s: String if StringUtils.isNotBlank(s) =>
+      try mapper.readValue(s, classOf[util.Map[String, AnyRef]]) catch { case _: Throwable => s }
+    case other => other
   }
 
   private def viewStart(request: Request): Unit = {
@@ -214,7 +257,7 @@ class ViewConsumptionActor @Inject() (
       logger.info(ctx, s"view: start noop(exists) | user=${key.get("userid")} content=${key.get("contentid")}")
     }
     touchEnrolmentAccess(key, 1, ctx)
-    sender().tell(successResponse(), self)
+    sender().tell(ackResponse(key.get("contentid").asInstanceOf[String], "Progress started"), self)
   }
 
   private def viewUpdate(request: Request): Unit = {
@@ -232,7 +275,7 @@ class ViewConsumptionActor @Inject() (
       logger.info(ctx, s"view: update merged | user=${key.get("userid")} content=${key.get("contentid")}")
     } else logger.info(ctx, s"view: update skip(absent-or-completed) | user=${key.get("userid")} content=${key.get("contentid")}")
     touchEnrolmentAccess(key, math.max(1, if (existing != null) statusOf(existing) else 1), ctx)
-    sender().tell(successResponse(), self)
+    sender().tell(ackResponse(key.get("contentid").asInstanceOf[String], "Progress Updated"), self)
   }
 
   private def viewEnd(request: Request): Unit = {
@@ -252,7 +295,7 @@ class ViewConsumptionActor @Inject() (
     logger.info(ctx, s"view: end completed | user=${key.get("userid")} course=${key.get("collectionid")} batch=${key.get("contextid")} content=${key.get("contentid")}")
     touchEnrolmentAccess(key, 2, ctx)
     triggerAggregation(request, ctx)
-    sender().tell(successResponse(), self)
+    sender().tell(ackResponse(key.get("contentid").asInstanceOf[String], "Progress ended"), self)
   }
 
   // fire-and-forget tell to the aggregator; rollup runs async, the response does not wait
@@ -264,23 +307,24 @@ class ViewConsumptionActor @Inject() (
     aggRequest.put(JsonKey.USER_ID, key.get("userid"))
     aggRequest.put("courseId", key.get("collectionid"))
     aggRequest.put("batchId", key.get("contextid"))
+    aggRequest.put("contentId", key.get("contentid")) // the leaf; NoContext fan-out needs it (keys are collapsed)
     logger.info(ctx, s"view: rollup triggered | user=${key.get("userid")} course=${key.get("collectionid")} batch=${key.get("contextid")}")
     viewerAggregatorActor.tell(aggRequest, ActorRef.noSender)
   }
 
-  // ucc primary key; missing keys cascade: courseid <- contentId, batchid <- courseId <- contentId (design scenarios 1-3)
+  // ucc primary key; (collectionid, contextid) come from the mode resolver (strict = the old cascade). contentid is always the content.
   private def viewKey(request: Request): util.HashMap[String, AnyRef] = {
     // explicit userId (internal delegation) else requestedFor/requestedBy (from token on direct API calls)
     val userId = Option(request.get(JsonKey.USER_ID).asInstanceOf[String]).filter(StringUtils.isNotBlank)
       .orElse(Option(request.get(JsonKey.REQUESTED_FOR).asInstanceOf[String]).filter(StringUtils.isNotBlank))
       .getOrElse(request.get(JsonKey.REQUESTED_BY).asInstanceOf[String])
     val contentId = ViewerRequestKeys.contentId(request)
-    val courseId = ViewerRequestKeys.courseId(request).getOrElse(contentId)
-    val batchId = ViewerRequestKeys.batchId(request).orElse(ViewerRequestKeys.courseId(request)).getOrElse(contentId)
+    val (collectionId, contextId) = ViewerMode.resolveKey(ViewerMode.mode(), ViewerMode.scope(),
+      ViewerRequestKeys.courseId(request), ViewerRequestKeys.batchId(request), contentId)
     val key = new util.HashMap[String, AnyRef]()
     key.put("userid", userId)
-    key.put("collectionid", courseId)
-    key.put("contextid", batchId)
+    key.put("collectionid", collectionId)
+    key.put("contextid", contextId)
     key.put("contentid", contentId)
     key
   }

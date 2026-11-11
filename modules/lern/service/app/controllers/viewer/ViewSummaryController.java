@@ -1,6 +1,7 @@
 package controllers.viewer;
 
 import controllers.BaseController;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.pekko.actor.ActorRef;
 import org.sunbird.exception.ProjectCommonException;
 import org.sunbird.keys.JsonKey;
@@ -41,8 +42,8 @@ public class ViewSummaryController extends BaseController {
             Request request = createAndInitRequest("summaryDownload", httpRequest);
             requireOwnPath(request, userId, httpRequest);
             request.getRequest().put("userId", userId);
-            String[] fmt = httpRequest.queryString().getOrDefault("format", new String[]{"json"});
-            request.getRequest().put("format", fmt.length > 0 ? fmt[0] : "json");
+            String fmt = httpRequest.queryString("format").filter(StringUtils::isNotBlank).orElse("json");
+            request.getRequest().put("format", fmt);
             return actorResponseHandler(viewerSummaryActor, request, timeout, null, httpRequest);
         } catch (Exception e) {
             return CompletableFuture.completedFuture(createCommonExceptionResponse(e, httpRequest));
