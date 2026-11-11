@@ -12,7 +12,7 @@ needs, drives the next path.
 | Aspect | Position |
 |---|---|
 | Framework objects | Two categories — `competency` (nested terms) and `role` (optional) |
-| Hierarchy | Minimum three tiers, no upper bound. Tier names are display labels on the framework, not categories |
+| Hierarchy | Minimum three tiers, no upper bound. Tiers are depths of the tree, not categories |
 | Tagging point | Leaf terms only. Courses, questions and roles all link the same leaves |
 | Proficiency levels | None. A skill is held or not held |
 | Attainment | Course completion, full marks on the skill's tagged questions, or an external import |
@@ -58,7 +58,6 @@ excalidraw.com or with the VS Code Excalidraw extension. Re-export the SVG after
 | Rule | Statement | Enforced at |
 |---|---|---|
 | Depth | Three tiers minimum, no maximum. A framework grows a tier by nesting deeper | Spec validation |
-| Tier names | `tierLabels` on the framework, e.g. `[Competency area, Competency, Skill]`. Display only | — |
 | Leaf | A term with no children. Nothing else is tagged | Spec validation |
 | One relation inside the tree | `children` / `parents` (`hasSequenceMember`) | Term schema |
 | One relation out of the tree | `role` term → leaf terms (`associations` / `associatedTo`) | Term schema |
@@ -91,7 +90,7 @@ existing category and term APIs.
 
 ### State health department
 
-`fw_health_competency` · `tierLabels: [Competency area, Competency, Skill]` · three tiers.
+`fw_health_competency` · three tiers.
 
 | Competency area | Competency | Leaf skills |
 |---|---|---|
@@ -127,7 +126,7 @@ objects to author alongside them.
 
 ### School education platform
 
-`fw_ncf_outcomes` · `tierLabels: [Subject area, Competency, Skill, Sub-skill]` · four tiers, because
+`fw_ncf_outcomes` · four tiers, because
 a learning outcome decomposes one step further than a clinical skill.
 
 | Subject area | Competency | Skill | Leaf sub-skills |
@@ -149,7 +148,7 @@ Grade 6 skills held has them waived rather than retaught — the grade spiral as
 
 ### Software skills platform
 
-`fw_tech_skills` · `tierLabels: [Competency area, Competency, Skill]` · three tiers. Leaves are
+`fw_tech_skills` · three tiers. Leaves are
 written as actions, which is what makes the badge legible to an employer.
 
 | Competency area | Competency | Leaf skills |
@@ -212,7 +211,6 @@ framework:
   id: fw_health_competency
   name: State Health Department Competency Framework
   channel: ch_health_dept
-  tierLabels: [Competency area, Competency, Skill]
 
 tree:                                 # one branch shown; the rest follows the table above
   - code: domain
@@ -554,7 +552,7 @@ expensive part, which is tagging rather than code.
 
 | Question | Why it matters | Leaning |
 |---|---|---|
-| Do custom term and framework properties — `tierLabels`, and a role's skill associations — survive Knowlg create and publish? | Blocks phase 1 | Verify against the term and framework schema configs before anything else. Expect a schema config change per property |
+| Do custom term properties, such as a role's skill associations, survive Knowlg create and publish? | Blocks phase 1 | Verify against the term schema config before anything else. Expect a schema config change per property |
 | How does the already-published catalogue get retagged with `skills`? | Blocks phase 3 having real data | Undecided. A bulk metadata update on Live content means a republish per course |
 | Full marks on every tagged question is a hard bar. What happens when a skill has one badly written question? | Skills silently stay unheld, and waiving under-fires | Report per-skill attainment rates in the coverage panel so a bad question is visible |
 | Do role skill sets carry effective dates? | Adding a skill to a role lowers every learner's readiness retroactively | Needed before phase 5 ships to a live cadre |

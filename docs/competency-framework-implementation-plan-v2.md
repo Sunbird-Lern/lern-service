@@ -40,7 +40,6 @@ tested without it.
 |---|---|---|
 | Competency framework object | `schemas/competencyframework/1.0` | objectType `CompetencyFramework` with `/competency-framework/v3/*` APIs; no `type` field |
 | Master categories | Framework config | Two — `competency`, `role`. `competencyarea`, `proficiencylevel`, `position` and `competencyrequirement` are not created |
-| Custom framework property | `schemas/competencyframework/1.0/config.json` | `tierLabels` |
 | Content and collection fields | Content schema | `skills: array<text>`; `targetRole: text` on the collection — nothing reads a collection-level target today. `competencyFramework` is already read by `CompetencyFrameworkUtil.frameworkOf` |
 | Question field | Question schema | `skills: array<text>` |
 | Author one framework | Data | `fw_health_competency`, three tiers, two roles, published |
@@ -48,8 +47,8 @@ tested without it.
 **Done when** `GET /competency-framework/v3/read/fw_health_competency` returns a `competency` category whose
 terms nest by `children`, and a `role` category whose terms carry associations to leaf terms.
 
-**Verify first.** Whether custom term and framework properties survive create and publish is the
-open question the whole plan rests on. Confirm `tierLabels` and the role associations round-trip
+**Verify first.** Whether custom term properties survive create and publish is the
+open question the whole plan rests on. Confirm the role associations round-trip
 before writing any code.
 
 ## Phase 2 · Spec engine
@@ -85,7 +84,7 @@ framework therefore resolves to empty and the layer does nothing, silently. Rede
 
 | File | Change |
 |---|---|
-| `competency/CompetencyModels.scala` | Delete `LevelDef`, `RequirementDef`, `Criticality`. `CompetencyClaim` collapses to a bare code, so `claimsByNode` becomes `Map[String, List[String]]`. `CompetencyMeta` swaps the scale and validity fields for `leaves: Set[String]`, `tierLabels: List[String]`, `roleSkills: Map[String, Set[String]]`. `Evidence` drops `level`, `levelIndex`, `evidenceCount`, `expiresOn`. `PassbookEntry` becomes `SkillEntry` — no level, no status, no expiry. `GapRow` becomes `(skillId, MET \| MISSING)`. `PositionAssignment` becomes `RoleAssignment` |
+| `competency/CompetencyModels.scala` | Delete `LevelDef`, `RequirementDef`, `Criticality`. `CompetencyClaim` collapses to a bare code, so `claimsByNode` becomes `Map[String, List[String]]`. `CompetencyMeta` swaps the scale and validity fields for `leaves: Set[String]`, `roleSkills: Map[String, Set[String]]`. `Evidence` drops `level`, `levelIndex`, `evidenceCount`, `expiresOn`. `PassbookEntry` becomes `SkillEntry` — no level, no status, no expiry. `GapRow` becomes `(skillId, MET \| MISSING)`. `PositionAssignment` becomes `RoleAssignment` |
 | `competency/AttainmentRules.scala` | Delete `band`, `pct`, `capCompletion`, `isExpired`, `expiryOf`, `expiryBucket`, `IN_PROGRESS`, `EXPIRING`, `EXPIRED`, `best`. `project` returns `Option[SkillEntry]` — `Some` when a non-revoked row exists, `None` otherwise. Keep `evidenceId` unchanged; it already sorts and dedupes. New: `fullMarks(questions)` |
 | `competency/CompetencyFrameworkUtil.scala` | Delete `CAT_AREA`, `CAT_LEVEL`, `CAT_REQUIREMENT`, `parseLevels`, `parseValidity`, `validityMonthsFor`, `defaultRequiredLevel` and `maxCompletionDerivedLevel` handling. `CAT_POSITION` becomes `CAT_ROLE = "role"`. New `parseTree` walks `children` to produce the leaf set and the tier depth. `parseRequirements` keeps only its small-variant branch — a role term's own associations to `competency` terms — and returns `Set[String]` per role. `parseClaims` reads `skills` as a flat array. `searchByIds` requests `skills` |
 | `competency/CompetencyLedger.scala` | `creditCompletion` drops the cap and the expiry stamp; it appends one row per code in `skills`. `creditAssessments` replaces cut-score banding with the full-marks test, appends only for skills that pass it (D2), and unions across attempts (D1). `importExternal` loses its level argument |

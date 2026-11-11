@@ -21,16 +21,16 @@ The taxonomy framework answers *where does this content belong?* Its categories,
 department, specialty, language and topic in the health example, drive the catalogue, search and
 filters. It is unchanged.
 
-The competency framework answers *what does this content teach?* It is marked with framework type
-`Competency`. A course points at it through `competencyFramework` and lists its skills in `skill`.
+The competency framework answers *what does this content teach?* It is a separate Knowlg object,
+`objectType: CompetencyFramework`, with no `type` field. A course points at it through
+`competencyFramework` and lists its skills in `skill`.
 
 ## The skill tree
 
 ![A three-tier skill tree with leaf skills, a tagged course and a role](images/competency-overview-tree-v2.svg)
 
 The tree is one `competency` category whose terms nest by `children`. It has at least three tiers
-and no upper limit. Tier names such as *Competency area*, *Competency* and *Skill* are display
-labels, set on the framework as `tierLabels`. Branches may stop at different depths.
+and no upper limit. Branches may stop at different depths.
 
 The leaves are the skills. Only leaves are tagged on courses and questions, required by roles and
 held by learners. Higher tiers exist for navigation and reporting.
@@ -130,7 +130,7 @@ Knowlg needs these schema changes:
 
 | Schema | Change |
 |---|---|
-| Competency framework | `CompetencyFramework` objectType; `tierLabels` property |
+| Competency framework | `CompetencyFramework` objectType |
 | Content and collection | `competencyFramework`, `skill`; `targetRole` on Learning Paths |
 | Question | `skill` |
 
